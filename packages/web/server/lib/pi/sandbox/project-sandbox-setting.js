@@ -28,7 +28,7 @@ export class ProjectSandboxSettingError extends Error {
 }
 
 /** A validated setting, or `ProjectSandboxSettingError`. */
-export const normalizeProjectSandboxSetting = (value) => {
+const normalizeProjectSandboxSetting = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !SANDBOX_MODES.includes(value.mode)) {
     throw new ProjectSandboxSettingError();
   }
@@ -69,6 +69,29 @@ export const normalizeProjectSandboxSetting = (value) => {
     allowLocalPorts: network.allowLocalPorts,
     extraFolders: [...folders.values()],
   };
+};
+
+const PROJECT_SETTING_FIELDS = ['mode', 'allowHosts', 'allowLocalPorts', 'extraFolders'];
+
+/**
+ * The stored setting of `project` with the fields of `patch` (`mode`,
+ * `allowHosts`, `allowLocalPorts`, `extraFolders`, or several) laid over
+ * it, validated. A field the patch leaves out keeps its stored value, so a
+ * device holding an old copy cannot undo what another device just saved. A
+ * project with no stored setting starts from the default with empty lists,
+ * and one whose stored setting is unreadable from a sandboxed one, which is
+ * what it runs as. A patch with none of the fields is refused.
+ */
+export const mergeProjectSandboxSetting = (project, patch) => {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)
+    || PROJECT_SETTING_FIELDS.every((field) => patch[field] === undefined)) {
+    throw new ProjectSandboxSettingError();
+  }
+  const { setting, invalid } = readProjectSandbox(project);
+  const current = setting ?? { mode: invalid ? 'nono' : 'default' };
+  return normalizeProjectSandboxSetting(Object.fromEntries(
+    PROJECT_SETTING_FIELDS.map((field) => [field, patch[field] === undefined ? current[field] : patch[field]]),
+  ));
 };
 
 /**
@@ -133,11 +156,11 @@ export const readSandboxDefaults = (settings) => {
 
 /** The stored setting of a project entry, or null when it has none or it is
  *  unreadable (an unreadable setting is reported by `readProjectSandbox`). */
-export const readProjectSandbox = (project) => {
+export function readProjectSandbox(project) {
   if (!project || typeof project !== 'object' || project.sandbox === undefined) return { setting: null };
   try {
     return { setting: normalizeProjectSandboxSetting(project.sandbox) };
   } catch {
-    return { setting: null, invalid: true };
+    return { setting: null, invalid: true }
   }
 };

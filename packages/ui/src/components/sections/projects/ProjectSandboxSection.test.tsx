@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { PiProjectSandboxState, PiSandboxDefaults } from '@/lib/pi/protocol';
+import type { PiProjectSandboxState, PiSandboxDefaults, PiSandboxProfile } from '@/lib/pi/protocol';
 import { sandboxReasonText } from '@/lib/pi/sandboxText';
 import type { ProjectEntry } from '@/lib/api/types';
 import { ProjectCard } from './ProjectCard';
@@ -106,6 +106,58 @@ describe('ProjectSandboxSection', () => {
 });
 
 describe('SandboxingSection', () => {
+  const renderProfile = (profile: PiSandboxProfile | null, errors: string[] = []) => renderToStaticMarkup(
+    <SandboxingSectionView
+      launchers={[{ id: 'nono', available: true, version: '0.82.0' }]}
+      loadFailed={false}
+      rechecking={false}
+      onRecheck={() => {}}
+      profile={profile}
+      profileErrors={errors}
+      onSaveProfile={async () => true}
+      onResetProfile={async () => true}
+    />,
+  );
+  const builtInProfile: PiSandboxProfile = {
+    launcher: 'nono', custom: false, path: '/app/nono-profile.json', builtInPath: '/app/nono-profile.json', customPath: '/data/pi/sandbox/nono-profile.custom.json', content: '{"extends":"default"}',
+  };
+
+  test('shows no profile block until there is a profile to show', () => {
+    expect(renderProfile(null)).not.toContain('Sandbox profile');
+  });
+
+  test('shows where the built-in profile is and offers to customise it, without an editor', () => {
+    const html = renderProfile(builtInProfile);
+    expect(html).toContain('Sandbox profile');
+    expect(html).toContain('Built-in profile');
+    expect(html).toContain('/app/nono-profile.json');
+    expect(html).toContain('Customise');
+    expect(html).not.toContain('<textarea');
+    expect(html).not.toContain('Reset to default');
+  });
+
+  test('a custom profile is labelled, editable, and can be reset; a refusal shows what nono said', () => {
+    const custom = { ...builtInProfile, custom: true, path: '/data/pi/sandbox/nono-profile.custom.json', content: '{"mine":1}' };
+    const html = renderProfile(custom, ['Group nope not found']);
+    expect(html).toContain('Custom profile');
+    expect(html).toContain('/data/pi/sandbox/nono-profile.custom.json');
+    expect(html).toContain('<textarea');
+    expect(html).toContain('&quot;mine&quot;');
+    expect(html).toContain('weakens every sandboxed project');
+    expect(html).toContain('Save profile');
+    expect(html).toContain('Reset to default');
+    expect(html).toContain('Group nope not found');
+    expect(html).not.toContain('Customise');
+  });
+
+  test('an unreadable custom profile says sandboxes do not run and offers only the reset', () => {
+    const html = renderProfile({ ...builtInProfile, custom: true, unreadable: true, path: '/data/pi/sandbox/nono-profile.custom.json', content: '' });
+    expect(html).toContain('could not be read, so sandboxed projects do not run');
+    expect(html).toContain('Reset to default');
+    expect(html).not.toContain('<textarea');
+    expect(html).not.toContain('Save profile');
+  });
+
   test('shows an available launcher with its version', () => {
     const html = renderLaunchers([{ id: 'nono', available: true, version: '0.82.0' }]);
     expect(html).toContain('Available, version 0.82.0');

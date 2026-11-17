@@ -155,6 +155,8 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
       PI_OFFLINE: '1',
       PICHAMBER_DATA_DIR: dataDir,
       PICHAMBER_PI_AGENT_DIR: agentDir,
+      // The server's own secret, which must not reach the sandbox.
+      PICHAMBER_UI_PASSWORD: 'server-ui-password',
       // Short on purpose: the daemon socket path must fit a Unix socket address.
       XDG_RUNTIME_DIR: await mkdtemp('/tmp/pcx-'),
     };
@@ -186,6 +188,11 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
       check('piSettings', `echo pwn >> ${join(agentDir, 'settings.json')}`),
       check('piExtensions', `mkdir ${join(agentDir, 'extensions', 'evil')}`),
       check('mainCredential', `cat ${mainCredential}`),
+      // Its own credential is the server's file: readable (the daemon
+      // started on it), never writable or replaceable.
+      check('ownCredentialWrite', `echo x >> ${supervisor.paths.credentialFile}`),
+      check('ownCredentialReplace', `rm ${supervisor.paths.credentialFile}`),
+      check('serverSecret', 'test -n "$PICHAMBER_UI_PASSWORD"'),
       // Other projects' live session leases.
       check('sharedLeases', `ls ${sharedLeases}`),
       // The user's cache folders are not the sandbox's; it has its own.
@@ -212,6 +219,9 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
     expect(text).toContain('piSettings=denied');
     expect(text).toContain('piExtensions=denied');
     expect(text).toContain('mainCredential=denied');
+    expect(text).toContain('ownCredentialWrite=denied');
+    expect(text).toContain('ownCredentialReplace=denied');
+    expect(text).toContain('serverSecret=denied');
     expect(text).toContain('sharedLeases=denied');
     expect(text).toContain('userCache=denied');
     expect(text).toContain('ownCache=allowed');

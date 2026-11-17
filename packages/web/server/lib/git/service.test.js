@@ -665,6 +665,48 @@ describe('createWorktree', () => {
     }
   });
 
+  it('keeps a project\'s worktrees out of a folder remembered for another (sandboxed) project', async () => {
+    if (!canRunGit()) return;
+
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
+    const dataHome = createTempDir();
+    process.env.PICHAMBER_DATA_DIR = dataHome;
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      // Another clone of this repository is sandboxed and holds the folder
+      // named by the repository's root commit.
+      const shared = runGit(repo, ['rev-list', '--max-parents=0', 'HEAD']).trim();
+      const record = path.join(dataHome, 'pi', 'sandbox', 'worktree-ids.json');
+      fs.mkdirSync(path.dirname(record), { recursive: true });
+      fs.writeFileSync(record, JSON.stringify({ version: 1, projects: { '/code/other-clone': shared } }));
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/own-folder',
+        worktreeName: 'own-folder',
+        returnAfterDirectoryCreated: true,
+      });
+      expect(fs.existsSync(path.join(dataHome, 'worktree', shared))).toBe(false);
+      expect(fs.realpathSync(created.path).startsWith(`${path.join(fs.realpathSync(dataHome), 'worktree')}${path.sep}`)).toBe(true);
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).phase,
+        { timeout: 5_000 },
+      ).toBe('setup-ready');
+    } finally {
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
+      } else {
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
+      }
+    }
+  });
+
   it('files worktrees under the id remembered for a sandboxed project, whatever its id file says', async () => {
     if (!canRunGit()) return;
 

@@ -7,7 +7,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createRequire } from 'module';
 import { resolvePiChamberDataPath } from '../pichamber-data-dir.js';
-import { createWorktreeIdStore } from '../pi/sandbox/worktree-ids.js';
+import { createWorktreeIdStore, ownWorktreeId } from '../pi/sandbox/worktree-ids.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -1548,14 +1548,26 @@ const writePiChamberIdFile = async (idFile, projectId) => {
 // id file, so a remembered id stands whatever the file says: a worktree
 // created under another id would be outside the sandbox, or inside another
 // project's. An unreadable record throws rather than trust the file.
-const rememberedPiChamberProjectId = async (primaryWorktree) => {
+const rememberedPiChamberProjectIds = async (primaryWorktree) => {
   const ids = await createWorktreeIdStore({ file: resolvePiChamberDataPath(['pi', 'sandbox', 'worktree-ids.json']) }).read();
   const root = path.resolve(primaryWorktree);
-  return ids.get(root) ?? ids.get(await fsp.realpath(root).catch(() => root)) ?? null;
+  const real = await fsp.realpath(root).catch(() => root);
+  return {
+    own: ids.get(root) ?? ids.get(real) ?? null,
+    // Ids remembered for other projects: their sandboxes are granted those
+    // folders, so this project's worktrees must not be filed there.
+    others: new Set([...ids].filter(([other]) => other !== root && other !== real).map(([, id]) => id)),
+  };
 };
 
+// The worktree folder id of a project nothing is remembered for. A clone of
+// a repository whose folder a sandboxed project holds gets its own instead.
+const unsharedPiChamberProjectId = (primaryWorktree, id, others) => (
+  others.has(id) ? ownWorktreeId(primaryWorktree) : id
+);
+
 const ensurePiChamberProjectId = async (primaryWorktree) => {
-  const remembered = await rememberedPiChamberProjectId(primaryWorktree);
+  const { own: remembered, others } = await rememberedPiChamberProjectIds(primaryWorktree);
   if (remembered) return remembered;
   const gitDir = path.join(primaryWorktree, '.git');
   const idFile = path.join(gitDir, 'pichamber');
@@ -1564,7 +1576,7 @@ const ensurePiChamberProjectId = async (primaryWorktree) => {
   // the repository can write this file: only a commit hash is taken from it.
   // Anything else is replaced by the id derived below.
   if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(existing)) {
-    return existing;
+    return unsharedPiChamberProjectId(primaryWorktree, existing, others);
   }
 
   const rootsResult = await runGitCommandOrThrow(
@@ -1587,7 +1599,7 @@ const ensurePiChamberProjectId = async (primaryWorktree) => {
   await fsp.mkdir(gitDir, { recursive: true }).catch(() => undefined);
   await writePiChamberIdFile(idFile, projectId);
 
-  return projectId;
+  return unsharedPiChamberProjectId(primaryWorktree, projectId, others);
 };
 
 const resolveWorktreeProjectContext = async (directory) => {

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { createWorktreeIdStore, worktreeIdsFile } from './worktree-ids.js';
+import { createWorktreeIdStore, ownWorktreeId, worktreeIdsFile } from './worktree-ids.js';
 
 const setup = async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'pichamber-worktree-ids-'));
@@ -23,12 +23,24 @@ describe('remembered worktree ids', () => {
     expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ version: 1, projects: { '/code/app': A, '/code/other': B } });
   });
 
-  it('remembers nothing for a missing id or one that is not a git object id', async () => {
+  it('gives a project its own id for a missing id or one that is not a git object id', async () => {
     const { store } = await setup();
-    for (const id of [null, '', '../../etc', 'A'.repeat(40), 'a'.repeat(39)]) {
-      expect(await store.remember('/code/app', id)).toBeNull();
+    for (const [index, id] of [null, '', '../../etc', 'A'.repeat(40), 'a'.repeat(39)].entries()) {
+      const root = `/code/app-${index}`;
+      expect(await store.remember(root, id)).toBe(ownWorktreeId(root));
     }
-    expect(await store.read()).toEqual(new Map());
+    expect(ownWorktreeId('/code/app-0')).toMatch(/^[0-9a-f]{64}$/);
+    expect(ownWorktreeId('/code/app-0')).not.toBe(ownWorktreeId('/code/app-1'));
+  });
+
+  it('never remembers an id another project uses', async () => {
+    const { store } = await setup();
+    expect(await store.remember('/code/app', A)).toBe(A);
+    // A second clone: the id is remembered for another root already.
+    expect(await store.remember('/code/app-review', A)).toBe(ownWorktreeId('/code/app-review'));
+    // A clone that is not sandboxed holds the id (`taken`).
+    expect(await store.remember('/code/third', B, { taken: [B] })).toBe(ownWorktreeId('/code/third'));
+    expect(await store.remember('/code/fourth', B)).toBe(B);
   });
 
   it('keeps concurrent first sights apart', async () => {

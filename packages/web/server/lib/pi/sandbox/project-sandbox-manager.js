@@ -5,12 +5,12 @@ import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { MAIN_DAEMON_KEY, publicDaemonStreamId } from '../session-daemon/daemon-pool.js';
 
 import { createOpenUrlIntake } from '../../open-url/intake.js';
-import { findPiSessionJsonlsById, getPiSessionDirectory, readPiSessionJsonlHeader } from '../session-daemon/session-jsonl.js';
+import { encodePiSessionCwd, findPiSessionJsonlsById, getPiSessionDirectory, readPiSessionJsonlHeader } from '../session-daemon/session-jsonl.js';
 import { readSmallRegularFile } from '../../server/cross-process-lock.js';
 import { createSandboxedPiSessionDaemonSupervisor } from '../session-daemon/supervisor.js';
 import { isAllowedSandboxHost } from './launcher.js';
 import { prepareProjectSandbox } from './project-sandbox.js';
-import { normalizeProjectSandboxSetting, readProjectSandbox, readSandboxDefaults } from './project-sandbox-setting.js';
+import { readProjectSandbox, readSandboxDefaults } from './project-sandbox-setting.js';
 import { createSandboxedFoldersStore } from './sandboxed-folders.js';
 import { createWorktreeIdStore } from './worktree-ids.js';
 
@@ -78,6 +78,25 @@ const readGitProjectId = async (projectRoot) => {
     // symlink, waits on no FIFO, and takes no more than an id's worth.
     const id = (await readSmallRegularFile(join(projectRoot, '.git', 'pichamber'), 256)).trim();
     return GIT_PROJECT_ID.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The project a git worktree belongs to, from the `gitdir:` line of its
+ * `.git` file (`<project>/.git/worktrees/<name>`), as a real path.
+ */
+const worktreeProjectRoot = async (directory) => {
+  try {
+    const pointer = /^gitdir:\s*(.+)$/m.exec(await readSmallRegularFile(join(directory, '.git'), 4096))?.[1]?.trim();
+    if (!pointer) return null;
+    const gitDir = resolve(directory, pointer);
+    const marker = `${sep}.git${sep}worktrees${sep}`;
+    const at = gitDir.lastIndexOf(marker);
+    if (at <= 0) return null;
+    const root = gitDir.slice(0, at);
+    return await realpath(root).catch(() => root);
   } catch {
     return null;
   }
@@ -485,8 +504,12 @@ export const createProjectSandboxManager = ({
     };
     daemonPool.register(oldKey, { runtime, directories: [] });
     if (!removed) {
-      entry.generation += 1;
-      entry.key = `sandbox:${entry.projectId}:${entry.generation}`;
+      // Never a key a draining daemon still holds: registering it again
+      // would replace that daemon in the pool mid-turn.
+      do {
+        entry.generation += 1;
+        entry.key = `sandbox:${entry.projectId}:${entry.generation}`;
+      } while ([...drains].some((drain) => drain.key === entry.key));
       notifyPool(entry);
     }
     await startDrain({
@@ -509,6 +532,7 @@ export const createProjectSandboxManager = ({
     if (unacceptedLimits(status).length > 0) throw sandboxUnavailable('SANDBOX_LIMITS_NOT_ACCEPTED');
     if (entry.invalid) throw sandboxUnavailable('INVALID_SANDBOX_SETTING');
     if (entry.idUnverified) throw sandboxUnavailable('SANDBOX_WORKTREE_IDS_UNREADABLE');
+    if (entry.shared) throw sandboxUnavailable(entry.shared);
     // The setting this launch is built from, taken before anything waits:
     // one saved meanwhile must not be answered by a daemon holding the old
     // grants (`ensureStarted` compares the key).
@@ -534,6 +558,9 @@ export const createProjectSandboxManager = ({
       throw sandboxUnavailable('PROVIDER_HOSTS_UNAVAILABLE');
     }
     const worktreeDirs = entry.worktreeRoot ? await listWorktreeDirs(entry.worktreeRoot) : [];
+    // Taken before the launch reads the profile: one edited meanwhile makes
+    // this daemon stale rather than current.
+    const profileStamp = await profileStampNow();
     let supervisor;
     try {
       const sandbox = await prepareSandbox({
@@ -575,6 +602,7 @@ export const createProjectSandboxManager = ({
       intake,
       settingKey: launchSettingKey,
       fingerprint,
+      profileStamp,
       worktreeDirs,
       directories: [...entry.directories],
     };
@@ -616,6 +644,7 @@ export const createProjectSandboxManager = ({
           entry.intake = intake;
           entry.launchedKey = launched.settingKey;
           entry.launchedFingerprint = launched.fingerprint;
+          entry.launchedProfile = launched.profileStamp;
           entry.launchedWorktrees = launched.worktreeDirs;
           entry.launchedDirectories = launched.directories;
           entry.failure = null;
@@ -666,7 +695,16 @@ export const createProjectSandboxManager = ({
     // notification watcher fan out to it, and never start one.
     isLive: () => Boolean(entry.supervisor),
     request: async (command, payload) => {
-      if (!entry.supervisor && MAIN_DAEMON_READS.has(command)) {
+      // A worktree of this project outside its granted folder: lists and
+      // transcripts are read by the main daemon, and nothing runs there.
+      const directory = requestDirectory(payload);
+      const outside = Boolean(directory)
+        && (entry.outsideWorktrees ?? []).some((dir) => directory === dir || directory.startsWith(`${dir}/`));
+      if (outside && !MAIN_DAEMON_READS.has(command)) {
+        if (READ_ONLY_FALLBACK.has(command)) return readPersisted(payload, 'SANDBOX_WORKTREE_OUTSIDE_FOLDER');
+        throw sandboxUnavailable('SANDBOX_WORKTREE_OUTSIDE_FOLDER');
+      }
+      if ((outside || !entry.supervisor) && MAIN_DAEMON_READS.has(command)) {
         const main = daemonPool.main();
         if (!main) throw Object.assign(new Error('The Pi session daemon is unavailable.'), { code: 'DAEMON_UNAVAILABLE' });
         const result = await main.request(command, payload);
@@ -719,17 +757,56 @@ export const createProjectSandboxManager = ({
     },
   });
 
-  // A running daemon whose Pi config files or worktrees changed since it
-  // started is replaced: it drains, and the next command starts a new one.
+  // Which launcher profile a launch would use now: it changes when the owner
+  // saves, resets or hand-edits the custom profile.
+  const profileStampNow = async () => {
+    if (typeof launcher.profile !== 'function') return null;
+    try {
+      return (await launcher.profile())?.hash ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const profileView = async () => {
+    const profile = typeof launcher.profile === 'function' ? await launcher.profile() : null;
+    if (!profile) return null;
+    return {
+      launcher: launcher.id,
+      custom: profile.custom,
+      path: profile.path,
+      builtInPath: profile.builtInPath,
+      customPath: profile.customPath,
+      content: profile.content,
+      ...(profile.unreadable ? { unreadable: true } : {}),
+    };
+  };
+
+  // The profile changed: running sandbox daemons drain and the next command
+  // starts one under the new profile. A start that failed on the old one is
+  // forgotten so the project is not shown as unavailable for it.
+  const profileChanged = async () => {
+    for (const entry of [...projects.values()]) {
+      if (entry.supervisor) await retire(entry);
+      else if (!entry.starting && !entry.invalid) entry.failure = null;
+    }
+    return profileView();
+  };
+
+  // A running daemon whose Pi config files, worktrees or launcher profile
+  // changed since it started is replaced: it drains, and the next command
+  // starts a new one.
   const checkStale = async (entry) => {
     if (!entry.supervisor || projects.get(entry.projectId) !== entry) return false;
     const supervisor = entry.supervisor;
-    const [fingerprint, worktrees] = await Promise.all([
+    const [fingerprint, worktrees, profileStamp] = await Promise.all([
       configFingerprint(),
       entry.worktreeRoot ? listWorktreeDirs(entry.worktreeRoot) : Promise.resolve([]),
+      profileStampNow(),
     ]);
     if (entry.supervisor !== supervisor) return false;
     const stale = fingerprint !== entry.launchedFingerprint
+      || profileStamp !== (entry.launchedProfile ?? null)
       || JSON.stringify(worktrees) !== JSON.stringify(entry.launchedWorktrees ?? []);
     if (stale) await retire(entry);
     return stale;
@@ -877,19 +954,29 @@ export const createProjectSandboxManager = ({
       const next = wanted.get(entry.projectId);
       if (!next || next.projectRoot !== entry.projectRoot) await removeEntry(entry);
     }
+    // The id each known project's own file names, sandboxed or not: an id
+    // another project uses is never remembered for a sandboxed one.
+    const fileIds = new Map();
+    for (const project of stored) {
+      if (!project || typeof project.id !== 'string' || typeof project.path !== 'string' || !isAbsolute(project.path)) continue;
+      const root = resolve(project.path);
+      fileIds.set(project.id, { root, id: await readGitProjectId(root) });
+    }
     const plans = new Map();
     for (const [projectId, next] of wanted) {
       const entry = projects.get(projectId);
       // The id is taken from the project's file only the first time it is
       // seen; afterwards the remembered one stands, whatever the file says.
-      const fileId = await readGitProjectId(next.projectRoot);
+      const fileId = fileIds.get(projectId)?.id ?? null;
+      const taken = [...fileIds].filter(([id, other]) => id !== projectId && other.root !== next.projectRoot && other.id)
+        .map(([, other]) => other.id);
       let gitProjectId;
       // No remembered id can be had (the record is unreadable or full). The
       // sandboxed agent can write the file, so its id is used only to keep
       // those worktrees away from the main daemon; no sandbox starts on it.
       let idUnverified = false;
       try {
-        gitProjectId = await worktreeIds.remember(next.projectRoot, fileId);
+        gitProjectId = await worktreeIds.remember(next.projectRoot, fileId, { taken });
       } catch (error) {
         log('Could not read the remembered worktree ids', error?.code);
         if (entry?.gitProjectId && !entry.idUnverified) {
@@ -904,7 +991,33 @@ export const createProjectSandboxManager = ({
       // spelling of it cannot route to the main daemon.
       const realRoot = await realpath(next.projectRoot).catch(() => next.projectRoot);
       const directories = [...new Set([next.projectRoot, realRoot, ...(worktreeRoot ? [worktreeRoot] : [])])];
-      plans.set(projectId, { gitProjectId, worktreeRoot, directories, idUnverified });
+      plans.set(projectId, { gitProjectId, worktreeRoot, directories, idUnverified, shared: null, realRoot, outside: [] });
+    }
+    // Worktrees made before a project had its own folder sit in a folder
+    // no sandbox owns (the one its repository's clones shared). They are
+    // not granted, so sessions there are refused rather than run outside
+    // the sandbox. Each names its project in its `.git` file, which only
+    // code outside every sandbox can write there.
+    const ownedRoots = new Set([...plans.values()].map((plan) => plan.worktreeRoot).filter(Boolean));
+    for (const root of await listWorktreeDirs(join(dataDir, 'worktree'))) {
+      if (ownedRoots.has(root)) continue;
+      for (const directory of await listWorktreeDirs(root)) {
+        const owner = await worktreeProjectRoot(directory);
+        const plan = owner && [...plans.values()].find((candidate) => candidate.realRoot === owner);
+        if (!plan) continue;
+        plan.outside.push(directory);
+        plan.directories.push(directory);
+      }
+    }
+    // Two paths can encode to one Pi session folder (`/a/b` and `/a-b`). A
+    // sandbox granted it could read the other project's transcripts and
+    // would be handed its sessions, so it does not start.
+    for (const [projectId, plan] of plans) {
+      const own = fileIds.get(projectId).root;
+      if ([...fileIds].some(([id, other]) => id !== projectId && other.root !== own
+        && encodePiSessionCwd(other.root) === encodePiSessionCwd(own))) {
+        plan.shared = 'SANDBOX_SESSION_FOLDER_SHARED';
+      }
     }
     // Written before anything is registered or drained: a project that left
     // the sandbox is the main daemon's again, and the main daemon must
@@ -916,7 +1029,7 @@ export const createProjectSandboxManager = ({
     ]);
     for (const [projectId, next] of wanted) {
       let entry = projects.get(projectId);
-      const { gitProjectId, worktreeRoot, directories, idUnverified } = plans.get(projectId);
+      const { gitProjectId, worktreeRoot, directories, idUnverified, shared, outside } = plans.get(projectId);
       const created = !entry;
       if (!entry) {
         // A daemon of this project that is still draining keeps its pool
@@ -948,7 +1061,8 @@ export const createProjectSandboxManager = ({
         projects.set(projectId, entry);
       }
       const changed = entry.settingKey !== settingKey(next.setting) || entry.invalid !== next.invalid
-        || Boolean(entry.idUnverified) !== idUnverified;
+        || Boolean(entry.idUnverified) !== idUnverified
+        || (entry.shared ?? null) !== shared;
       Object.assign(entry, {
         setting: next.setting,
         settingKey: settingKey(next.setting),
@@ -957,6 +1071,8 @@ export const createProjectSandboxManager = ({
         worktreeRoot,
         directories,
         idUnverified,
+        shared,
+        outsideWorktrees: outside,
       });
       if (changed) entry.failure = null;
       daemonPool.register(entry.key, { runtime: entry.runtime, directories });
@@ -966,6 +1082,10 @@ export const createProjectSandboxManager = ({
       if (created && main) {
         await startDrain({ key: MAIN_DAEMON_KEY, runtime: main, directories, to: 'nono', sandboxed: false });
       } else if (changed && entry.supervisor && entry.launchedKey !== entry.settingKey) {
+        await retire(entry);
+      } else if (entry.supervisor && shared) {
+        // Another project now uses a session folder this sandbox is granted:
+        // running turns finish, then the next command fails closed.
         await retire(entry);
       } else if (entry.supervisor && unacceptedLimits(probe).length > 0) {
         // The owner withdrew a limit this host has: running turns finish,
@@ -1137,6 +1257,7 @@ export const createProjectSandboxManager = ({
     if (!entry) return { state: 'off' };
     if (entry.invalid) return { state: 'unavailable', reason: 'INVALID_SANDBOX_SETTING' };
     if (entry.idUnverified) return { state: 'unavailable', reason: 'SANDBOX_WORKTREE_IDS_UNREADABLE' };
+    if (entry.shared) return { state: 'unavailable', reason: entry.shared };
     if (status && !status.available) return { state: 'unavailable', reason: status.code };
     if (unacceptedLimits(status).length > 0) return { state: 'unavailable', reason: 'SANDBOX_LIMITS_NOT_ACCEPTED' };
     if (entry.failure) return { state: 'unavailable', reason: entry.failure };
@@ -1195,9 +1316,8 @@ export const createProjectSandboxManager = ({
     },
     listProjects,
     /** Save one project's setting, apply it, and return its public state. */
-    setProjectSandbox: async (projectId, value) => {
-      const setting = normalizeProjectSandboxSetting(value);
-      await uiSettingsStore.setProjectSandbox(projectId, setting);
+    setProjectSandbox: async (projectId, patch) => {
+      await uiSettingsStore.setProjectSandbox(projectId, patch);
       await reconcileAfterSave();
       return (await listProjects()).find((project) => project.projectId === projectId);
     },
@@ -1220,6 +1340,24 @@ export const createProjectSandboxManager = ({
       const { defaults } = readSandboxDefaults(await uiSettingsStore.setSandboxDefaults(patch));
       await reconcileAfterSave();
       return { mode: defaults.mode, allowHosts: [...defaults.allowHosts], acceptedLimits: [...defaults.acceptedLimits] };
+    },
+    /**
+     * The launcher profile in use on this host, for the owner: where the
+     * built-in and custom files are, which one launches use, and its text.
+     * Null when the launcher has no profile here (unsupported platform).
+     */
+    sandboxProfile: profileView,
+    /** Save the owner's custom profile and replace running sandbox daemons. */
+    setSandboxProfile: async (content) => {
+      if (typeof launcher.saveProfile !== 'function') throw Object.assign(new Error('No profile to edit.'), { code: 'SANDBOX_PROFILE_UNSUPPORTED' });
+      await launcher.saveProfile(content);
+      return profileChanged();
+    },
+    /** Remove the custom profile and replace running sandbox daemons. */
+    resetSandboxProfile: async () => {
+      if (typeof launcher.resetProfile !== 'function') throw Object.assign(new Error('No profile to edit.'), { code: 'SANDBOX_PROFILE_UNSUPPORTED' });
+      await launcher.resetProfile();
+      return profileChanged();
     },
     reconcile,
     /** Whether the last reconcile failed, so the pool cannot be trusted to

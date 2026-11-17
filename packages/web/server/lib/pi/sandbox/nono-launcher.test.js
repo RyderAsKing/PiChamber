@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -246,5 +246,126 @@ describe('nono launcher profile file', () => {
       const paths = [...(profile.filesystem.allow ?? []), ...(profile.filesystem.allow_file ?? [])];
       expect(paths.filter((path) => /^\/dev\/(pts|ptmx)/.test(path) || /cache/i.test(path))).toEqual([]);
     }
+  });
+});
+
+// A fake `nono` that also answers `profile validate --json <file>` the way
+// nono 0.82.0 does: a JSON report on stdout, exit 1 when not valid. A profile
+// naming `nope_group` is the invalid one.
+const writeValidatingNono = async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pichamber-fake-nono-'));
+  const file = join(dir, 'nono');
+  await writeFile(file, [
+    '#!/bin/sh',
+    'if [ "$1" = "--version" ]; then echo "nono 0.82.0"; exit 0; fi',
+    'if [ "$1" = "setup" ]; then echo "  * Landlock V6"; exit 0; fi',
+    'if [ "$1" = "profile" ] && [ "$2" = "validate" ]; then',
+    '  if grep -q nope_group "$4"; then',
+    '    printf \'{"file":"%s","valid":false,"errors":["Group nope_group not found in %s"],"warnings":[]}\\n\' "$4" "$4"',
+    '    echo "nono: Profile parse error: validation failed" >&2',
+    '    exit 1',
+    '  fi',
+    '  printf \'{"file":"%s","valid":true,"errors":[],"warnings":[]}\\n\' "$4"',
+    '  exit 0',
+    'fi',
+    'exit 64',
+    '',
+  ].join('\n'));
+  await chmod(file, 0o755);
+  return file;
+};
+
+describe('nono launcher custom profile', () => {
+  const request = { grants: [], network: { mode: 'none' } };
+  const prepareArgs = { argv: ['node'], grants: [], network: { mode: 'none' }, tmpDir: '/tmp/x' };
+  const build = async ({ command } = {}) => {
+    const dir = await mkdtemp(join(tmpdir(), 'pichamber-nono-custom-'));
+    const customProfileFile = join(dir, 'sandbox', 'nono-profile.custom.json');
+    const launcher = createNonoLauncher({
+      command: command ?? await writeValidatingNono(),
+      platform: 'linux',
+      readProcVersion: async () => 'Linux version 6.12.0',
+      customProfileFile,
+    });
+    return { dir, customProfileFile, launcher };
+  };
+
+  it('reports the built-in profile of this host kind until a custom one is saved', async () => {
+    const { launcher, customProfileFile } = await build();
+    const profile = await launcher.profile();
+    expect(profile).toMatchObject({ hostKind: 'linux', custom: false, path: NONO_PROFILE_FILE, builtInPath: NONO_PROFILE_FILE, customPath: customProfileFile });
+    expect(profile.content).toBe(await readFile(NONO_PROFILE_FILE, 'utf8'));
+  });
+
+  it('has no profile on a platform nono does not run on', async () => {
+    const launcher = createNonoLauncher({ platform: 'win32', customProfileFile: '/nowhere/custom.json' });
+    expect(await launcher.profile()).toBeNull();
+  });
+
+  it('uses a saved custom profile for launches, with its own identity, and the built-in one again after a reset', async () => {
+    const { launcher, customProfileFile, dir } = await build();
+    await launcher.probe();
+    const builtIn = launcher.identity(request);
+    const content = await readFile(NONO_PROFILE_FILE, 'utf8');
+    const saved = await launcher.saveProfile(content);
+    expect(saved).toMatchObject({ custom: true, path: customProfileFile, content });
+    expect((await stat(customProfileFile)).mode & 0o777).toBe(0o600);
+    expect(await readdir(join(dir, 'sandbox'))).toEqual(['nono-profile.custom.json']);
+    // The same text as the built-in profile is still a different identity:
+    // a daemon started under one never passes for the other.
+    expect(launcher.identity(request)).not.toBe(builtIn);
+    const { args } = await launcher.prepare(prepareArgs);
+    expect(args[args.indexOf('--profile') + 1]).toBe(customProfileFile);
+
+    expect(await launcher.resetProfile()).toMatchObject({ custom: false, path: NONO_PROFILE_FILE });
+    expect(launcher.identity(request)).toBe(builtIn);
+    const again = await launcher.prepare(prepareArgs);
+    expect(again.args[again.args.indexOf('--profile') + 1]).toBe(NONO_PROFILE_FILE);
+  });
+
+  it('refuses text that is not a JSON object or that nono does not accept, and keeps the profile it had', async () => {
+    const { launcher, customProfileFile, dir } = await build();
+    await expect(launcher.saveProfile('')).rejects.toMatchObject({ code: 'INVALID_SANDBOX_PROFILE' });
+    await expect(launcher.saveProfile('{ nope')).rejects.toMatchObject({ code: 'INVALID_SANDBOX_PROFILE' });
+    await expect(launcher.saveProfile('[]')).rejects.toMatchObject({ code: 'INVALID_SANDBOX_PROFILE', messages: ['The profile must be a JSON object.'] });
+    await expect(launcher.saveProfile(JSON.stringify({ pad: 'x'.repeat(70 * 1024) }))).rejects.toMatchObject({ code: 'INVALID_SANDBOX_PROFILE' });
+    await launcher.saveProfile('{"extends":"default"}');
+    const refused = await launcher.saveProfile('{"groups":{"include":["nope_group"]}}').catch((error) => error);
+    expect(refused).toMatchObject({ code: 'INVALID_SANDBOX_PROFILE' });
+    // nono's message, without the temporary file it checked.
+    expect(refused.messages).toEqual(['Group nope_group not found in the profile']);
+    expect(await readFile(customProfileFile, 'utf8')).toBe('{"extends":"default"}');
+    expect(await readdir(join(dir, 'sandbox'))).toEqual(['nono-profile.custom.json']);
+  });
+
+  it('saves on a JSON check alone when nono is not installed', async () => {
+    const { launcher, customProfileFile } = await build({ command: join(tmpdir(), 'pichamber-no-such-nono', 'nono') });
+    await launcher.saveProfile('{"groups":{"include":["nope_group"]}}');
+    expect(await readFile(customProfileFile, 'utf8')).toContain('nope_group');
+  });
+
+  it('fails a launch closed when a custom profile edited on disk is not one nono accepts', async () => {
+    const { launcher, customProfileFile } = await build();
+    await launcher.probe();
+    await mkdir(join(customProfileFile, '..'), { recursive: true });
+    await writeFile(customProfileFile, '{"groups":{"include":["nope_group"]}}');
+    await expect(launcher.prepare(prepareArgs)).rejects.toMatchObject({ code: 'SANDBOX_PROFILE_INVALID' });
+    await writeFile(customProfileFile, 'not json');
+    await expect(launcher.prepare(prepareArgs)).rejects.toMatchObject({ code: 'SANDBOX_PROFILE_INVALID' });
+    await writeFile(customProfileFile, '{"extends":"default"}');
+    const { args } = await launcher.prepare(prepareArgs);
+    expect(args[args.indexOf('--profile') + 1]).toBe(customProfileFile);
+  });
+
+  it('never follows a symlink at the custom profile, and does not fall back to the built-in one', async () => {
+    const { launcher, customProfileFile } = await build();
+    await launcher.probe();
+    await mkdir(join(customProfileFile, '..'), { recursive: true });
+    await symlink(NONO_PROFILE_FILE, customProfileFile);
+    expect(() => launcher.identity(request)).toThrow(expect.objectContaining({ code: 'SANDBOX_PROFILE_INVALID' }));
+    await expect(launcher.prepare(prepareArgs)).rejects.toMatchObject({ code: 'SANDBOX_PROFILE_INVALID' });
+    expect(await launcher.profile()).toMatchObject({ custom: true, unreadable: true, content: '' });
+    expect(await launcher.resetProfile()).toMatchObject({ custom: false });
+    expect(await readFile(NONO_PROFILE_FILE, 'utf8')).toContain('pichamber');
   });
 });

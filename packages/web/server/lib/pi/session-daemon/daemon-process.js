@@ -121,7 +121,7 @@ if (!endpoint || !credentialFile || !stateFile || !cwd || !profileKey || !server
   // open the way they did before. The watchdog reinstalls the launcher if its
   // directory is cleaned away while the daemon runs.
   if (openUrlSocket) {
-    const openUrlOptions = { socketPath: openUrlSocket, privateDir: dirname(credentialFile), tmpdir: os.tmpdir() };
+    const openUrlOptions = { socketPath: openUrlSocket, privateDir: dirname(stateFile), tmpdir: os.tmpdir() };
     await ensureOpenUrlBrowser(openUrlOptions);
     watchOpenUrlBrowser(openUrlOptions);
   }

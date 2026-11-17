@@ -14,9 +14,10 @@ import {
 import { cn } from '@/lib/utils';
 import { reportSettingsSaveState } from '@/lib/persistence';
 import { sandboxLimitText, sandboxReasonText } from '@/lib/pi/sandboxText';
-import type { PiSandboxDefaults, PiSandboxDefaultsUpdate, PiSandboxLauncherStatus } from '@/lib/pi/protocol';
+import type { PiSandboxDefaults, PiSandboxDefaultsUpdate, PiSandboxLauncherStatus, PiSandboxProfile } from '@/lib/pi/protocol';
 import { useProjectSandboxStore } from '@/stores/useProjectSandboxStore';
 import { HOST_PRESETS, hasPreset, parseHosts, withPreset } from './projectSandboxDraft';
+import { SandboxProfileFields } from './SandboxProfileFields';
 import { sandboxLimitsAccepted, sandboxLimitsUpdate } from './sandboxLimits';
 
 const launcherStatusText = (launcher: PiSandboxLauncherStatus): string => {
@@ -45,6 +46,15 @@ export const SandboxingSection: React.FC = () => {
   const defaultsError = useProjectSandboxStore((store) => store.defaultsError);
   const loadDefaults = useProjectSandboxStore((store) => store.loadDefaults);
   const saveDefaults = useProjectSandboxStore((store) => store.saveDefaults);
+  const profile = useProjectSandboxStore((store) => store.profile);
+  const savingProfile = useProjectSandboxStore((store) => store.savingProfile);
+  const profileErrors = useProjectSandboxStore((store) => store.profileErrors);
+  const loadProfile = useProjectSandboxStore((store) => store.loadProfile);
+  const saveProfile = useProjectSandboxStore((store) => store.saveProfile);
+  const resetProfile = useProjectSandboxStore((store) => store.resetProfile);
+  // The profile matters once a project runs under it; a custom one is shown
+  // regardless, so it can always be found and removed.
+  const anySandboxed = useProjectSandboxStore((store) => Object.values(store.projects).some((project) => project.mode !== 'off'));
 
   React.useEffect(() => {
     if (launchersStatus === 'idle') void loadLaunchers();
@@ -53,7 +63,21 @@ export const SandboxingSection: React.FC = () => {
   // previous answer stays on screen meanwhile.
   React.useEffect(() => {
     void loadDefaults();
-  }, [loadDefaults]);
+    void loadProfile();
+  }, [loadDefaults, loadProfile]);
+
+  const onSaveProfile = React.useCallback(async (content: string) => {
+    reportSettingsSaveState('saving');
+    const saved = await saveProfile(content);
+    reportSettingsSaveState(saved ? 'saved' : 'error');
+    return saved;
+  }, [saveProfile]);
+  const onResetProfile = React.useCallback(async () => {
+    reportSettingsSaveState('saving');
+    const saved = await resetProfile();
+    reportSettingsSaveState(saved ? 'saved' : 'error');
+    return saved;
+  }, [resetProfile]);
 
   const onSaveDefaults = React.useCallback(async (next: SandboxDefaultsInput) => {
     const current = useProjectSandboxStore.getState().defaults;
@@ -78,6 +102,11 @@ export const SandboxingSection: React.FC = () => {
       savingDefaults={savingDefaults}
       defaultsError={defaultsError}
       onSaveDefaults={onSaveDefaults}
+      profile={profile && (anySandboxed || profile.custom) ? profile : null}
+      savingProfile={savingProfile}
+      profileErrors={profileErrors}
+      onSaveProfile={onSaveProfile}
+      onResetProfile={onResetProfile}
     />
   );
 };
@@ -92,6 +121,12 @@ interface SandboxingSectionViewProps {
   savingDefaults?: boolean;
   defaultsError?: string | null;
   onSaveDefaults?: (defaults: SandboxDefaultsInput) => Promise<void>;
+  /** The launcher profile, once a project is sandboxed or a custom one exists. */
+  profile?: PiSandboxProfile | null;
+  savingProfile?: boolean;
+  profileErrors?: string[];
+  onSaveProfile?: (content: string) => Promise<boolean>;
+  onResetProfile?: () => Promise<boolean>;
 }
 
 export const SandboxingSectionView: React.FC<SandboxingSectionViewProps> = ({
@@ -104,6 +139,11 @@ export const SandboxingSectionView: React.FC<SandboxingSectionViewProps> = ({
   savingDefaults = false,
   defaultsError = null,
   onSaveDefaults,
+  profile = null,
+  savingProfile = false,
+  profileErrors = [],
+  onSaveProfile,
+  onResetProfile,
 }) => {
   const recheckButton = (
     <Button variant="outline" size="xs" disabled={rechecking} onClick={onRecheck}>
@@ -182,6 +222,15 @@ export const SandboxingSectionView: React.FC<SandboxingSectionViewProps> = ({
         ) : null}
         {defaultsError ? (
           <p className="typography-meta text-[var(--status-error)]" role="alert">{defaultsError}</p>
+        ) : null}
+        {profile && onSaveProfile && onResetProfile ? (
+          <SandboxProfileFields
+            profile={profile}
+            saving={savingProfile}
+            errors={profileErrors}
+            onSave={onSaveProfile}
+            onReset={onResetProfile}
+          />
         ) : null}
       </div>
     </SettingsSection>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, readlink, symlink, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { chmod, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -128,6 +129,9 @@ describe('sandboxed Pi session daemon supervisor', () => {
       '--read', '/opt/pichamber',
       '--read', join(ctx.agentDir, 'extensions'),
       '--read', ctx.shared,
+      // The credential, in the server's own launcher folder: readable, not
+      // replaceable.
+      '--read-file', join(ctx.dataDir, 'pi', 'launchers', paths.profileKey, 'session-daemon.key'),
       '--read-file', join(ctx.agentDir, 'auth.json'),
       '--read-file', join(ctx.agentDir, 'settings.json'),
       ...[
@@ -185,6 +189,52 @@ describe('sandboxed Pi session daemon supervisor', () => {
       linux: { af_unix_mediation: 'pathname' },
       workdir: { access: 'none' },
     });
+  });
+
+  it('keeps the server\'s own settings and the daemon credential out of the sandbox\'s reach', async () => {
+    const ctx = await setup();
+    const sandbox = await prepareProjectSandbox(ctx.sandboxOptions);
+    const env = {
+      ...ctx.env,
+      PICHAMBER_UI_PASSWORD: 'ui-password',
+      PICHAMBER_JWT_SECRET: 'jwt-secret',
+      PICHAMBER_TUNNEL_TOKEN: 'tunnel-token',
+      PICHAMBER_PI_SESSION_DAEMON_ENDPOINT: '/tmp/main-daemon.sock',
+      PICHAMBER_ADDED_LATER: 'not listed, so not passed',
+    };
+    const { supervisor, spawns } = await startCapturing({ env, nono: ctx.nono, sandbox });
+
+    const names = Object.keys(spawns[0].options.env).filter((name) => name.startsWith('PICHAMBER_'));
+    expect(names.sort()).toEqual(['PICHAMBER_DATA_DIR', 'PICHAMBER_PI_AGENT_DIR']);
+    expect(spawns[0].options.env.PICHAMBER_PI_AGENT_DIR).toBe(sandbox.agentDir);
+
+    // The credential the server sends on every request sits where no
+    // sandbox grant can write, so sandboxed code cannot point it elsewhere.
+    const { paths } = supervisor;
+    expect(paths.credentialFile).toBe(join(ctx.dataDir, 'pi', 'launchers', paths.profileKey, 'session-daemon.key'));
+    expect(sandbox.grants.some((grant) => grant.kind === 'readWrite' && paths.credentialFile.startsWith(`${grant.path}/`))).toBe(false);
+    expect((await readFile(paths.credentialFile, 'utf8')).trim()).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('never follows or waits on what a sandbox daemon puts in place of its state file', async () => {
+    const ctx = await setup();
+    const sandbox = await prepareProjectSandbox(ctx.sandboxOptions);
+    const { supervisor } = await startCapturing({ env: ctx.env, nono: ctx.nono, sandbox });
+    const { paths } = supervisor;
+    const forged = join(ctx.root, 'forged-state.json');
+    await writeFile(forged, JSON.stringify({
+      protocolVersion: 1, pid: 4242, endpoint: paths.endpoint, profileKey: paths.profileKey, startedAt: new Date().toISOString(),
+    }));
+
+    // A symlink is not read: the daemon counts as not running.
+    await rm(paths.stateFile, { force: true });
+    await symlink(forged, paths.stateFile);
+    await expect(supervisor.request('sessions.list', {})).rejects.toMatchObject({ code: expect.stringMatching(/^DAEMON_/) });
+
+    // A FIFO would block a plain read until something wrote to it.
+    await rm(paths.stateFile, { force: true });
+    execFileSync('mkfifo', [paths.stateFile]);
+    await expect(supervisor.request('sessions.list', {})).rejects.toMatchObject({ code: expect.stringMatching(/^DAEMON_/) });
   });
 
   it('builds a shadow agent folder that links to the real Pi config, resources, session and lease folders', async () => {

@@ -20,6 +20,15 @@ const isPidAlive = (processLike, pid) => {
   }
 };
 
+const isSignallablePid = (processLike, pid) => {
+  try {
+    processLike.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const canonicalizeLeaseDir = (value, platform = process.platform) => {
   const resolved = resolve(String(value ?? ''));
   if (platform === 'win32') {
@@ -111,7 +120,10 @@ const scopedLeaseHolder = async ({ canonicalAgentDir, name, sessionId, owner, pl
       continue;
     }
     if (!isValidLease(lease) || lease.sessionId !== sessionId || isOwnLease(lease, owner)) continue;
-    if (isPidAlive(processLike, lease.daemonPid)) return lease;
+    // A sandbox daemon runs as this user, so its pid can be signalled. A
+    // pid that answers EPERM (pid 1, another user's process) was written by
+    // sandboxed code to hold the session forever; it is not a holder.
+    if (isSignallablePid(processLike, lease.daemonPid)) return lease;
   }
   return null;
 };

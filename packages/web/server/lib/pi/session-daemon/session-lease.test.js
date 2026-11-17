@@ -196,5 +196,19 @@ describe('session lease', () => {
       await writeFile(join(scope, name), JSON.stringify({ ...sandboxOwner, sessionId: 'session-9' }));
       await expect(acquireSessionLease({ agentDir, cwd, sessionId: 'session-1', owner: ownerA })).resolves.toMatchObject({ acquired: true });
     });
+    it('ignores a forged lease that names a process this user cannot signal', async () => {
+      const { agentDir, cwd } = await dirs();
+      // Written through the real path so the file is a well-formed lease.
+      await acquireSessionLease({ agentDir, cwd, sessionId: 'session-1', owner: { ...sandboxOwner, daemonPid: 1 }, scope: 'proj-a' });
+      const processLike = {
+        pid: process.pid,
+        kill: (pid) => {
+          if (pid === 1) throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+          return true;
+        },
+      };
+      await expect(acquireSessionLease({ agentDir, cwd, sessionId: 'session-1', owner: ownerA, processLike }))
+        .resolves.toMatchObject({ acquired: true });
+    });
   });
 });

@@ -468,6 +468,34 @@ describe('Pi UI settings store', () => {
       }
     });
 
+    it('merges the fields a project update names, so a stale copy cannot turn a sandbox off', async () => {
+      const { store, runtimeFile } = await makeStore();
+      await store.write({ projects: [{ id: 'one', path: '/work/one' }] });
+      // A project with no setting starts from the default with empty lists.
+      await store.setProjectSandbox('one', { allowHosts: ['github.com'] });
+      await expect(store.read()).resolves.toMatchObject({
+        projects: [{ id: 'one', sandbox: { mode: 'default', allowHosts: ['github.com'], allowLocalPorts: [], extraFolders: [] } }],
+      });
+      // One device turns it on; another, still showing Off, adds a port.
+      await store.setProjectSandbox('one', { mode: 'nono' });
+      await store.setProjectSandbox('one', { allowLocalPorts: [8080] });
+      await expect(store.read()).resolves.toMatchObject({
+        projects: [{ id: 'one', sandbox: { mode: 'nono', allowHosts: ['github.com'], allowLocalPorts: [8080], extraFolders: [] } }],
+      });
+      // No field at all is refused.
+      await expect(store.setProjectSandbox('one', {})).rejects.toMatchObject({ code: 'INVALID_SANDBOX_SETTING' });
+
+      // An unreadable stored setting runs sandboxed, so that is what a
+      // partial update starts from.
+      const state = JSON.parse(await readFile(runtimeFile, 'utf8'));
+      state.projects[0].sandbox = { mode: 'sometimes' };
+      await writeFile(runtimeFile, JSON.stringify(state));
+      await store.setProjectSandbox('one', { allowHosts: ['npmjs.org'] });
+      await expect(store.read()).resolves.toMatchObject({
+        projects: [{ id: 'one', sandbox: { mode: 'nono', allowHosts: ['npmjs.org'], allowLocalPorts: [], extraFolders: [] } }],
+      });
+    });
+
     it('does not store the placeholder mode of an unreadable default: an update must name a mode', async () => {
       const { store, runtimeFile } = await makeStore();
       await store.write({ projects: [{ id: 'one', path: '/work/one' }] });

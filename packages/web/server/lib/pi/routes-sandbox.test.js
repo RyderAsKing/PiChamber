@@ -13,7 +13,7 @@ import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createProjectSandboxManager } from './sandbox/project-sandbox-manager.js';
 import { createTrustAskStore } from './sandbox/trust-ask.js';
 import { sandboxedFoldersFile } from './sandbox/sandboxed-folders.js';
-import { worktreeIdsFile } from './sandbox/worktree-ids.js';
+import { ownWorktreeId, worktreeIdsFile } from './sandbox/worktree-ids.js';
 import { getPiSessionDirectory } from './session-daemon/session-jsonl.js';
 
 const listen = (app) => new Promise((resolve, reject) => {
@@ -87,6 +87,21 @@ const fakeLauncher = (probe = { available: true, version: '0.82.0', capabilities
     probe: async () => {
       launcher.probes += 1;
       return launcher.probeResult;
+    },
+    // The profile seam of the nono launcher: a built-in text, and a custom
+    // one that replaces it. Text holding `nope` is what nono refuses.
+    customProfile: null,
+    profile: async () => (launcher.customProfile === null
+      ? { hostKind: 'linux', builtInPath: '/app/nono-profile.json', customPath: '/data/custom.json', custom: false, path: '/app/nono-profile.json', content: '{"built":"in"}', hash: 'built-in' }
+      : { hostKind: 'linux', builtInPath: '/app/nono-profile.json', customPath: '/data/custom.json', custom: true, path: '/data/custom.json', content: launcher.customProfile, hash: `custom:${launcher.customProfile}` }),
+    saveProfile: async (content) => {
+      if (typeof content !== 'string' || content.includes('nope')) {
+        throw Object.assign(new Error('invalid'), { code: 'INVALID_SANDBOX_PROFILE', messages: ['Group nope not found'] });
+      }
+      launcher.customProfile = content;
+    },
+    resetProfile: async () => {
+      launcher.customProfile = null;
     },
   };
   return launcher;
@@ -458,6 +473,48 @@ describe('Pi routes for sandboxed projects', () => {
     await ctx.call('/api/pi/sandbox/recheck', { method: 'POST' });
     const after = await (await ctx.call('/api/pi/sandbox/projects')).json();
     expect(after.projects[0].availability).toEqual({ state: 'available' });
+  });
+
+  it('shows the profile in use, saves a custom one and resets it, replacing the running sandbox each time', async () => {
+    const ctx = await setup();
+    const builtIn = { launcher: 'nono', custom: false, path: '/app/nono-profile.json', builtInPath: '/app/nono-profile.json', customPath: '/data/custom.json', content: '{"built":"in"}' };
+    expect(await (await ctx.call('/api/pi/sandbox/profile')).json()).toEqual({ profile: builtIn });
+    await ctx.sandboxOn();
+    const prompt = () => ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    expect((await prompt()).status).toBe(200);
+    expect(ctx.launched).toHaveLength(1);
+
+    const refused = await ctx.call('/api/pi/sandbox/profile', { method: 'PUT', body: { content: '{"nope":1}' } });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: { code: 'INVALID_SANDBOX_PROFILE', messages: ['Group nope not found'] } });
+    expect((await ctx.call('/api/pi/sandbox/profile', { method: 'PUT', body: {} })).status).toBe(400);
+    // A refused profile changes nothing: the same daemon answers.
+    expect((await prompt()).status).toBe(200);
+    expect(ctx.launched).toHaveLength(1);
+
+    const saved = await ctx.call('/api/pi/sandbox/profile', { method: 'PUT', body: { content: '{"mine":1}' } });
+    expect(await saved.json()).toEqual({ profile: { ...builtIn, custom: true, path: '/data/custom.json', content: '{"mine":1}' } });
+    expect((await prompt()).status).toBe(200);
+    expect(ctx.launched).toHaveLength(2);
+
+    const reset = await ctx.call('/api/pi/sandbox/profile', { method: 'DELETE' });
+    expect(await reset.json()).toEqual({ profile: builtIn });
+    expect((await prompt()).status).toBe(200);
+    expect(ctx.launched).toHaveLength(3);
+  });
+
+  it('replaces a running sandbox whose custom profile was edited on disk', async () => {
+    const ctx = await setup();
+    await ctx.sandboxOn();
+    const prompt = () => ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    await prompt();
+    await ctx.manager.checkIdle();
+    await prompt();
+    expect(ctx.launched).toHaveLength(1);
+    ctx.launcher.customProfile = '{"edited":"by hand"}';
+    await ctx.manager.checkIdle();
+    await prompt();
+    expect(ctx.launched).toHaveLength(2);
   });
 
   it('reports the launcher status and re-checks it on request, without paths or raw nono output', async () => {
@@ -994,6 +1051,48 @@ describe('switching a project between daemons', () => {
     expect(ctx.pool.live().map((d) => d.key)).toEqual(['main', 'sandbox:proj-a:1']);
   });
 
+  it('a replaced daemon never takes the pool key of one that is still draining', async () => {
+    let busy = true;
+    const ctx = await setup({
+      mainAnswers: { 'providers.models.set': { config: null } },
+      sandboxAnswers: {
+        'sessions.release': (p) => (busy
+          ? { released: [], pending: [{ sessionId: 's-1', directory: p.directories[0] }], streamEpoch: 'epoch-box' }
+          : { released: [{ sessionId: 's-1', directory: p.directories[0] }], pending: [], streamEpoch: 'epoch-box' }),
+      },
+    });
+    const replace = async () => {
+      expect((await ctx.call('/api/pi/providers/local/models', { method: 'PUT', body: { models: [] } })).status).toBe(200);
+    };
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    // Replaced once: the first daemon drains and finishes, the project moves
+    // to the second key.
+    await replace();
+    await waitFor(() => ctx.manager.drainingSession('s-1'));
+    busy = false;
+    await ctx.tick(1_000);
+    expect(ctx.launched[0].stopped).toBe(true);
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    expect(ctx.pool.live().map((d) => d.key)).toEqual(['main', 'sandbox:proj-a:1']);
+
+    // Turned off mid-turn: that daemon drains under the second key. Turned
+    // on again, the project gets the first key back, which is free.
+    busy = true;
+    await ctx.sandboxOn('proj-a', { mode: 'off' });
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-2?directory=${ctx.projectA}`);
+    expect(ctx.pool.live().map((d) => d.key).sort()).toEqual(['main', 'sandbox:proj-a', 'sandbox:proj-a:1']);
+
+    // Replaced again: the next key is the draining daemon's, so it is skipped.
+    await replace();
+    await waitFor(() => ctx.launched[2].commands().includes('sessions.release'));
+    await ctx.call(`/api/pi/sessions/s-3?directory=${ctx.projectA}`);
+    expect(ctx.launched).toHaveLength(4);
+    expect(ctx.launched[1].stopped).toBe(false);
+    expect(ctx.pool.live().map((d) => d.key).sort()).toEqual(['main', 'sandbox:proj-a', 'sandbox:proj-a:1', 'sandbox:proj-a:2']);
+  });
+
   it('a Pi config file changed outside PiChamber replaces an idle sandbox daemon on the next check', async () => {
     const ctx = await setup();
     await writeFile(join(ctx.agentDir, 'models.json'), '{}');
@@ -1355,13 +1454,15 @@ describe('keeping a sandboxed project owned', () => {
     expect(ctx.launched).toEqual([]);
   });
 
-  it('takes in the worktrees of a project that had none when it was sandboxed', async () => {
+  it('gives a project that had no worktrees when it was sandboxed a worktree folder of its own', async () => {
     const ctx = await setup();
     await ctx.sandboxOn('proj-b');
-    // The Git panel writes the id with the project's first worktree.
-    const id = 'e'.repeat(40);
+    // Remembered at once, from the project's path: the Git panel files the
+    // project's first worktree there, whatever the agent writes meanwhile.
+    const id = ownWorktreeId(ctx.projectB);
+    expect(JSON.parse(await readFile(worktreeIdsFile(ctx.dataDir), 'utf8')).projects).toEqual({ [ctx.projectB]: id });
     await mkdir(join(ctx.projectB, '.git'), { recursive: true });
-    await writeFile(join(ctx.projectB, '.git', 'pichamber'), id);
+    await writeFile(join(ctx.projectB, '.git', 'pichamber'), 'e'.repeat(40));
     const added = join(ctx.dataDir, 'worktree', id, 'feature');
     await mkdir(added, { recursive: true });
     await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: added, text: 'hi', streamEpoch: 'epoch-1' } });
@@ -1416,6 +1517,51 @@ describe('keeping a sandboxed project owned', () => {
     await ctx.tick(1000);
     expect(resets()).toHaveLength(1);
     expect(await ctx.trustAsk.list()).toEqual([ctx.projectB]);
+  });
+
+  it('keeps two clones of one repository apart: the sandboxed one gets a worktree folder of its own', async () => {
+    const ctx = await setup();
+    // Project B is a second clone of A's repository: both files name the
+    // repository's root commit, and B (not sandboxed) has a worktree there.
+    await mkdir(join(ctx.projectB, '.git'), { recursive: true });
+    await writeFile(join(ctx.projectB, '.git', 'pichamber'), ctx.gitId);
+    await ctx.sandboxOn();
+    const own = join(ctx.dataDir, 'worktree', ownWorktreeId(ctx.projectA));
+    await mkdir(join(own, 'new'), { recursive: true });
+
+    const listed = await (await ctx.call('/api/pi/sandbox/projects')).json();
+    expect(listed.projects.find((project) => project.projectId === 'proj-a').availability).toEqual({ state: 'available' });
+    // The shared folder stays the other clone's; A's sandbox is not granted it.
+    expect(ctx.manager.sandboxFor(ctx.worktree)).toBeNull();
+    expect(ctx.manager.sandboxFor(join(own, 'new'))).toEqual({ launcher: 'nono' });
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const paths = ctx.launched[0].sandbox.grants.map((grant) => grant.path);
+    expect(paths).toContain(own);
+    expect(paths.some((path) => path.startsWith(join(ctx.dataDir, 'worktree', ctx.gitId)))).toBe(false);
+    await ctx.call(`/api/pi/sessions/s-2/prompt`, { method: 'POST', body: { directory: ctx.worktree, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(ctx.main.commands()).toContain('sessions.prompt');
+  });
+
+  it('runs nothing in a worktree the sandboxed project made before it had its own folder', async () => {
+    const ctx = await setup();
+    await mkdir(join(ctx.projectB, '.git'), { recursive: true });
+    await writeFile(join(ctx.projectB, '.git', 'pichamber'), ctx.gitId);
+    // One worktree in the shared folder is project A's, one is B's.
+    const mine = join(ctx.dataDir, 'worktree', ctx.gitId, 'mine');
+    await mkdir(mine, { recursive: true });
+    await writeFile(join(mine, '.git'), `gitdir: ${join(ctx.projectA, '.git', 'worktrees', 'mine')}\n`);
+    await writeFile(join(ctx.worktree, '.git'), `gitdir: ${join(ctx.projectB, '.git', 'worktrees', 'feature')}\n`);
+    await ctx.sandboxOn();
+
+    expect(ctx.manager.sandboxFor(mine)).toEqual({ launcher: 'nono' });
+    expect(ctx.manager.sandboxFor(ctx.worktree)).toBeNull();
+    const refused = await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: mine, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(await refused.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'SANDBOX_WORKTREE_OUTSIDE_FOLDER' } });
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
+    expect(ctx.launched).toHaveLength(0);
+    // Its sessions are still listed, by the main daemon.
+    expect((await ctx.call(`/api/pi/sessions?directory=${mine}`)).status).toBe(200);
+    expect(ctx.launched).toHaveLength(0);
   });
 
   it('starts no sandbox on an id it cannot check against the remembered ones, and keeps those worktrees off the main daemon', async () => {

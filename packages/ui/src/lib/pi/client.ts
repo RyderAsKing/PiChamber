@@ -74,10 +74,11 @@ import {
   type PiSessionShelfResponse,
   type PiSandboxStatusResponse,
   type PiProjectSandboxListResponse,
-  type PiProjectSandboxSetting,
+  type PiProjectSandboxUpdate,
   type PiSandboxDefaults,
   type PiSandboxDefaultsUpdate,
   type PiProjectSandboxState,
+  type PiSandboxProfile,
   isValidSessionShelfEntry,
   isValidSessionShelfResponse,
   type PiAbortInput,
@@ -180,7 +181,7 @@ const jsonRequest = async <TBody, TResponse>(
           lastError = new PiRequestError(error.code, error.message, response.status);
           continue;
         }
-        throw new PiRequestError(error.code, error.message, response.status, error.reason);
+        throw new PiRequestError(error.code, error.message, response.status, error.reason, error.messages);
       }
       if (response.status === 204) {
         if (requestRuntimeKey && requestRuntimeKey !== getRuntimeKey()) {
@@ -222,12 +223,15 @@ export class PiRequestError extends Error {
   readonly status?: number;
   /** The server's reason code, for `SANDBOX_UNAVAILABLE`. */
   readonly reason?: string;
-  constructor(code: string, message?: string, status?: number, reason?: string) {
+  /** What is wrong with a refused sandbox profile (`INVALID_SANDBOX_PROFILE`). */
+  readonly messages?: string[];
+  constructor(code: string, message?: string, status?: number, reason?: string, messages?: unknown) {
     super(message ?? `Pi request failed: ${code}`);
     this.name = 'PiRequestError';
     this.code = code;
     if (status !== undefined) this.status = status;
     if (typeof reason === 'string') this.reason = reason;
+    if (Array.isArray(messages)) this.messages = messages.filter((entry): entry is string => typeof entry === 'string');
   }
 }
 
@@ -1048,18 +1052,52 @@ export class PiService {
     );
   }
 
-  /** Replace one project's sandbox setting. Returns its state after the write. */
+  /** Change the given fields of one project's sandbox setting; the server
+   *  keeps the rest. Returns its state after the write. */
   async setProjectSandbox(
     projectId: string,
-    setting: PiProjectSandboxSetting,
+    update: PiProjectSandboxUpdate,
     scope?: PiClientScope,
   ): Promise<PiProjectSandboxState> {
     assertRuntimeUnchanged(scope);
-    const result = await jsonRequest<PiProjectSandboxSetting, { project: PiProjectSandboxState }>(
+    const result = await jsonRequest<PiProjectSandboxUpdate, { project: PiProjectSandboxState }>(
       `/api/pi/sandbox/projects/${encodeURIComponent(projectId)}`,
-      { method: 'PUT', body: setting, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+      { method: 'PUT', body: update, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
     return result.project;
+  }
+
+  /** The launcher profile sandboxes run under on this server, or null when
+   *  the server's platform has none. */
+  async getSandboxProfile(scope?: PiClientScope): Promise<PiSandboxProfile | null> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<undefined, { profile: PiSandboxProfile | null }>('/api/pi/sandbox/profile', {
+      method: 'GET',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    return result.profile;
+  }
+
+  /** Save `content` as the custom profile. Refused with
+   *  `INVALID_SANDBOX_PROFILE` (and `messages`) when nono does not accept it. */
+  async saveSandboxProfile(content: string, scope?: PiClientScope): Promise<PiSandboxProfile | null> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<{ content: string }, { profile: PiSandboxProfile | null }>('/api/pi/sandbox/profile', {
+      method: 'PUT',
+      body: { content },
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    return result.profile;
+  }
+
+  /** Remove the custom profile, so sandboxes use the built-in one again. */
+  async resetSandboxProfile(scope?: PiClientScope): Promise<PiSandboxProfile | null> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<undefined, { profile: PiSandboxProfile | null }>('/api/pi/sandbox/profile', {
+      method: 'DELETE',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    return result.profile;
   }
 
   // ----- Pi settings ------------------------------------------------------

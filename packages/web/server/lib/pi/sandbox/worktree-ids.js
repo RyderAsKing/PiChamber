@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
@@ -12,6 +13,10 @@ const GIT_PROJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
  * that file once it is known. The record lives in PiChamber's data folder,
  * which no sandbox can write.
  */
+/** A worktree folder id no other project has: a hash of the project's path. */
+export const ownWorktreeId = (projectRoot) => createHash('sha256')
+  .update(`pichamber-worktrees\n${resolve(projectRoot)}`).digest('hex');
+
 export const worktreeIdsFile = (dataDir) => join(dataDir, 'pi', 'sandbox', 'worktree-ids.json');
 
 const normalize = (value) => {
@@ -57,24 +62,32 @@ export const createWorktreeIdStore = ({ dataDir, file = worktreeIdsFile(dataDir)
     /** Remembered ids, project root -> id. Throws when the record is unreadable. */
     read,
     /**
-     * Remember `id` for `projectRoot` unless one is remembered already;
-     * returns the id that is remembered afterwards.
+     * Remember a worktree folder id for `projectRoot` unless one is
+     * remembered already; returns the id that is remembered afterwards.
+     * `id` (from the project's file) is taken only when no other project
+     * uses it: not one in `taken` (the ids of the other known projects) and
+     * not one remembered for another root. Two clones of one repository
+     * have the same file id, and a sandbox must not be granted a folder
+     * another project's worktrees are in. Otherwise, and for a project with
+     * no file id yet, the id is the project's own, made from its path.
      */
-    remember: (projectRoot, id) => {
+    remember: (projectRoot, id, { taken = [] } = {}) => {
       const run = queue.then(async () => {
         const root = resolve(projectRoot);
         const current = await read();
         const known = current.get(root);
         if (known) return known;
-        if (typeof id !== 'string' || !GIT_PROJECT_ID.test(id)) return null;
         // A full record takes no new project: dropping an older one would
         // let that project's file name a new id on its next use.
         if (current.size >= MAX_PROJECTS) {
           throw Object.assign(new Error('The worktree id record is full.'), { code: 'SANDBOX_WORKTREE_IDS_FULL' });
         }
-        current.set(root, id);
+        const free = typeof id === 'string' && GIT_PROJECT_ID.test(id)
+          && !taken.includes(id) && ![...current.values()].includes(id);
+        const next = free ? id : ownWorktreeId(root);
+        current.set(root, next);
         await write(current);
-        return id;
+        return next;
       });
       queue = run.catch(() => {});
       return run;

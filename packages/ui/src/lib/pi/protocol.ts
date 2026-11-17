@@ -102,6 +102,8 @@ export interface PiError {
   /** Why, for `SANDBOX_UNAVAILABLE`: a launcher reason code such as
    *  `NOT_INSTALLED` or `NO_LANDLOCK`. */
   reason?: string;
+  /** For `INVALID_SANDBOX_PROFILE`: what is wrong with the profile text. */
+  messages?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -665,6 +667,11 @@ export interface PiProjectSandboxSetting {
   extraFolders?: PiSandboxExtraFolder[];
 }
 
+/** A change to a project's sandbox setting: the fields that changed. The
+ *  server keeps its stored value for every field left out, so a copy that
+ *  went stale on this device cannot undo what another device saved. */
+export type PiProjectSandboxUpdate = Partial<PiProjectSandboxSetting>;
+
 /** One project's sandbox setting and whether it can run now. `off` means no
  *  sandbox; `unavailable` means its Pi requests fail closed with
  *  `SANDBOX_UNAVAILABLE` and the same reason. */
@@ -684,6 +691,23 @@ export interface PiProjectSandboxState {
 
 export interface PiProjectSandboxListResponse {
   projects: PiProjectSandboxState[];
+}
+
+/** The launcher profile sandboxes run under on this server
+ *  (`/api/pi/sandbox/profile`): PiChamber's built-in one, or the owner's
+ *  custom copy while that file exists. Paths are on the server machine.
+ *  `unreadable` means the custom file is there but cannot be read, so no
+ *  sandbox starts until it is fixed or reset. */
+export interface PiSandboxProfile {
+  launcher: string;
+  custom: boolean;
+  /** The file in use. */
+  path: string;
+  builtInPath: string;
+  customPath: string | null;
+  /** The text of the file in use. */
+  content: string;
+  unreadable?: boolean;
 }
 
 /** Omitted fields are left alone; `null` clears them. */

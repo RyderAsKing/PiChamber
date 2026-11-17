@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { piClient, PiRequestError } from '@/lib/pi/client';
-import type { PiProjectSandboxState } from '@/lib/pi/protocol';
+import type { PiProjectSandboxState, PiSandboxProfile } from '@/lib/pi/protocol';
 import { useProjectSandboxStore } from './useProjectSandboxStore';
 
 const original = {
@@ -10,6 +10,9 @@ const original = {
   setProjectSandbox: piClient.setProjectSandbox,
   getSandboxDefaults: piClient.getSandboxDefaults,
   setSandboxDefaults: piClient.setSandboxDefaults,
+  getSandboxProfile: piClient.getSandboxProfile,
+  saveSandboxProfile: piClient.saveSandboxProfile,
+  resetSandboxProfile: piClient.resetSandboxProfile,
 };
 
 const project = (overrides: Partial<PiProjectSandboxState> = {}): PiProjectSandboxState => ({
@@ -90,6 +93,24 @@ describe('useProjectSandboxStore', () => {
     const state = useProjectSandboxStore.getState();
     expect(state.saveErrors.p1).toBeUndefined();
     expect(state.projects.p1?.availability).toEqual({ state: 'unavailable', reason: 'NO_LANDLOCK' });
+  });
+
+  test('a save sends only what changed against the copy held here', async () => {
+    piClient.listProjectSandboxes = async () => ({ projects: [project({ mode: 'off', choice: 'off', availability: { state: 'off' } })] });
+    await useProjectSandboxStore.getState().loadProjects();
+    const sent: unknown[] = [];
+    piClient.setProjectSandbox = async (_id, update) => {
+      sent.push(update);
+      // Another device had turned it on meanwhile; the server kept that.
+      return project({ choice: 'nono', allowHosts: ['github.com'] });
+    };
+    // This device still shows Off and adds a host: the mode is not sent.
+    expect(await useProjectSandboxStore.getState().saveProject('p1', { mode: 'off', allowHosts: ['github.com'] })).toBe(true);
+    expect(sent).toEqual([{ allowHosts: ['github.com'] }]);
+    expect(useProjectSandboxStore.getState().projects.p1?.choice).toBe('nono');
+    // Nothing changed against the new copy: nothing is sent.
+    expect(await useProjectSandboxStore.getState().saveProject('p1', { mode: 'nono', allowHosts: ['github.com'] })).toBe(true);
+    expect(sent).toHaveLength(1);
   });
 
   test('an answer that arrives after a reset (runtime switch) is dropped', async () => {
@@ -234,5 +255,69 @@ describe('useProjectSandboxStore', () => {
     expect(state.defaultsStatus).toBe('failed');
     expect(state.projects.p1?.mode).toBe('nono');
     expect(state.defaults?.allowHosts).toEqual(['a.com']);
+  });
+});
+
+describe('useProjectSandboxStore profile', () => {
+  const builtIn: PiSandboxProfile = {
+    launcher: 'nono', custom: false, path: '/app/nono-profile.json', builtInPath: '/app/nono-profile.json', customPath: '/data/custom.json', content: '{}',
+  };
+  const custom: PiSandboxProfile = { ...builtIn, custom: true, path: '/data/custom.json', content: '{"mine":1}' };
+
+  test('loads the profile, and a failed load is not "no profile"', async () => {
+    piClient.getSandboxProfile = async () => builtIn;
+    await useProjectSandboxStore.getState().loadProfile();
+    expect(useProjectSandboxStore.getState()).toMatchObject({ profile: builtIn, profileStatus: 'ready' });
+    piClient.getSandboxProfile = async () => { throw new PiRequestError('SANDBOX_REQUEST_FAILED', 'x', 500); };
+    await useProjectSandboxStore.getState().loadProfile();
+    expect(useProjectSandboxStore.getState()).toMatchObject({ profile: builtIn, profileStatus: 'failed' });
+  });
+
+  test('a saved profile replaces the one on screen and reloads the projects', async () => {
+    let listed = 0;
+    piClient.listProjectSandboxes = async () => { listed += 1; return { projects: [] }; };
+    piClient.saveSandboxProfile = async (content) => ({ ...custom, content });
+    expect(await useProjectSandboxStore.getState().saveProfile('{"mine":2}')).toBe(true);
+    await Promise.resolve();
+    expect(useProjectSandboxStore.getState()).toMatchObject({ profile: { custom: true, content: '{"mine":2}' }, savingProfile: false, profileErrors: [] });
+    expect(listed).toBe(1);
+    piClient.resetSandboxProfile = async () => builtIn;
+    expect(await useProjectSandboxStore.getState().resetProfile()).toBe(true);
+    expect(useProjectSandboxStore.getState().profile).toEqual(builtIn);
+  });
+
+  test('a refused profile keeps the saved one and shows what nono said', async () => {
+    piClient.getSandboxProfile = async () => custom;
+    await useProjectSandboxStore.getState().loadProfile();
+    let loads = 0;
+    piClient.getSandboxProfile = async () => { loads += 1; return custom; };
+    piClient.saveSandboxProfile = async () => {
+      throw new PiRequestError('INVALID_SANDBOX_PROFILE', 'bad', 400, undefined, ['Group nope not found']);
+    };
+    expect(await useProjectSandboxStore.getState().saveProfile('{"nope":1}')).toBe(false);
+    expect(useProjectSandboxStore.getState()).toMatchObject({ profile: custom, profileErrors: ['Group nope not found'], savingProfile: false });
+    // Nothing was stored, so there is nothing to load again.
+    expect(loads).toBe(0);
+  });
+
+  test('a save that failed for another reason loads the profile again', async () => {
+    let loads = 0;
+    piClient.getSandboxProfile = async () => { loads += 1; return custom; };
+    piClient.saveSandboxProfile = async () => { throw new PiRequestError('SANDBOX_REQUEST_FAILED', 'x', 500); };
+    expect(await useProjectSandboxStore.getState().saveProfile('{}')).toBe(false);
+    expect(useProjectSandboxStore.getState()).toMatchObject({ profile: custom, profileErrors: ['The sandbox profile could not be saved.'] });
+    expect(loads).toBe(1);
+  });
+
+  test('a load answered after a save does not put the older profile back', async () => {
+    let release: (profile: PiSandboxProfile) => void = () => {};
+    piClient.getSandboxProfile = () => new Promise<PiSandboxProfile>((resolve) => { release = resolve; });
+    const loading = useProjectSandboxStore.getState().loadProfile();
+    piClient.listProjectSandboxes = async () => ({ projects: [] });
+    piClient.saveSandboxProfile = async () => custom;
+    await useProjectSandboxStore.getState().saveProfile(custom.content);
+    release(builtIn);
+    await loading;
+    expect(useProjectSandboxStore.getState().profile).toEqual(custom);
   });
 });

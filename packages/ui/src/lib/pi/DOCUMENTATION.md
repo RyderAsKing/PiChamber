@@ -91,6 +91,11 @@ failure, no composer lock), and `describeSandboxSendError` gives its text.
 
 ## Project sandboxes
 
+`piClient.getSandboxProfile()`, `saveSandboxProfile(content)` and `resetSandboxProfile()`
+wrap `GET` / `PUT` / `DELETE /api/pi/sandbox/profile`: the launcher profile in use on the
+server (`PiSandboxProfile`, null on a platform without one). A refused save is
+`PiRequestError` `INVALID_SANDBOX_PROFILE` with `messages`.
+
 `piClient.getSandboxStatus()`, `recheckSandbox()`, `listProjectSandboxes()`,
 and `setProjectSandbox(projectId, setting)` wrap `/api/pi/sandbox/*` (types in
 `protocol.ts`). The setting is host-local to the connected server. `piClient.getSandboxDefaults()`

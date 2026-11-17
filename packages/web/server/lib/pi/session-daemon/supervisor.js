@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
+import { readSmallRegularFile } from '../../server/cross-process-lock.js';
 import { resolveServerProfile } from '../../server/server-profile.js';
 import { isLocalSessionDaemonEndpoint } from './session-daemon.js';
 import { requestSessionDaemon, SessionDaemonClientError, subscribeSessionDaemon } from './ipc-client.js';
@@ -87,6 +88,18 @@ const buildSessionDaemonChildEnv = ({ env = {}, electronVersion } = {}) => {
   }
   return next;
 };
+
+// The server's own settings stay out of a sandbox: its UI password, JWT
+// secret and tunnel token would let sandboxed code sign in to this server and
+// run anything through it, and a shared endpoint override would point the
+// sandbox at the main daemon's socket. Only what a daemon reads is kept, so a
+// server variable added later is left out unless it is listed here.
+const SANDBOX_KEPT_PICHAMBER_ENV = new Set(['PICHAMBER_DATA_DIR', 'PICHAMBER_PI_AGENT_DIR']);
+const sandboxDaemonEnv = (env = {}) => Object.fromEntries(
+  Object.entries(env).filter(([name]) => (
+    !name.toUpperCase().startsWith('PICHAMBER_') || SANDBOX_KEPT_PICHAMBER_ENV.has(name)
+  )),
+);
 
 const isPidAlive = (processLike, pid) => {
   try {
@@ -311,6 +324,10 @@ export const createPiSessionDaemonSupervisor = ({
       ...resolvedPaths,
       lockFile: join(launcherDir, 'operation.lock'),
       launcherFile: join(launcherDir, 'launcher.json'),
+      // The server sends the credential to the daemon on every request, so
+      // it must be a file the sandbox cannot replace: there the daemon may
+      // read it (one read-only file grant) and nothing more.
+      credentialFile: join(launcherDir, 'session-daemon.key'),
     }
     : resolvedPaths;
   const serverPid = processLike.pid;
@@ -354,9 +371,11 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
+  // A launcher daemon writes its own state file, so it is read as hostile
+  // input: never through a symlink, and never a FIFO that would block.
   const readState = async () => {
     try {
-      const state = JSON.parse(await readFile(paths.stateFile, 'utf8'));
+      const state = JSON.parse(await readSmallRegularFile(paths.stateFile));
       return isValidState(state) ? state : null;
     } catch {
       return null;
@@ -365,7 +384,7 @@ export const createPiSessionDaemonSupervisor = ({
 
   const readFailureState = async () => {
     try {
-      const state = JSON.parse(await readFile(paths.stateFile, 'utf8'));
+      const state = JSON.parse(await readSmallRegularFile(paths.stateFile));
       return isValidFailureState(state) ? state : null;
     } catch {
       return null;
@@ -374,7 +393,7 @@ export const createPiSessionDaemonSupervisor = ({
 
   const readCredential = async () => {
     try {
-      const credential = (await readFile(paths.credentialFile, 'utf8')).trim();
+      const credential = (await readSmallRegularFile(paths.credentialFile)).trim();
       if (credential.length < 32) throw new Error('invalid credential');
       return credential;
     } catch {
@@ -385,6 +404,8 @@ export const createPiSessionDaemonSupervisor = ({
   const ensureCredential = async () => {
     await mkdir(paths.profileDir, { recursive: true, mode: 0o700 });
     await chmodIfPossible(paths.profileDir, 0o700);
+    await mkdir(dirname(paths.credentialFile), { recursive: true, mode: 0o700 });
+    await chmodIfPossible(dirname(paths.credentialFile), 0o700);
     try {
       const credential = await readCredential();
       await chmodIfPossible(paths.credentialFile, 0o600);
@@ -1013,9 +1034,7 @@ export const createSandboxedPiSessionDaemonSupervisor = async ({
   // runtime folder sits under the data folder, where a socket path built
   // from it would pass macOS's 103-byte limit, so it is named by a hash.
   const runtimeName = `sbx-${createHash('sha256').update(profile.profileKey).digest('hex').slice(0, 16)}`;
-  // A shared endpoint override would point the sandbox at the main daemon's
-  // socket; sandbox daemons always use their own per-profile socket.
-  const { PICHAMBER_PI_SESSION_DAEMON_ENDPOINT: _sharedEndpoint, ...ownEnv } = env;
+  const ownEnv = sandboxDaemonEnv(env);
   const supervisor = createPiSessionDaemonSupervisor({
     daemonReadyTimeoutMs: SANDBOX_DAEMON_READY_TIMEOUT_MS,
     ...options,
@@ -1040,6 +1059,7 @@ export const createSandboxedPiSessionDaemonSupervisor = async ({
       grants: [
         ...sandbox.grants,
         { kind: 'readWrite', path: paths.profileDir },
+        { kind: 'readFile', path: paths.credentialFile },
         { kind: 'unixSocketBind', dir: paths.runtimeDir },
       ],
     }),

@@ -2,6 +2,7 @@ import type {
   PiProjectSandboxChoice,
   PiProjectSandboxSetting,
   PiProjectSandboxState,
+  PiProjectSandboxUpdate,
   PiSandboxDefaults,
   PiSandboxExtraFolder,
 } from '@/lib/pi/protocol';
@@ -104,21 +105,38 @@ export const settingToSave = (
   };
 };
 
-/** Whether saving `setting` would change what the server holds. */
-export const settingDiffers = (setting: PiProjectSandboxSetting, state: PiProjectSandboxState | undefined): boolean => {
+/**
+ * The fields of `setting` that differ from what the server holds, as far as
+ * this device knows. Only these are sent: the server keeps the rest, so a
+ * copy that went stale here cannot undo another device's change.
+ */
+export const settingUpdate = (
+  setting: PiProjectSandboxSetting,
+  state: PiProjectSandboxState | undefined,
+): PiProjectSandboxUpdate => {
   const saved = {
     mode: choiceOf(state),
     allowHosts: state?.allowHosts ?? [],
     allowLocalPorts: state?.allowLocalPorts ?? [],
     extraFolders: (state?.extraFolders ?? []).map((folder) => ({ path: folder.path, access: folder.access })),
   };
-  return JSON.stringify(saved) !== JSON.stringify({
+  const next = {
     mode: setting.mode,
     allowHosts: setting.allowHosts ?? [],
     allowLocalPorts: setting.allowLocalPorts ?? [],
     extraFolders: setting.extraFolders ?? [],
-  });
+  };
+  const update: PiProjectSandboxUpdate = {};
+  if (next.mode !== saved.mode) update.mode = next.mode;
+  if (JSON.stringify(next.allowHosts) !== JSON.stringify(saved.allowHosts)) update.allowHosts = next.allowHosts;
+  if (JSON.stringify(next.allowLocalPorts) !== JSON.stringify(saved.allowLocalPorts)) update.allowLocalPorts = next.allowLocalPorts;
+  if (JSON.stringify(next.extraFolders) !== JSON.stringify(saved.extraFolders)) update.extraFolders = next.extraFolders;
+  return update;
 };
+
+/** Whether saving `setting` would change what the server holds. */
+export const settingDiffers = (setting: PiProjectSandboxSetting, state: PiProjectSandboxState | undefined): boolean =>
+  Object.keys(settingUpdate(setting, state)).length > 0;
 
 /** Hosts in one-click groups for the shared list. Each is a plain host:
  *  nono matches names exactly, and every entry widens what the agent can

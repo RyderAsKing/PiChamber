@@ -109,6 +109,34 @@ It cannot read other projects or their session transcripts, change Pi's global
 settings, extensions, or credentials, or reach the PiChamber server. On WSL2
 some of this can be bypassed (see WSL2 limits).
 
+## Change the sandbox profile
+
+Allowed hosts, local ports, and extra folders cover most needs, and they apply
+to one project at a time. What every sandbox may read besides that, such as
+language runtimes and system folders, comes from a nono profile that ships
+with PiChamber.
+
+Once a project is sandboxed, **Settings → Projects → Sandboxing → Sandbox
+profile** shows where that profile is on the server machine. To change it:
+
+1. Choose **Customise**. PiChamber copies the profile to its data folder,
+   where sandboxed code cannot write, and uses the copy from then on.
+2. Edit the copy in Settings, or in a text editor on the server machine at
+   the path shown.
+3. Choose **Save profile**. PiChamber checks it with nono and refuses a
+   profile nono does not accept, telling you what is wrong.
+
+Running sandboxes restart with the new profile after their current turn. A
+file you edit on the server machine is picked up the same way, within about a
+minute. If that file is not valid, sandboxed projects stop running until you
+fix it or choose **Reset to default**, which deletes your copy.
+
+The profile applies to every sandboxed project on that server, so anything
+you loosen is loosened for all of them. A custom profile also stops following
+the profile PiChamber ships: after an update, compare the two if you want the
+changes. See the [nono documentation](https://nono.sh) for what a profile can
+contain.
+
 ## What stays outside
 
 Only the agent is sandboxed. What PiChamber does for you runs with your

@@ -270,7 +270,10 @@ export async function startWebUiServer(options = {}) {
     daemonPool: piDaemonPool,
     trustAsk: piTrustAsk,
     uiSettingsStore,
-    launcher: createNonoLauncher({ stageDir: path.join(PICHAMBER_DATA_DIR, 'pi', 'sandbox') }),
+    launcher: createNonoLauncher({
+      stageDir: path.join(PICHAMBER_DATA_DIR, 'pi', 'sandbox'),
+      customProfileFile: path.join(PICHAMBER_DATA_DIR, 'pi', 'sandbox', 'nono-profile.custom.json'),
+    }),
     dataDir: PICHAMBER_DATA_DIR,
     agentDir: async () => {
       const configured = typeof process.env.PICHAMBER_PI_AGENT_DIR === 'string' ? process.env.PICHAMBER_PI_AGENT_DIR.trim() : '';

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { writeFileAtomic } from '../fs/atomic-write.js';
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 import { withCrossProcessLock } from '../server/cross-process-lock.js';
-import { mergeSandboxDefaults, normalizeProjectSandboxSetting, ProjectSandboxSettingError, readSandboxDefaults } from './sandbox/project-sandbox-setting.js';
+import { mergeProjectSandboxSetting, mergeSandboxDefaults, ProjectSandboxSettingError, readSandboxDefaults } from './sandbox/project-sandbox-setting.js';
 
 const MAX_SETTINGS_BYTES = 2 * 1024 * 1024;
 const PORTABLE_SETTINGS_MARKER = '__pichamberSettingsScope';
@@ -290,15 +290,24 @@ export const createPiUiSettingsStore = ({
     });
   };
 
-  /** Save one project's sandbox setting (host-local only). */
-  const setProjectSandbox = async (projectId, setting) => {
-    const sandbox = normalizeProjectSandboxSetting(setting);
+  /**
+   * Save one project's sandbox setting (host-local only). `patch` holds
+   * `mode`, `allowHosts`, `allowLocalPorts`, `extraFolders`, or several; a
+   * field it leaves out keeps the stored value. The merge happens under the
+   * store lock, so a device that only adds a host cannot turn off a sandbox
+   * another device just turned on.
+   */
+  const setProjectSandbox = async (projectId, patch) => {
+    // Refuse a malformed patch before taking the lock.
+    mergeProjectSandboxSetting(null, patch);
     return runMutation(async () => {
       const current = await readLocked();
       const projects = Array.isArray(current.projects) ? current.projects : [];
-      if (typeof projectId !== 'string' || !projects.some((project) => isRecord(project) && project.id === projectId)) {
-        throw new ProjectSandboxSettingError(undefined, 'PROJECT_NOT_FOUND');
-      }
+      const stored = typeof projectId === 'string'
+        ? projects.find((project) => isRecord(project) && project.id === projectId)
+        : undefined;
+      if (!stored) throw new ProjectSandboxSettingError(undefined, 'PROJECT_NOT_FOUND');
+      const sandbox = mergeProjectSandboxSetting(stored, patch);
       const nextRuntime = {
         ...selectFields(current, LOCAL_FIELDS),
         projects: projects.map((project) => (isRecord(project) && project.id === projectId ? { ...project, sandbox } : project)),

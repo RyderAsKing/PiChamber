@@ -1,8 +1,8 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { closeSync, constants as fsConstants, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { launchIdentity, normalizeGrants, normalizeNetwork, SandboxLaunchError } from './launcher.js';
@@ -59,6 +59,7 @@ const runFile = (execFile, command, args, env) => new Promise((resolve) => {
       error,
       code: error ? (typeof error.code === 'number' ? error.code : null) : 0,
       spawnCode: error && typeof error.code === 'string' ? error.code : null,
+      stdout: `${stdout ?? ''}`,
       output: `${stdout ?? ''}\n${stderr ?? ''}`,
     });
   });
@@ -160,7 +161,74 @@ const networkFlags = (network, hostKind) => {
 const loadProfile = (profileFile, stageDir) => {
   const profileContent = readFileSync(profileFile);
   const profileHash = createHash('sha256').update(profileContent).digest('hex');
-  return { hash: profileHash, resolve: createProfileResolver({ profileFile, profileContent, profileHash, stageDir }) };
+  return {
+    file: profileFile,
+    content: profileContent.toString('utf8'),
+    hash: profileHash,
+    resolve: createProfileResolver({ profileFile, profileContent, profileHash, stageDir }),
+  };
+};
+
+// A profile is a few hundred bytes of policy; anything near this is not one.
+const NONO_PROFILE_MAX_BYTES = 64 * 1024;
+const MAX_PROFILE_MESSAGES = 8;
+const MAX_PROFILE_MESSAGE_LENGTH = 600;
+
+/** A custom profile that cannot be used. `messages` are for the owner: what
+ *  nono (or the JSON parser) said is wrong with the text. */
+class NonoProfileError extends Error {
+  constructor(messages = []) {
+    super('The nono profile is not valid.');
+    this.name = 'NonoProfileError';
+    this.code = 'INVALID_SANDBOX_PROFILE';
+    this.messages = messages
+      .filter((message) => typeof message === 'string' && message.trim().length > 0)
+      .slice(0, MAX_PROFILE_MESSAGES)
+      .map((message) => message.trim().slice(0, MAX_PROFILE_MESSAGE_LENGTH));
+  }
+}
+
+/**
+ * The owner's custom profile, or null when there is none. Read as a small
+ * regular file and never through a symlink. A file that is there but cannot
+ * be read this way throws: the launcher then refuses to start a sandbox
+ * instead of quietly using the built-in profile the owner replaced.
+ */
+const readCustomProfile = (file) => {
+  let handle;
+  try {
+    handle = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw new SandboxLaunchError('SANDBOX_PROFILE_INVALID');
+  }
+  try {
+    const stats = fstatSync(handle);
+    if (!stats.isFile() || stats.size > NONO_PROFILE_MAX_BYTES) throw new SandboxLaunchError('SANDBOX_PROFILE_INVALID');
+    const buffer = Buffer.alloc(stats.size);
+    let read = 0;
+    while (read < buffer.length) {
+      const count = readSync(handle, buffer, read, buffer.length - read, read);
+      if (count === 0) break;
+      read += count;
+    }
+    const content = buffer.subarray(0, read);
+    return { content: content.toString('utf8'), hash: createHash('sha256').update('custom\n').update(content).digest('hex') };
+  } catch (error) {
+    if (error instanceof SandboxLaunchError) throw error;
+    throw new SandboxLaunchError('SANDBOX_PROFILE_INVALID');
+  } finally {
+    closeSync(handle);
+  }
+};
+
+const isJsonObject = (text) => {
+  try {
+    const value = JSON.parse(text);
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  } catch {
+    return false;
+  }
 };
 
 /**
@@ -180,6 +248,10 @@ export const createNonoLauncher = ({
   // A real folder for the profile copy when a profile sits inside an asar
   // archive (`<dataDir>/pi/sandbox`).
   stageDir,
+  // The owner's own profile, used in place of the built-in one while the
+  // file exists (`<dataDir>/pi/sandbox/nono-profile.custom.json`). It must
+  // sit where no sandbox can write.
+  customProfileFile,
   env = process.env,
 } = {}) => {
   const profiles = new Map(Object.keys(HOST_LIMITS).map((hostKind) => [
@@ -190,14 +262,44 @@ export const createNonoLauncher = ({
   // Set by a successful probe: the nono version and the host kind whose
   // profile every launch uses.
   let probed = null;
+  // Custom profile hashes nono has accepted, so a launch checks each text once.
+  const acceptedCustom = new Set();
+
+  const detectHostKind = async () => (platform === 'darwin'
+    ? 'macos'
+    : platform === 'linux'
+      ? (WSL_PATTERN.test(await readProcVersion()) ? 'wsl2' : 'linux')
+      : null);
+
+  /** The profile launches use: the custom file while it exists. */
+  const activeProfile = (hostKind) => {
+    const custom = customProfileFile ? readCustomProfile(customProfileFile) : null;
+    return custom
+      ? { custom: true, hash: custom.hash, content: custom.content, resolve: async () => customProfileFile }
+      : { custom: false, ...profileFor(hostKind) };
+  };
+
+  /**
+   * Ask nono whether a profile file is valid. `null` when nono could not
+   * answer (not installed, or output that is not its report), otherwise
+   * `{ valid, messages }`.
+   */
+  const validateProfileFile = async (file) => {
+    const run = await runFile(execFile, command, ['profile', 'validate', '--json', file], { ...env, ...PROBE_ENV });
+    if (run.spawnCode) return null;
+    let report;
+    try {
+      report = JSON.parse(run.stdout);
+    } catch {
+      return null;
+    }
+    if (typeof report?.valid !== 'boolean') return null;
+    return { valid: report.valid, messages: Array.isArray(report.errors) ? report.errors : [] };
+  };
 
   const probe = async () => {
     probed = null;
-    const hostKind = platform === 'darwin'
-      ? 'macos'
-      : platform === 'linux'
-        ? (WSL_PATTERN.test(await readProcVersion()) ? 'wsl2' : 'linux')
-        : null;
+    const hostKind = await detectHostKind();
     if (!hostKind) return { available: false, code: 'UNSUPPORTED_PLATFORM' };
 
     const probeEnv = { ...env, ...PROBE_ENV };
@@ -247,7 +349,7 @@ export const createNonoLauncher = ({
     return launchIdentity({
       launcher: 'nono',
       version,
-      profile: profileFor(hostKind).hash,
+      profile: activeProfile(hostKind).hash,
       grants: request.grants,
       network: request.network,
     });
@@ -259,7 +361,15 @@ export const createNonoLauncher = ({
     if (typeof tmpDir !== 'string' || !tmpDir.startsWith('/')) throw new SandboxLaunchError('SANDBOX_INVALID_GRANT');
     if (cacheDir !== undefined && (typeof cacheDir !== 'string' || !cacheDir.startsWith('/'))) throw new SandboxLaunchError('SANDBOX_INVALID_GRANT');
     const grantFlags = normalizeGrants(grants).flatMap((grant) => [GRANT_FLAGS[grant.kind], grant.path]);
-    const readableProfile = await profileFor(hostKind).resolve();
+    const profile = activeProfile(hostKind);
+    if (profile.custom && !acceptedCustom.has(profile.hash)) {
+      // Edited on disk since nono last saw it: a profile nono refuses must
+      // read as a profile problem, not as a daemon that failed to start.
+      const report = isJsonObject(profile.content) ? await validateProfileFile(customProfileFile) : { valid: false };
+      if (report && !report.valid) throw new SandboxLaunchError('SANDBOX_PROFILE_INVALID');
+      if (report) acceptedCustom.add(profile.hash);
+    }
+    const readableProfile = await profile.resolve();
     return {
       command,
       args: [
@@ -272,5 +382,74 @@ export const createNonoLauncher = ({
     };
   };
 
-  return { id: 'nono', platforms: ['linux', 'darwin'], transport: 'local-socket', probe, identity, prepare };
+  /**
+   * The profile in use on this host, for Settings: the built-in file for
+   * this host kind, the custom file's place, which of them launches use, and
+   * that one's text. Null on a platform nono does not run on.
+   */
+  const profile = async () => {
+    const hostKind = probed?.hostKind ?? await detectHostKind();
+    if (!hostKind) return null;
+    const builtIn = profileFor(hostKind);
+    const base = { hostKind, builtInPath: builtIn.file, customPath: customProfileFile ?? null };
+    let custom;
+    try {
+      custom = customProfileFile ? readCustomProfile(customProfileFile) : null;
+    } catch {
+      // There, but not a file PiChamber will read: sandboxes do not start.
+      return { ...base, custom: true, unreadable: true, path: customProfileFile, content: '', hash: 'unreadable' };
+    }
+    return custom
+      ? { ...base, custom: true, path: customProfileFile, content: custom.content, hash: custom.hash }
+      : { ...base, custom: false, path: builtIn.file, content: builtIn.content, hash: builtIn.hash };
+  };
+
+  /**
+   * Save the owner's profile text as the custom profile. Refused with
+   * `NonoProfileError` unless it is a JSON object nono accepts; when nono is
+   * not installed only the JSON is checked, and a launch checks the rest.
+   * The text is checked in a temporary file beside the target and renamed
+   * over it, so launches never see a half-written or refused profile.
+   */
+  const saveProfile = async (content) => {
+    if (!customProfileFile) throw new SandboxLaunchError('SANDBOX_PROFILE_UNREADABLE');
+    if (typeof content !== 'string' || content.trim().length === 0) throw new NonoProfileError(['The profile is empty.']);
+    if (Buffer.byteLength(content) > NONO_PROFILE_MAX_BYTES) throw new NonoProfileError(['The profile is too large.']);
+    try {
+      const value = JSON.parse(content);
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new NonoProfileError(['The profile must be a JSON object.']);
+    } catch (error) {
+      if (error instanceof NonoProfileError) throw error;
+      throw new NonoProfileError([`The profile is not valid JSON: ${error?.message ?? 'syntax error'}`]);
+    }
+    const folder = dirname(customProfileFile);
+    const temporary = join(folder, `nono-profile.check-${process.pid}-${Date.now()}.json`);
+    try {
+      await mkdir(folder, { recursive: true, mode: 0o700 });
+      await writeFile(temporary, content, { mode: 0o600, flag: 'wx' });
+      const report = await validateProfileFile(temporary);
+      if (report && !report.valid) {
+        // nono names the file it checked; the owner knows it as the profile.
+        throw new NonoProfileError(report.messages.map((message) => (
+          typeof message === 'string' ? message.split(temporary).join('the profile') : message)));
+      }
+      await rename(temporary, customProfileFile);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {});
+      if (error instanceof NonoProfileError) throw error;
+      throw new SandboxLaunchError('SANDBOX_PROFILE_UNREADABLE');
+    }
+    return profile();
+  };
+
+  /** Go back to the built-in profile by removing the custom file. */
+  const resetProfile = async () => {
+    if (customProfileFile) await rm(customProfileFile, { force: true });
+    return profile();
+  };
+
+  return {
+    id: 'nono', platforms: ['linux', 'darwin'], transport: 'local-socket',
+    probe, identity, prepare, profile, saveProfile, resetProfile,
+  };
 };
