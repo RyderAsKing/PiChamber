@@ -11,6 +11,7 @@ export type SettingsPageSlug =
   | 'providers'
   | 'behavior'
   | 'skills.installed'
+  | 'plugins'
   | 'git'
   | 'appearance'
   | 'chat'
@@ -117,6 +118,14 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     group: 'agent',
     kind: 'single',
     keywords: ['skill', 'skills', 'instructions', 'install', 'catalog'],
+  },
+  {
+    slug: 'plugins',
+    title: 'Extensions & Plugins',
+    group: 'agent',
+    kind: 'single',
+    description: 'PiChamber plugins, and the extensions and packages Pi loads.',
+    keywords: ['plugin', 'plugins', 'extension', 'extensions', 'package', 'packages', 'pi config', 'pi list', 'pi remove', 'add-ons', 'visuals', 'html', 'render', 'chart', 'diagram', 'tools', 'sub-agents', 'subagents', 'composer', 'toggles'],
   },
   {
     slug: 'git',
@@ -260,6 +269,8 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
 
     case 'skills.installed':
       return 'puzzle';
+    case 'plugins':
+      return 'plug';
 
     case 'git':
       return 'git-repository';

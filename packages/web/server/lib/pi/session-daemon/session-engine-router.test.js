@@ -193,6 +193,26 @@ describe('session engine router', () => {
     })).rejects.toMatchObject({ code: ENGINE_UNSUPPORTED_OPERATION });
   });
 
+  it('refuses draft creates and draft adoptions on an engine without creating anything', async () => {
+    let created = 0;
+    const engine = makeEngine('with-create', {
+      ownsProvider: (id) => id === 'owned',
+      handlers: { 'sessions.create': async () => { created += 1; return { session: { id: 'new-1' } }; } },
+    });
+    const { router } = makeRouter({ getRegistry: () => makeRegistry([engine]), resolveDirectory: async (dir) => dir });
+    for (const payload of [
+      { cwd: '/work', draft: true, model: { providerId: 'owned', modelId: 'm' } },
+      { cwd: '/work', draft: true, engine: 'with-create' },
+      { cwd: '/work', draftSessionId: 'draft-1', model: { providerId: 'owned', modelId: 'm' } },
+    ]) {
+      await expect(router.create({}, { command: 'sessions.create', requestId: 'r', payload }))
+        .rejects.toMatchObject({ code: ENGINE_UNSUPPORTED_OPERATION });
+    }
+    // A Pi model keeps the Pi-native draft path.
+    expect(await router.create({}, { command: 'sessions.create', requestId: 'r', payload: { cwd: '/work', draft: true } })).toBe(false);
+    expect(created).toBe(0);
+  });
+
   it('skips provider routing for engines without a create handler and falls back to Pi', async () => {
     const engine = makeEngine('no-create', {
       ownsProvider: (id) => id === 'owned',

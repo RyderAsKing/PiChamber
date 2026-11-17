@@ -75,7 +75,15 @@ import {
   isValidSessionShelfEntry,
   isValidSessionShelfResponse,
   type PiAbortInput,
+  type PiExtensionConfigResponse,
+  type PiExtensionConfigWrite,
   type PiExtensionListResponse,
+  type PiPluginListResponse,
+  type PiPluginSessionStateInput,
+  type PiPluginSessionStateResponse,
+  type PiPluginSessionStateUpdate,
+  type PiPluginStateInput,
+  type PiPluginView,
   type PiExtensionPalette,
   type PiTerminalColors,
   type PiExtensionDialogResponseInput,
@@ -566,6 +574,20 @@ export class PiService {
         ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
       },
     );
+  }
+
+  /** Stop a draft session's runtime. Any other session is left alone (`false`). */
+  async discardDraftSession(sessionId: PiSessionId, scope?: PiClientScope): Promise<boolean> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<undefined, { discarded?: unknown }>(
+      `/api/pi/sessions/${encodeURIComponent(sessionId)}/discard-draft`,
+      {
+        method: 'POST',
+        ...(scope?.directory ? { query: { directory: scope.directory } } : {}),
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
+    );
+    return result?.discarded === true;
   }
 
   async deleteSession(input: PiDeleteInput, scope?: PiClientScope): Promise<boolean> {
@@ -1165,6 +1187,56 @@ export class PiService {
     });
   }
 
+  // ----- Plugins ----------------------------------------------------------
+
+  /** Plugins with their state resolved for `directory` (global values when omitted). */
+  async listPlugins(directory?: string, scope?: PiClientScope): Promise<PiPluginListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiPluginListResponse>('/api/pi/plugins', {
+      method: 'GET',
+      ...(directory ? { query: { directory } } : {}),
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Turn a plugin on or off. Its agent half follows at the next safe edge. */
+  async setPluginEnabled(id: string, enabled: boolean, scope?: PiClientScope): Promise<PiPluginView> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<{ enabled: boolean }, PiPluginView>(`/api/pi/plugins/${encodeURIComponent(id)}`, {
+      method: 'PUT', body: { enabled }, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Set one plugin state value; the reply is resolved for `input.directory`. */
+  async setPluginState(id: string, input: PiPluginStateInput, scope?: PiClientScope): Promise<PiPluginView> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiPluginStateInput, PiPluginView>(`/api/pi/plugins/${encodeURIComponent(id)}/state`, {
+      method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** A session's own plugin values (composer switches). */
+  async getPluginSessionState(sessionId: string, scope?: PiClientScope): Promise<PiPluginSessionStateResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiPluginSessionStateResponse>(`/api/pi/plugins/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'GET', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Set or clear (`value: null`) one session's own plugin value. */
+  async setPluginSessionState(
+    id: string,
+    sessionId: string,
+    input: PiPluginSessionStateInput,
+    scope?: PiClientScope,
+  ): Promise<PiPluginSessionStateUpdate> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiPluginSessionStateInput, PiPluginSessionStateUpdate>(
+      `/api/pi/plugins/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`,
+      { method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
+  }
+
   // ----- Extensions -------------------------------------------------------
 
   /** List pi extensions loaded for a directory and the commands they register. */
@@ -1175,6 +1247,56 @@ export class PiService {
       ...(directory ? { query: { directory } } : {}),
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
+  }
+
+  /**
+   * Extensions and packages Pi knows for `directory` (global only when
+   * omitted), with whether each loads. Reading never installs anything.
+   */
+  async getExtensionConfig(directory?: string, scope?: PiClientScope): Promise<PiExtensionConfigResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiExtensionConfigResponse>('/api/pi/extensions/config', {
+      method: 'GET',
+      ...(directory ? { query: { directory } } : {}),
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /**
+   * Turn an extension on or off globally, or set a project's override. The
+   * answer is the fresh list; `deferred` when a busy session delays it.
+   */
+  async setExtensionConfig(
+    id: string,
+    input: PiExtensionConfigWrite,
+    scope?: PiClientScope,
+  ): Promise<PiExtensionConfigResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiExtensionConfigWrite, PiExtensionConfigResponse>(
+      `/api/pi/extensions/config/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: input, retry: false, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
+  }
+
+  /**
+   * Remove an installed package (what `pi remove` does). A project package
+   * needs its `directory`. The answer is the fresh list.
+   */
+  async removeExtensionPackage(
+    id: string,
+    directory?: string,
+    scope?: PiClientScope,
+  ): Promise<PiExtensionConfigResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiExtensionConfigResponse>(
+      `/api/pi/extensions/packages/${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+        retry: false,
+        ...(directory ? { query: { directory } } : {}),
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
+    );
   }
 
   /**
@@ -1194,6 +1316,24 @@ export class PiService {
     await jsonRequest<PiExtensionDialogResponseInput, undefined>('/api/pi/extensions/respond', {
       method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
+  }
+
+  /**
+   * Click on a composer control an extension declared: ask for `value` (a
+   * toggle's new boolean, a cycle option's value, nothing for an action).
+   * The daemon runs the extension's own command for it; `ran` is false when
+   * the control is gone or already has that value. The new value arrives as
+   * an `extension.control` event, never in this answer.
+   */
+  async runExtensionControl(
+    input: { sessionId: string; id: string; value?: string | boolean; clientId?: string },
+    scope?: PiClientScope,
+  ): Promise<{ ran: boolean }> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<typeof input, { ran?: unknown }>('/api/pi/extensions/control', {
+      method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    return { ran: result?.ran === true };
   }
 
   /**

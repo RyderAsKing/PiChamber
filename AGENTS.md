@@ -117,8 +117,9 @@ Set `BASE_URL` (default `http://127.0.0.1:5180`, the `bun run dev` UI),
 
 Demo data: `bun run screenshots --seed <dir>` recreates a synthetic git repo in
 `<dir>/repo` (on a long branch, with a favicon and an unchanged `src/` folder), more folders in
-`<dir>/folders` (one with a favicon, a monorepo, one without an icon, one with
-a dark logo on a transparent background), a data
+`<dir>/folders` (one with a favicon and its own scripted model extension, a monorepo, one without an icon, one with
+a dark logo on a transparent background and its own `subagent` extension),
+a data
 directory in `<dir>/data` that opens them all, and `<dir>/home`, a throwaway
 `HOME` whose Pi agent directory holds one demo session (plus a few short
 sessions across the folders, with backdated times and shelf state, for the
@@ -190,7 +191,45 @@ mobile with its key bar); `extension-surface-unfocused`
 (the same prompt with focus on another control, so its footer offers to type
 to it, desktop only); `extension-surface-keys` (the same prompt with its
 footer's Show key buttons pressed; its Esc button answers the prompt afterwards, so capture it
-last of the three, desktop only).
+last of the three, desktop only). The seed turns on the bundled Visuals and
+Sub-agents plugins and adds two backdated sessions for them:
+`settings-plugins` (Settings → Extensions & Plugins with both on, desktop
+only); `settings-extensions` (the same page at Pi extensions, Global: the
+seed's local `review-kit` package with one extension off, the demo
+extensions, and Pi's built-ins); `settings-extensions-project` (Pi
+extensions on This project, each extension with the project's own choice);
+`settings-extensions-remove` (the package's Remove dialog; nothing is
+removed, desktop only); `settings-extensions-mobile` (Pi extensions on This
+project on a phone, reached from the composer sheet's Plugin settings,
+mobile only);
+`settings-plugin-detail` (Visuals' own page, opened from its row, desktop
+only); `settings-plugin-replaced` (Sub-agents' own page from the Night Shift
+session, whose folder has its own `subagent` extension: a warning callout
+names it and offers to turn it off in that project, desktop only);
+`visuals-page` (a `render_html` page in its frame between the turn's
+activity and its reply, with the Sub-agents toggle in the composer);
+`visuals-choices` (an answered `render_choices` call: three variants, one
+at a time at full width, opened on the chosen one with its switcher button
+marked and the note under the frame); `visuals-choices-pending` (a
+`render_choices` call that waits: the Acme Web folder's own extension is a
+scripted model that answers the message with the call, so the shown variant
+has a Choose button and the question sits folded above the composer; the page closes the question when it is
+done, which adds a turn to that session, so re-seed for a clean capture);
+`visuals-choices-switch` (the same waiting question after its second
+switcher button, so variant B is in the frame; the page presses Choose B
+when it is done, which also adds a turn);
+`composer-plugin-sheet` (on a phone, the plugin button beside Send opened
+to its sheet of switches, mobile only);
+`composer-controls` (the demo session's footer with the seed's demo
+extension's Mode cycle and Plan toggle after the plugin toggles, desktop
+only); `composer-controls-sheet` (the same controls in the phone sheet,
+mobile only); `composer-controls-draft` (a new-session draft whose draft
+session reported those controls before any send, desktop only);
+`visuals-expanded` (the same page from its Expand action, desktop only);
+`subagents-turn` (a finished scout-then-reviewer chain, a card per run);
+`subagents-run` (the reviewer's card pressed: the run on its own, in the
+Agents panel on desktop and a sheet on phones); and `subagents-panel` (the
+whole chain in the Agents panel from Open in panel, desktop only).
 Desktop captures report a mouse, so `hover:` styles apply; a page's
 `hoverScript` returns the point to rest the pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root

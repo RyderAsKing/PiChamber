@@ -11,6 +11,8 @@ interface SettingsPageLayoutProps {
   children: React.ReactNode;
   /** Optional page title shown above settings content. */
   title?: React.ReactNode;
+  /** Optional line above the title: a link back to the page this one opened from. */
+  titleAbove?: React.ReactNode;
   /** Optional content rendered before a string/number page title. */
   titleLeading?: React.ReactNode;
   /** Optional content rendered after a string/number page title. */
@@ -34,6 +36,7 @@ export const SettingsPageLayout: React.FC<SettingsPageLayoutProps> = ({
   className,
   outerClassName,
   title,
+  titleAbove,
   titleLeading,
   titleAccessory,
   description,
@@ -73,6 +76,7 @@ export const SettingsPageLayout: React.FC<SettingsPageLayoutProps> = ({
                 block would still claim the first line and push the actions down. */}
             {title != null || description != null ? (
             <div className="min-w-0 flex-1 basis-64 space-y-1">
+              {titleAbove != null ? <div className="mb-3">{titleAbove}</div> : null}
               {title != null ? (
                 isPlainTitle ? (
                   hasTitleChrome ? (

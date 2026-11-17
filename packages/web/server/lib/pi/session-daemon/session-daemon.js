@@ -32,6 +32,7 @@ import {
   isDisplayedExtensionEntryType,
   isIddExtensionEntry,
 } from './extension-bridge.js';
+import { commandName, createComposerControlsExtension, isComposerControlsExtensionPath } from './extension-controls.js';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
 import {
@@ -41,6 +42,9 @@ import {
 import { createExtensionMessageRenderer } from './extension-message-render.js';
 import { normalizeOpenRequestUrl, resolveOpenRequestSession } from './open-request.js';
 import { getBuiltinExtensionFactories } from './builtin-extensions.js';
+import { createExtensionConfig } from './extension-config.js';
+import { describeRuntimeReplacements } from './extension-replacements.js';
+import { createPluginHost } from './plugin-host.js';
 import {
   SESSION_DAEMON_DEFAULT_MESSAGE_PAGE_LIMIT,
   SESSION_DAEMON_MAX_FRAME_BYTES as MAX_FRAME_BYTES,
@@ -79,6 +83,7 @@ import { createSessionEngineRouter } from './session-engine-router.js';
 import { createPendingInputIndex } from './pending-input.js';
 import { createExtensionCustomHost } from './extension-custom-host.js';
 import { resolveExtensionMode } from './extension-ui-mode.js';
+import { createPichamberUi } from './pichamber-ui.js';
 import { createExtensionPaletteResolver, isTerminalColors } from './extension-palette.js';
 
 const textFromContent = (content) => (
@@ -89,8 +94,10 @@ const textFromContent = (content) => (
 
 // Marker so pi extensions can detect PiChamber without an extra dependency.
 // Extensions should use optional detection, e.g.:
-//   const chamber = (globalThis as any).__PICHAMBER__;
+//   const marker = (globalThis as any).__PICHAMBER__;
 // or `process.env.PICHAMBER === "1"`. The object is frozen and versioned.
+// `globalThis.pichamber` holds PiChamber's own dialog calls (`pichamber.ui`),
+// kept off Pi's `ctx.ui` so a method Pi adds later cannot be shadowed.
 if (!globalThis.__PICHAMBER__) {
   try {
     globalThis.__PICHAMBER__ = Object.freeze({
@@ -102,6 +109,11 @@ if (!globalThis.__PICHAMBER__) {
         return resolveExtensionMode({ dataDir: resolvePiChamberDataDir() });
       },
     });
+  } catch {}
+}
+if (!globalThis.pichamber) {
+  try {
+    globalThis.pichamber = Object.freeze({ version: 1, ui: createPichamberUi() });
   } catch {}
 }
 if (!process.env.PICHAMBER) {
@@ -151,11 +163,20 @@ export function isLocalSessionDaemonEndpoint(endpoint, platform = process.platfo
 // factory to daemon socket state.
 export async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFile }, hooks) {
   const createRuntime = async ({ cwd: runtimeCwd, agentDir: runtimeAgentDir, sessionManager, sessionStartEvent }) => {
+    // Lets the daemon know a session's id before Pi starts it, so what its
+    // extensions publish at `session_start` can already be attributed.
+    hooks?.beforeSession?.(sessionManager);
     const services = await createAgentSessionServices({
       cwd: runtimeCwd,
       agentDir: runtimeAgentDir,
       resourceLoaderOptions: {
-        extensionFactories: getBuiltinExtensionFactories(),
+        // PiChamber plugins load after Pi's built-ins (plugin-host.js); the
+        // composer-controls listener loads last (extension-controls.js).
+        extensionFactories: [
+          ...getBuiltinExtensionFactories(),
+          ...(hooks?.pluginExtensionFactories?.() ?? []),
+          ...(hooks?.internalExtensionFactories?.() ?? []),
+        ],
       },
     });
 
@@ -236,6 +257,8 @@ export function createSessionDaemon({
   extensionToolRenderer: injectExtensionToolRenderer,
   engines = [],
   extensionMessageRenderer: injectExtensionMessageRenderer,
+  // Configured only by the server through `plugins.configure`.
+  pluginHost = createPluginHost(),
 } = {}) {
   if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
     throw new SessionDaemonProtocolError('INVALID_ENDPOINT', 'The session daemon endpoint must be local.');
@@ -496,10 +519,34 @@ export function createSessionDaemon({
   const getToolInput = (sessionId, toolCallId) => toolInputBySession.get(sessionId)?.get(toolCallId);
 
   const forgetToolInput = (sessionId, toolCallId) => {
+    forgetToolPartial(sessionId, toolCallId);
     const inputs = toolInputBySession.get(sessionId);
     if (!inputs) return;
     inputs.delete(toolCallId);
     if (inputs.size === 0) toolInputBySession.delete(sessionId);
+  };
+
+  // The latest partial result of each running tool. A client that opens the
+  // session mid-call gets it on the running part, as live clients did from
+  // `session.tool.update`: a tool that reports once and then waits (a Visuals
+  // question showing its options) would otherwise stay blank there. Dropped
+  // when the tool ends, the run settles, or the session closes.
+  const toolPartialBySession = new Map();
+
+  const rememberToolPartial = (sessionId, toolCallId, projected) => {
+    if (projected.output === undefined && projected.metadata === undefined) return;
+    const partials = toolPartialBySession.get(sessionId) ?? new Map();
+    partials.set(toolCallId, projected);
+    toolPartialBySession.set(sessionId, partials);
+  };
+
+  const getToolPartial = (sessionId, toolCallId) => toolPartialBySession.get(sessionId)?.get(toolCallId);
+
+  const forgetToolPartial = (sessionId, toolCallId) => {
+    const partials = toolPartialBySession.get(sessionId);
+    if (!partials) return;
+    partials.delete(toolCallId);
+    if (partials.size === 0) toolPartialBySession.delete(sessionId);
   };
 
   const mergeToolPresentationMetadata = (metadata, activeRuntime, directory, toolName, args) => {
@@ -604,22 +651,31 @@ export function createSessionDaemon({
     cwd: targetCwd,
     agentDir,
     resourceLoaderOptions: {
-      extensionFactories: getBuiltinExtensionFactories(),
+      extensionFactories: [...getBuiltinExtensionFactories(), ...pluginHost.extensionFactories(), ...internalExtensionFactories()],
     },
   });
 
   // The session that most recently produced an event: the carrier for an
   // Open request nobody can attribute (see open-request.js).
   let lastPublishedSession = null;
+  // Sessions started for a new-session draft before its first send (see
+  // `createSession` with `draft: true`). Listings and the pending-input list
+  // leave them out, and their events carry `draft: true`, so no client adds
+  // a sidebar row or transcript for them; only the drafting client uses
+  // them, for the draft's composer controls and model. Sending adopts the
+  // session (`draftSessionId`), which clears the mark.
+  const draftSessionIds = new Set();
   const publish = (event, payload, sessionId = runtime?.session?.sessionId, directory) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
     const targetDirectory = directory || activeDirectory || cwd;
+    const draft = draftSessionIds.has(sessionId);
     const message = {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
       event,
       streamEpoch,
       sequence: ++sequence,
+      ...(draft ? { draft: true } : {}),
       payload: {
         sessionId,
         directory: targetDirectory,
@@ -627,7 +683,8 @@ export function createSessionDaemon({
       },
     };
     const line = `${JSON.stringify(message)}\n`;
-    lastPublishedSession = { sessionId, directory: targetDirectory };
+    // A draft is no target for open requests: no client shows it.
+    if (!draft) lastPublishedSession = { sessionId, directory: targetDirectory };
     // Live delivery stays full-fidelity even when the event is too large to
     // retain: retention evicts whole oldest events and never truncates content.
     replayLog.append(message.sequence, sessionId, line);
@@ -647,6 +704,7 @@ export function createSessionDaemon({
       event,
       streamEpoch,
       sequence: ++sequence,
+      ...(draftSessionIds.has(sessionId) ? { draft: true } : {}),
       payload: { sessionId, directory: directory || activeDirectory || cwd, ...payload },
     };
     const line = `${JSON.stringify(message)}\n`;
@@ -666,7 +724,11 @@ export function createSessionDaemon({
   const userBash = createUserBash({
     publish,
     redact: (value) => redactAttachmentPaths(value),
-    onSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
+    onSettled: (sessionId) => {
+      safeTouchIdleDisposal(sessionId);
+      // A settings change that waited for this command can apply now.
+      void flushPendingRuntimeRecreation().catch(() => {});
+    },
   });
   // What opened a `custom()` surface, for its header: the running top-level
   // tool, else the extension command being run. Pi's ctx.ui is shared per
@@ -739,6 +801,13 @@ export function createSessionDaemon({
     customHost,
     resolveExtensionMode: resolveBindingExtensionMode,
   });
+  // Factories PiChamber itself adds to every runtime, after plugins: the
+  // listener for composer controls extensions declare on `pi.events`.
+  const composerControlsExtension = createComposerControlsExtension(
+    (sessionId, data) => extensionBridge.setComposerControl(sessionId, data),
+  );
+  const internalExtensionFactories = () => [composerControlsExtension];
+
   // `custom()` commands from browsers. Unknown or closed surfaces answer
   // `accepted: false` instead of throwing, like stale dialog responses, so a
   // late key from another device never tears down the daemon socket.
@@ -813,8 +882,11 @@ export function createSessionDaemon({
   // host factories keep their single-argument contract and ignore the hooks.
   const baseCreateRuntime = injectCreateRuntime
     ?? ((runtimeOptions, runtimeHooks) => createPiSessionRuntime(runtimeOptions, runtimeHooks));
-  const createRuntime = (runtimeOptions) => baseCreateRuntime(runtimeOptions, {
+  const createRuntime = (runtimeOptions, extraHooks) => baseCreateRuntime(runtimeOptions, {
     createExtensionBindings: buildExtensionBindings,
+    pluginExtensionFactories: pluginHost.extensionFactories,
+    internalExtensionFactories,
+    ...extraHooks,
   });
 
   const getSessionState = () => runtime
@@ -915,6 +987,9 @@ export function createSessionDaemon({
         serverNow: Date.now(),
         lastSequence: snapshotSequence,
         ...(extensionSnapshot.statuses ? { extensionStatuses: extensionSnapshot.statuses } : {}),
+        // Always sent: an empty list is authoritative (no controls), unlike a
+        // missing field.
+        extensionControls: extensionSnapshot.controls ?? [],
         ...(extensionSnapshot.widgets ? { extensionWidgets: extensionSnapshot.widgets } : {}),
         ...(extensionSnapshot.dialogs ? { extensionDialogs: extensionSnapshot.dialogs } : {}),
         ...(extensionSnapshot.panels ? { extensionPanels: extensionSnapshot.panels } : {}),
@@ -1040,6 +1115,14 @@ export function createSessionDaemon({
       await runtime?.dispose?.();
     }
     runtime = undefined;
+    // Drafts die with their runtimes. Announce each while it is still marked,
+    // so the event carries `draft: true` and only the drafting client hears
+    // it, then drop the mark: no later id may be taken for a live draft.
+    for (const lease of leased) {
+      if (!draftSessionIds.has(lease.sessionId)) continue;
+      publish('session.deleted', {}, lease.sessionId, lease.cwd);
+      draftSessionIds.delete(lease.sessionId);
+    }
     // Pi defers the JSONL until the first user or assistant message, so the
     // remembered session may never have reached disk (a catalog read on a
     // fresh install, or a new session with nothing sent). Decide that while
@@ -1118,7 +1201,10 @@ export function createSessionDaemon({
     // the active runtime of a different project, whose loaded extensions,
     // skills, prompts, and models would then be reported for the wrong project.
     const resident = runtimeRegistry?.listByDirectory?.(requestedCwd) ?? [];
-    const candidate = resident.includes(runtime) ? runtime : resident[0];
+    // A draft session never answers as a folder's general runtime: its
+    // events are tagged `draft` and only the drafting client reads them.
+    const general = resident.filter((entry) => !draftSessionIds.has(entry?.session?.sessionId));
+    const candidate = general.includes(runtime) ? runtime : general[0];
     if (candidate) return Promise.resolve(candidate);
 
     // Concurrent starts are shared per directory, never across directories.
@@ -1158,12 +1244,20 @@ export function createSessionDaemon({
     else activeSessionInputs.delete(targetRuntime);
   };
 
+  // Recreating runtimes disposes every one of them, so it waits for work
+  // that ends by itself: a turn, a compaction, an input being accepted, a
+  // user shell command (`!cmd`, live from acceptance, before Pi reports
+  // `isBashRunning`). A dialog or custom() surface left open does not hold
+  // it back, since nothing says when that ends; recreation cancels it, as a
+  // daemon restart does.
   const isRuntimeReloadSafe = (targetRuntime) => {
     const session = targetRuntime?.session;
     return Boolean(
       session?.sessionId
       && session.isStreaming !== true
       && session.isCompacting !== true
+      && session.isBashRunning !== true
+      && !userBash.isActive(session.sessionId)
       && !activeSessionInputs.has(targetRuntime)
     );
   };
@@ -1286,6 +1380,10 @@ export function createSessionDaemon({
 
   const isIdleDisposalSafe = (sessionId, targetRuntime) => {
     if (!targetRuntime) return false;
+    // A draft is always disposable: nobody else can see it, so a dialog,
+    // custom() surface, or command left in it would keep it forever.
+    // Disposal ends them (`disposeIdleSessionRuntime`).
+    if (isValidIdleSessionId(sessionId) && draftSessionIds.has(sessionId)) return true;
     // A session blocked on a hosted input request (e.g. an extension dialog
     // opened while idle) must survive the idle timer so a user who walks
     // away finds it still pending later. Deletion and daemon stop still
@@ -1338,6 +1436,13 @@ export function createSessionDaemon({
       }
       const targetCwd = targetRuntime.cwd || activeDirectory || cwd;
       try {
+        if (draftSessionIds.has(sessionId)) {
+          // Forceful for a draft: answer its dialogs, close its surfaces,
+          // stop anything running, and let a control's command settle.
+          clearExtensionState(sessionId);
+          try { await targetRuntime.session?.abort?.(); } catch { /* disposal follows */ }
+          await waitForControlRuns(sessionId);
+        }
         if (targetRuntime === runtime) rememberRuntimeSession();
         // Kept for safety: while a hosted input request is pending the idle
         // guard above refuses disposal, so this cancel path is normally
@@ -1377,6 +1482,8 @@ export function createSessionDaemon({
         publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId, targetRuntime.cwd);
       } finally {
         disposingSessionIds.delete(sessionId);
+        // A draft that idled out is gone; its deletion went out marked.
+        if (!runtimeRegistry?.findBySessionId(sessionId)) draftSessionIds.delete(sessionId);
       }
     })();
     disposingSessionPromises.set(sessionId, tracked);
@@ -1465,7 +1572,8 @@ export function createSessionDaemon({
       case 'sessions.bash':
       case 'sessions.abortBash':
       case 'sessions.delete':
-      case 'sessions.rename': {
+      case 'sessions.rename':
+      case 'extensions.control': {
         const candidate = message?.payload?.sessionId;
         return isValidIdleSessionId(candidate) ? candidate : undefined;
       }
@@ -1528,6 +1636,8 @@ export function createSessionDaemon({
     }
     const extra = [];
     for (const entry of activeEntries) {
+      // A draft's session is listed once a send adopts it.
+      if (draftSessionIds.has(entry?.session?.sessionId)) continue;
       if (entry?.session?.sessionId && !knownIds.has(entry.session.sessionId)) {
         const name = entry.session.sessionManager?.getSessionName?.() || entry.session.title || undefined;
         const messageCount = entry.session.messages?.length || 0;
@@ -1745,6 +1855,9 @@ export function createSessionDaemon({
       try {
         const targetDir = await resolveDirectory(requestedDirectory);
         const existing = runtimeRegistry.get({ cwd: targetDir, sessionId });
+        // A draft answers its own commands but never becomes the active
+        // session: a restart must not try to reopen what was never written.
+        if (existing && draftSessionIds.has(sessionId)) return existing;
         if (existing) {
           runtime = existing;
           activeDirectory = targetDir;
@@ -1753,6 +1866,7 @@ export function createSessionDaemon({
       } catch {}
     }
     const existingAnywhere = runtimeRegistry.findBySessionId(sessionId);
+    if (existingAnywhere && draftSessionIds.has(sessionId)) return existingAnywhere;
     if (existingAnywhere) {
       runtime = existingAnywhere;
       if (existingAnywhere.cwd) activeDirectory = existingAnywhere.cwd;
@@ -2006,7 +2120,8 @@ export function createSessionDaemon({
           const startedAt = activeStartedAt ?? completedTiming?.startedAt;
           const running = streaming && !result;
           const interrupted = !running && !result;
-          const metadata = mergeToolPresentationMetadata(result?.metadata, activeRuntime, targetDir, part.name, part.arguments);
+          const partial = running ? getToolPartial(session.sessionId, part.id) : undefined;
+          const metadata = mergeToolPresentationMetadata(result?.metadata ?? partial?.metadata, activeRuntime, targetDir, part.name, part.arguments);
           let resolveRender;
           if (running) {
             const liveRender = extensionToolRenderer.getLiveRender?.(session.sessionId, part.id);
@@ -2032,7 +2147,7 @@ export function createSessionDaemon({
             name: part.name,
             input: redactAttachmentValues(part.arguments),
             state: result?.isError || interrupted ? 'error' : running ? 'running' : 'completed',
-            ...(result?.output ? { output: result.output } : {}),
+            ...(result?.output ? { output: result.output } : partial?.output ? { output: partial.output } : {}),
             ...(result?.error
               ? { error: result.error }
               : interrupted
@@ -2213,6 +2328,9 @@ export function createSessionDaemon({
       ...(activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
       serverNow: Date.now(),
       ...(extensionSnapshot.statuses ? { extensionStatuses: extensionSnapshot.statuses } : {}),
+      // Always sent: an empty list is authoritative (no controls), unlike a
+      // missing field.
+      extensionControls: extensionSnapshot.controls ?? [],
       ...(extensionSnapshot.widgets ? { extensionWidgets: extensionSnapshot.widgets } : {}),
       ...(extensionSnapshot.dialogs ? { extensionDialogs: extensionSnapshot.dialogs } : {}),
       ...(extensionSnapshot.panels ? { extensionPanels: extensionSnapshot.panels } : {}),
@@ -2226,6 +2344,86 @@ export function createSessionDaemon({
     };
   };
 
+  /**
+   * Send from a draft: its session becomes the new session, with the title,
+   * model, and thinking the send asked for, so what the draft's controls did
+   * (a mode picked, a toggle flipped) carries over. Returns null when the
+   * draft cannot be used (gone, being disposed, another folder, a fork); the
+   * caller then creates a session as usual and a stale draft is dropped.
+   */
+  const adoptDraftSession = async (payload, targetCwd, parent) => {
+    const sessionId = payload.draftSessionId;
+    if (!draftSessionIds.has(sessionId)) return null;
+    const draftRuntime = runtimeRegistry?.findBySessionId(sessionId);
+    if (!draftRuntime || parent || draftRuntime.cwd !== targetCwd || disposingSessionIds.has(sessionId)) {
+      void discardDraftSession(sessionId).catch(() => {});
+      return null;
+    }
+    // The idle timer stops first: it must not fire during the awaits below.
+    clearIdleDisposal(sessionId);
+    // A control's command still running in the draft lands its effects
+    // before the session is projected for the reply (bounded, in case it
+    // waits on a dialog the user has not answered). The draft keeps its mark
+    // meanwhile, so a turn that command starts is still stopped.
+    await waitForControlRuns(sessionId);
+    // Only one send adopts a draft; another (or a discard during the wait)
+    // leaves this send to create as usual.
+    if (!draftSessionIds.has(sessionId) || runtimeRegistry?.findBySessionId(sessionId) !== draftRuntime
+      || disposingSessionIds.has(sessionId)) {
+      return null;
+    }
+    draftSessionIds.delete(sessionId);
+    try {
+      const current = draftRuntime.session?.model;
+      if (payload.model && !(current?.provider === payload.model.providerId && current?.id === payload.model.modelId)) {
+        await setSessionModel(draftRuntime, payload.model);
+        publishSessionModel(draftRuntime.session, sessionId, targetCwd);
+      }
+      if (payload.thinking !== undefined && draftRuntime.session?.thinkingLevel !== payload.thinking) {
+        applyThinking(draftRuntime, payload.thinking, sessionId, targetCwd);
+      }
+    } catch (error) {
+      // The draft stays a draft, back on its idle lifetime; the send
+      // reports the failure.
+      draftSessionIds.add(sessionId);
+      safeTouchIdleDisposal(sessionId);
+      throw error;
+    }
+    if (payload.title) draftRuntime.session.sessionManager?.appendSessionInfo?.(payload.title.trim());
+    // From here it is an ordinary new session, whose first send arms the
+    // idle lifetime again.
+    runtime = draftRuntime;
+    activeDirectory = targetCwd;
+    rememberRuntimeSession();
+    // Published before the reply is built, so the reply's sequence covers it.
+    // A client never saw the draft's events (they were marked `draft`); if
+    // this event reached it before the reply and the reply were older, it
+    // would keep its own empty copy of the session's controls.
+    const createdTitle = (typeof payload.title === 'string' ? payload.title.trim() : '')
+      || draftRuntime.session?.sessionManager?.getSessionName?.();
+    if (createdTitle) {
+      publish('session.updated', { title: redactAttachmentPaths(createdTitle) }, sessionId, targetCwd);
+    }
+    return projectActiveSession(draftRuntime, targetCwd);
+  };
+
+  /**
+   * Stop a draft's session when the draft closes or moves to another folder.
+   * Only a draft can be discarded this way, and always is: its dialogs are
+   * cancelled, its surfaces closed, and anything running stopped first.
+   */
+  const discardDraftSession = async (sessionId) => {
+    if (!draftSessionIds.has(sessionId)) return { discarded: false };
+    if (!runtimeRegistry?.findBySessionId(sessionId)) {
+      draftSessionIds.delete(sessionId);
+      return { discarded: true };
+    }
+    await disposeIdleSessionRuntime(sessionId);
+    const gone = !runtimeRegistry?.findBySessionId(sessionId);
+    if (gone) draftSessionIds.delete(sessionId);
+    return { discarded: gone };
+  };
+
   const createSession = async (payload) => {
     const explicitRetryLimit = payload && typeof payload === 'object' ? (payload.maxRetries ?? payload.retryLimit ?? payload.defaultRetryLimit) : undefined;
     if (explicitRetryLimit !== undefined && (!Number.isInteger(explicitRetryLimit) || explicitRetryLimit < 0 || explicitRetryLimit > 10)) {
@@ -2235,9 +2433,14 @@ export function createSessionDaemon({
       || (payload.cwd !== undefined && (typeof payload.cwd !== 'string' || payload.cwd.length === 0))
       || (payload.title !== undefined && (typeof payload.title !== 'string' || payload.title.trim().length === 0 || payload.title.length > 256))
       || (payload.thinking !== undefined && !isPiThinkingLevel(payload.thinking))
-      || (payload.model !== undefined && (!payload.model || typeof payload.model.providerId !== 'string' || typeof payload.model.modelId !== 'string'))) {
+      || (payload.model !== undefined && (!payload.model || typeof payload.model.providerId !== 'string' || typeof payload.model.modelId !== 'string'))
+      || (payload.draft !== undefined && typeof payload.draft !== 'boolean')
+      || (payload.draftSessionId !== undefined && (typeof payload.draftSessionId !== 'string' || payload.draftSessionId.length === 0 || payload.draftSessionId.length > 128))
+      // A draft has no title, parent, or draft of its own yet.
+      || (payload.draft === true && (payload.title !== undefined || payload.parentId !== undefined || payload.draftSessionId !== undefined))) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session creation options are invalid.');
     }
+    const draft = payload.draft === true;
     try {
       await flushPendingRuntimeRecreation();
     } catch {
@@ -2248,16 +2451,35 @@ export function createSessionDaemon({
     const targetCwd = await resolveDirectory(payload.cwd);
     await validatePiSessionJsonlDirectory({ cwd: targetCwd, agentDir });
     const parent = payload.parentId === undefined ? undefined : (await findPersistedSession(payload.parentId, targetCwd)).target;
+    if (payload.draftSessionId !== undefined) {
+      const adopted = await adoptDraftSession(payload, targetCwd, parent);
+      if (adopted) return adopted;
+    }
     if (!runtimeRegistry) {
       runtimeRegistry = createSessionRuntimeRegistry({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
       });
     }
-    const newRuntime = await createRuntime({
-      cwd: targetCwd,
-      agentDir,
-      ...(parent ? { sessionFile: parent.path } : {}),
-    });
+    // A draft's sessions are marked from the moment Pi assigns their ids:
+    // the runtime's first session (replaced below) and the draft itself.
+    const markedDraftIds = new Set();
+    const markDraft = (manager) => {
+      const id = manager?.getSessionId?.();
+      if (typeof id !== 'string' || id.length === 0) return;
+      markedDraftIds.add(id);
+      draftSessionIds.add(id);
+    };
+    let newRuntime;
+    try {
+      newRuntime = await createRuntime({
+        cwd: targetCwd,
+        agentDir,
+        ...(parent ? { sessionFile: parent.path } : {}),
+      }, draft ? { beforeSession: markDraft } : undefined);
+    } catch (error) {
+      for (const id of markedDraftIds) draftSessionIds.delete(id);
+      throw error;
+    }
     if (!newRuntime.cwd) newRuntime.cwd = targetCwd;
     // Apply default retry limit for new sessions. Explicit per-run overrides win.
     // With no PiChamber override configured, Pi's own retry settings stay
@@ -2287,18 +2509,30 @@ export function createSessionDaemon({
       result = await newRuntime.newSession({
         ...(parent ? { parentSession: parent.path } : {}),
         ...(payload.title ? { setup: async (manager) => manager.appendSessionInfo(payload.title.trim()) } : {}),
+        // An injected runtime factory may not call `beforeSession`.
+        ...(draft ? { setup: async (manager) => markDraft(manager) } : {}),
       });
     } else if (payload.title && newRuntime.session?.sessionManager?.appendSessionInfo) {
       newRuntime.session.sessionManager.appendSessionInfo(payload.title.trim());
     }
     if (result?.cancelled) {
+      // Dispose before unmarking, so what disposal publishes stays `draft`.
       try { await newRuntime.dispose?.(); } catch { /* the cancelled create owns nothing */ }
+      for (const id of markedDraftIds) draftSessionIds.delete(id);
       throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    }
+    if (draft) {
+      const draftId = newRuntime.session?.sessionId;
+      // The replaced first session is gone; only the draft keeps its mark.
+      for (const id of markedDraftIds) if (id !== draftId) draftSessionIds.delete(id);
+      if (draftId) draftSessionIds.add(draftId);
     }
     try {
       await acquireResidentLease({ cwd: targetCwd, sessionId: newRuntime.session.sessionId });
     } catch (error) {
+      const failedDraftId = newRuntime.session?.sessionId;
       try { await newRuntime.dispose?.(); } catch { /* the failed create owns nothing */ }
+      draftSessionIds.delete(failedDraftId);
       throw error;
     }
     try {
@@ -2312,9 +2546,13 @@ export function createSessionDaemon({
     } catch (error) {
       const failedSessionId = newRuntime.session?.sessionId;
       const failedCwd = targetCwd;
+      // Unmarked only once disposal is done (or failed), so its events stay
+      // `draft`.
       try {
         await newRuntime.dispose?.();
+        draftSessionIds.delete(failedSessionId);
       } catch {
+        draftSessionIds.delete(failedSessionId);
         // Dispose-first cleanup rejected: retain ownership for a later
         // delete/stop retry. Do not release the lease, install dormant
         // state, or register the runtime. The original model/thinking
@@ -2332,6 +2570,14 @@ export function createSessionDaemon({
       throw error;
     }
     runtimeRegistry.register(newRuntime, { cwd: targetCwd });
+    if (draft) {
+      // A draft is not the daemon's active session and is not remembered
+      // for a restart: nothing has been sent in it. It gets the idle
+      // lifetime of any view-only session, so an abandoned draft goes away.
+      rebuildSessionExtensionState(newRuntime);
+      touchIdleDisposal(newRuntime.session.sessionId);
+      return projectActiveSession(newRuntime, targetCwd);
+    }
     runtime = newRuntime;
     activeDirectory = targetCwd;
     rebuildSessionExtensionState(newRuntime);
@@ -2865,6 +3111,55 @@ export function createSessionDaemon({
     };
   };
 
+  // `pi config` / `pi list` / `pi remove` for extensions (extension-config.js).
+  // Writes share the resource mutation queue and the shared Pi config lock,
+  // read trust inside the lock, and recreate resident runtimes afterwards.
+  const extensionConfigService = createExtensionConfig({ agentDir, createSettingsManager });
+  const extensionConfigTarget = async (payload) => {
+    const directory = typeof payload?.directory === 'string' && payload.directory.trim().length > 0
+      ? await resolveDirectory(payload.directory)
+      : undefined;
+    // Pi's own rule (`resolveProjectTrusted`): a saved decision wins, and a
+    // project with nothing that needs trust counts as trusted, as it does for
+    // `pi config -l`. `resolveDirectory` has already saved trust for a folder
+    // that has project resources, so only a denied project is left out.
+    const decision = directory ? createTrustStore(agentDir).get(directory) : null;
+    return {
+      cwd: activeDirectory || cwd,
+      directory,
+      trusted: directory ? decision ?? !hasTrustRequiringProjectResources(directory) : false,
+    };
+  };
+  // What a live runtime left out because another extension took its names.
+  // Never starts a runtime: with none resident, or one that predates a queued
+  // recreation, the answer is unknown and the field is left out.
+  const liveExtensionReplacements = (target) => {
+    if (pendingRuntimeRecreation) return undefined;
+    const resident = (runtimeRegistry?.listByDirectory?.(resolve(target.directory ?? target.cwd)) ?? [])
+      .filter((entry) => !draftSessionIds.has(entry?.session?.sessionId));
+    const entry = resident.includes(runtime) ? runtime : resident[0];
+    if (!entry) return undefined;
+    return describeRuntimeReplacements({
+      session: entry.session,
+      configuredPluginIds: pluginHost.configuredIds(),
+      registeredNames: pluginHost.registeredNames(),
+    });
+  };
+  const listExtensionConfig = async (payload) => {
+    const target = await extensionConfigTarget(payload);
+    return extensionConfigService.list(target, liveExtensionReplacements(target));
+  };
+  const mutateExtensionConfig = (payload, write) => transactResourceMutation(async () => {
+    const target = await withSharedPiConfigLock(async () => {
+      const resolved = await extensionConfigTarget(payload);
+      await write(resolved);
+      return resolved;
+    });
+    const deferred = activeRuntimes().length > 0 ? await scheduleRuntimeRecreation() : false;
+    const result = await extensionConfigService.list(target, liveExtensionReplacements(target));
+    return deferred ? { ...result, deferred: true } : result;
+  });
+
   const resourceId = (kind, filePath) => `${kind}:${createHash('sha256').update(filePath).digest('base64url')}`;
 
   const isPathInside = (parent, candidate) => {
@@ -3241,8 +3536,18 @@ export function createSessionDaemon({
     const next = model && (model.reasoning === true || model.thinkingLevelMap)
       ? clampThinkingLevel(getSupportedThinkingLevels(model), thinking)
       : thinking;
+    const previous = runtime.session.thinkingLevel;
     runtime.session.setThinkingLevel(next);
-    publish('session.thinking', { thinking: next }, sessionId, directory);
+    const effective = runtime.session.thinkingLevel ?? next;
+    // Exactly one `session.thinking` per change. Pi emits
+    // `thinking_level_changed` (published by `publishSessionEvent`) when the
+    // level changes on a runtime the registry subscribes to; publish here
+    // only when it will not: an unchanged level (the caller still gets its
+    // echo) or a runtime not yet registered (a session being created).
+    const changed = effective !== previous;
+    const subscribed = runtimeRegistry?.findBySessionId?.(sessionId) === runtime;
+    if (changed && subscribed) return;
+    publish('session.thinking', { thinking: effective }, sessionId, directory);
   };
 
   const validateThinking = (thinking) => {
@@ -3564,12 +3869,18 @@ export function createSessionDaemon({
   // idle disposal, which reports the session as deleted when its assigned JSONL
   // is positively absent (see disposeIdleSessionRuntime).
 
-  const runSessionInput = async (payload, delivery) => {
+  // `keepDraft`: a composer control runs a command without sending the
+  // composer, so the extension's view of the draft stays as it is.
+  // `requireExtensionCommand`: the text must be a command the session's
+  // extensions register once the runtime is settled, or nothing runs. A
+  // composer control sets it, so its `/command` never reaches the model as a
+  // prompt when a queued recreation drops the extension behind it.
+  const runSessionInput = async (payload, delivery, { keepDraft = false, requireExtensionCommand = false } = {}) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
     }
-    resetExtensionDraft(payload.sessionId);
+    if (!keepDraft) resetExtensionDraft(payload.sessionId);
     if (payload.thinking !== undefined) validateThinking(payload.thinking);
     // Idle protection is owned by the request-dispatch guard: it holds the
     // session refcount across activation/acceptance, agent_start clears once
@@ -3635,6 +3946,9 @@ export function createSessionDaemon({
       && Array.isArray(registeredExtensionCommands)
       && registeredExtensionCommands.some((command) => command?.invocationName === slashInvocation),
     );
+    if (requireExtensionCommand && !isExtensionCommand) {
+      throw new SessionDaemonProtocolError('CONTROL_UNAVAILABLE', 'The command for this control is not available.');
+    }
     // Like the Pi CLI, never persist an auto-title. Lists derive the display
     // title from the first user prompt; publish that derived title live (not
     // persisted) so connected surfaces converge without waiting for a list.
@@ -3851,6 +4165,69 @@ export function createSessionDaemon({
     }
   };
 
+  /**
+   * A click on a composer control: run the extension command the control
+   * names for the value the client asks for, as if it had been typed. Only a
+   * command the session's extensions registered runs; anything else would
+   * reach the model as a prompt. A stale click (the control is gone, or
+   * already has that value) runs nothing and answers `ran: false`.
+   */
+  // Composer-control commands in flight per session, so adopting a draft
+  // can wait for them (`adoptDraftSession`).
+  const controlRunsBySession = new Map();
+  const CONTROL_RUN_ADOPT_WAIT_MS = 5000;
+  const waitForControlRuns = async (sessionId) => {
+    const runs = controlRunsBySession.get(sessionId);
+    if (!runs || runs.size === 0) return;
+    let timer;
+    await Promise.race([
+      Promise.allSettled([...runs]),
+      new Promise((resolveWait) => { timer = setTimeout(resolveWait, CONTROL_RUN_ADOPT_WAIT_MS); }),
+    ]);
+    clearTimeout(timer);
+  };
+
+  const runComposerControl = async (payload) => {
+    const sessionId = payload?.sessionId;
+    const id = payload?.id;
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 256
+      || typeof id !== 'string' || id.length === 0 || id.length > 64) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The control request is invalid.');
+    }
+    const resolved = extensionBridge.resolveComposerControl(sessionId, id, payload.value);
+    if (resolved.error === 'CONTROL_NOT_FOUND') return { ran: false };
+    if (resolved.error) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The control value is invalid.');
+    if (resolved.command === null) return { ran: false };
+    const target = runtimeRegistry?.findBySessionId(sessionId)
+      || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
+    const registered = target?.session?.extensionRunner?.getRegisteredCommands?.();
+    const name = commandName(resolved.command);
+    if (!Array.isArray(registered) || !registered.some((command) => command?.invocationName === name)) {
+      throw new SessionDaemonProtocolError('CONTROL_UNAVAILABLE', 'The command for this control is not available.');
+    }
+    const clientId = typeof payload.clientId === 'string' && payload.clientId.length > 0 && payload.clientId.length <= 128
+      ? payload.clientId
+      : undefined;
+    // Pi runs extension commands at once, also during a turn; `steer` only
+    // lets the daemon accept the input while the session streams.
+    const run = runSessionInput({
+      sessionId,
+      text: `/${resolved.command}`,
+      directory: target.cwd,
+      ...(clientId ? { clientId } : {}),
+    }, target.session.isStreaming ? 'steer' : undefined, { keepDraft: true, requireExtensionCommand: true });
+    const runs = controlRunsBySession.get(sessionId) ?? new Set();
+    controlRunsBySession.set(sessionId, runs);
+    runs.add(run);
+    try {
+      await run;
+    } finally {
+      runs.delete(run);
+      if (runs.size === 0 && controlRunsBySession.get(sessionId) === runs) controlRunsBySession.delete(sessionId);
+    }
+    return { ran: true };
+  };
+
   const treeForSession = async (sessionId, requestedDirectory) => {
     // Idle protection is owned by the request-dispatch guard; the release
     // re-arms even when projection below throws.
@@ -3921,6 +4298,7 @@ export function createSessionDaemon({
       latestUserMessageIds.delete(sessionId);
       latestAssistantMessageIds.delete(sessionId);
       toolInputBySession.delete(sessionId);
+      toolPartialBySession.delete(sessionId);
       clearToolTimingsForSession(sessionId);
       extensionToolRenderer.clearSession(sessionId);
       // Explicit typed deletion: every connected and replaying client drops
@@ -4114,6 +4492,7 @@ export function createSessionDaemon({
         const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
         const toolArgs = event.args ?? getToolInput(sessionId, event.toolCallId);
         const projected = projectToolResult(event.partialResult, false);
+        rememberToolPartial(sessionId, event.toolCallId, projected);
         const metadata = mergeToolPresentationMetadata(projected.metadata, activeRuntime, directory, event.toolName, toolArgs);
         const definition = extensionToolRenderer.resolve(activeRuntime?.session, event.toolName);
         let render;
@@ -4228,6 +4607,18 @@ export function createSessionDaemon({
         clearIdleDisposal(sessionId);
         retryStateBySession.delete(sessionId);
         if (!activeRunStartedAt.has(sessionId)) activeRunStartedAt.set(sessionId, Date.now());
+        // A model turn in a draft (a control's command calling
+        // `sendUserMessage`) ends the draft: Pi has written the session
+        // file with the user message by now, and the turn is real work the
+        // user must be able to see. The session becomes an ordinary one
+        // here, at the first event Pi reports for the turn. The drafting
+        // client hears one last marked event, this busy state without a
+        // `command`, and lets go of the draft; everything after it is
+        // unmarked, so every client lists the session as running.
+        if (draftSessionIds.has(sessionId)) {
+          publish('session.lifecycle', { state: 'busy', runStartedAt: activeRunStartedAt.get(sessionId), serverNow: Date.now() }, sessionId, directory);
+          draftSessionIds.delete(sessionId);
+        }
         publish('session.lifecycle', { state: 'busy', runStartedAt: activeRunStartedAt.get(sessionId), serverNow: Date.now() }, sessionId, directory);
         break;
       case 'agent_end': {
@@ -4260,6 +4651,7 @@ export function createSessionDaemon({
         latestUserMessageIds.delete(sessionId);
         latestAssistantMessageIds.delete(sessionId);
         toolInputBySession.delete(sessionId);
+        toolPartialBySession.delete(sessionId);
         clearToolTimingsForSession(sessionId, { keepCompleted: true });
         extensionToolRenderer.clearSession(sessionId);
         // A missed tool_execution_end must not title later surfaces.
@@ -4419,11 +4811,12 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.pendingInput', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
+              'sessions.setThinking', 'sessions.discardDraft', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
-              'extensions.list', 'extensions.respond', 'extensions.draft', 'extensions.palette',
-              'openUrl.publish', 'archive.publish',
+              'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.draft', 'extensions.palette',
+              'extensions.config.list', 'extensions.config.set', 'extensions.packages.remove',
+              'openUrl.publish', 'archive.publish', 'plugins.configure',
               'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
@@ -4592,6 +4985,15 @@ export function createSessionDaemon({
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
+      case 'plugins.configure': {
+        // Private, server-only. A changed enabled set recreates runtimes at
+        // the next safe edge; a state-only change reaches live runtimes
+        // through their `pichamber.onStateChange` listeners.
+        const { enabledChanged, plugins } = await pluginHost.configure(message.payload);
+        const deferred = enabledChanged ? await scheduleRuntimeRecreation() : false;
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { plugins, enabledChanged, deferred } });
+        return;
+      }
       case 'resources.list': {
         const result = publicResources(await resourceCatalog(message.payload?.directory));
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
@@ -4617,9 +5019,29 @@ export function createSessionDaemon({
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
+      case 'extensions.config.list': {
+        const result = await listExtensionConfig(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.config.set': {
+        const result = await mutateExtensionConfig(message.payload, (target) => extensionConfigService.set(target, message.payload));
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.packages.remove': {
+        const result = await mutateExtensionConfig(message.payload, (target) => extensionConfigService.removePackage(target, message.payload));
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
       case 'extensions.respond': {
         const resolution = await resolveExtensionDialog(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: resolution });
+        return;
+      }
+      case 'extensions.control': {
+        const result = await runComposerControl(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
       case 'extensions.custom.input':
@@ -4675,6 +5097,8 @@ export function createSessionDaemon({
             directory: activeRuntime.cwd,
             extensions: (Array.isArray(extensionPaths) ? extensionPaths : [])
               .filter((extensionPath) => typeof extensionPath === 'string' && extensionPath.length > 0)
+              // PiChamber's own listener is part of the app, not an extension.
+              .filter((extensionPath) => !isComposerControlsExtensionPath(extensionPath))
               // Opaque id only: server filesystem paths must never reach the
               // browser (see DOCUMENTATION.md route invariants).
               .map((extensionPath) => ({
@@ -4726,15 +5150,20 @@ export function createSessionDaemon({
         const residentRuntimes = new Set();
         if (runtime?.session?.sessionId) residentRuntimes.add(runtime);
         for (const tracked of runtimeRegistry?.listAll?.() ?? []) residentRuntimes.add(tracked);
-        const residents = [...residentRuntimes].map((tracked) => ({
-          sessionId: tracked?.session?.sessionId,
-          directory: typeof tracked?.cwd === 'string' && tracked.cwd.length > 0 ? tracked.cwd : (activeDirectory || cwd),
-          busy: tracked?.session?.isStreaming === true
-            || tracked?.session?.isCompacting === true
-            || activeSessionInputs.has(tracked),
-        }));
+        // Drafts are no target: no client shows them.
+        const residents = [...residentRuntimes]
+          .filter((tracked) => !draftSessionIds.has(tracked?.session?.sessionId))
+          .map((tracked) => ({
+            sessionId: tracked?.session?.sessionId,
+            directory: typeof tracked?.cwd === 'string' && tracked.cwd.length > 0 ? tracked.cwd : (activeDirectory || cwd),
+            busy: tracked?.session?.isStreaming === true
+              || tracked?.session?.isCompacting === true
+              || activeSessionInputs.has(tracked),
+          }));
         const target = resolveOpenRequestSession({
-          requestedSessionId: typeof message.payload?.sessionId === 'string' ? message.payload.sessionId : undefined,
+          requestedSessionId: typeof message.payload?.sessionId === 'string' && !draftSessionIds.has(message.payload.sessionId)
+            ? message.payload.sessionId
+            : undefined,
           residents,
           recent: lastPublishedSession,
         });
@@ -4764,7 +5193,7 @@ export function createSessionDaemon({
           protocolVersion: PROTOCOL_VERSION,
           kind: 'response',
           requestId: message.requestId,
-          result: { sessions: pendingInput.list(), sequence, streamEpoch },
+          result: { sessions: pendingInput.list().filter((entry) => !draftSessionIds.has(entry?.sessionId)), sequence, streamEpoch },
         });
         return;
       }
@@ -4818,6 +5247,15 @@ export function createSessionDaemon({
       case 'sessions.rename': {
         await renameSession(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        return;
+      }
+      case 'sessions.discardDraft': {
+        // Not in the session-access guard: holding access would make the
+        // disposal it asks for unsafe.
+        const sessionId = message.payload?.sessionId;
+        if (!isValidIdleSessionId(sessionId)) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The draft session is invalid.');
+        const result = await discardDraftSession(sessionId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
       case 'sessions.delete': {
@@ -5211,6 +5649,7 @@ export function createSessionDaemon({
       compactionStateBySession.clear();
       activeRunStartedAt.clear();
       toolStartedAt.clear();
+      toolPartialBySession.clear();
       completedToolTimings.clear();
       shutdownRequestedBySession.clear();
       sendGenerationBySession.clear();

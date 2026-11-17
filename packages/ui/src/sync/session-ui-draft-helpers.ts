@@ -11,6 +11,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { isPiThinkingLevel } from '@/lib/pi/thinking';
+import type { PiModelRef, PiThinkingLevel } from '@/lib/pi/types';
 import { useSelectionStore } from './selection-store';
 import {
   type DraftBranchCheckoutReceipt,
@@ -200,6 +201,8 @@ export type MaterializedDraftSession = {
   directory: string | null;
   agent?: string;
   syntheticParts?: SyntheticContextPart[];
+  /** Set when the session keeps a model its draft session's extension chose; the first prompt uses it. */
+  model?: { providerID: string; modelID: string; variant?: string };
 };
 
 export async function materializeOpenDraftSession(
@@ -299,21 +302,46 @@ export async function materializeOpenDraftSession(
       ? deriveSessionTitle(selection.initialPrompt)
       : undefined);
 
+  // The draft session started while this draft was open becomes this
+  // session, keeping what its extensions' composer controls did. Without one
+  // (still starting, failed, another folder) the session is created as usual.
+  // Clicks still running there settle first (bounded), so their events do
+  // not land after the create's reply. When an extension set a model the
+  // composer cannot show, the create sends the draft session's own model and
+  // thinking instead of the composer's.
+  let draftSessionId: string | null = null;
+  let draftSelection: { model: PiModelRef; thinking: PiThinkingLevel | null } | null = null;
+  if (draft.id && !draft.parentID) {
+    try {
+      const { consumeDraftRuntime, defaultDraftDirectory, settleDraftPicks } = await import('@/plugins/draftRuntime');
+      await settleDraftPicks(draft.id);
+      const consumed = consumeDraftRuntime(draft.id, draftDirectoryOverride ?? defaultDraftDirectory());
+      draftSessionId = consumed?.sessionId ?? null;
+      draftSelection = consumed?.runtimeSelection ?? null;
+    } catch (error) {
+      console.warn('Failed to hand the draft session to the new session:', error);
+    }
+  }
+
   const created = await store.createSession(
     derivedTitle,
     draftDirectoryOverride,
     draft.parentID ?? null,
     {
-      model:
-        selection.providerID && selection.modelID
+      ...(draftSessionId ? { draftSessionId } : {}),
+      model: draftSelection
+        ? draftSelection.model
+        : selection.providerID && selection.modelID
           ? {
               providerId: selection.providerID,
               modelId: selection.modelID,
             }
           : undefined,
-      thinking: isPiThinkingLevel(selection.variant)
-        ? selection.variant
-        : undefined,
+      thinking: draftSelection
+        ? draftSelection.thinking ?? undefined
+        : isPiThinkingLevel(selection.variant)
+          ? selection.variant
+          : undefined,
       select: false,
     },
     {
@@ -384,6 +412,27 @@ export async function materializeOpenDraftSession(
     store.setCurrentSession(created.id, createdDirectory);
   }
 
+  // Composer plugin switches flipped in the draft belong to this session.
+  // Awaited, so the first prompt runs with them; a failed write is reported
+  // and the session follows Settings for that switch.
+  if (draft.id) {
+    try {
+      const { applyDraftSwitches } = await import('@/plugins/sessionStore');
+      await applyDraftSwitches(draft.id, created.id);
+    } catch (error) {
+      console.warn('Failed to apply draft plugin switches to new session:', error);
+    }
+    // Composer control clicks that never reached the adopted draft session
+    // run on this one before its first prompt; when the draft session was
+    // not adopted (gone, or none), every value chosen in the draft does.
+    try {
+      const { applyDraftControlPicks } = await import('@/plugins/draftRuntime');
+      await applyDraftControlPicks(draft.id, created.id, draftSessionId);
+    } catch (error) {
+      console.warn('Failed to apply draft composer controls to new session:', error);
+    }
+  }
+
   if (draftPermissionAutoAcceptEnabled) {
     void import('@/stores/permissionStore')
       .then(({ usePermissionStore }) =>
@@ -402,5 +451,17 @@ export async function materializeOpenDraftSession(
     directory: createdDirectory,
     agent: effectiveDraftAgent,
     syntheticParts: draftSyntheticParts,
+    // The model an extension set in the draft session that the composer
+    // cannot show: the first prompt goes out with it, not the composer's,
+    // which would switch the session back.
+    ...(draftSelection
+      ? {
+          model: {
+            providerID: draftSelection.model.providerId,
+            modelID: draftSelection.model.modelId,
+            variant: draftSelection.thinking ?? undefined,
+          },
+        }
+      : {}),
   };
 }

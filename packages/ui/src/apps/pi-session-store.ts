@@ -169,6 +169,21 @@ export type PendingInputTransitionListener = (transition: PendingInputTransition
 export type OpenRequestListener = (event: PiSessionOpenUrlEvent) => void;
 
 /**
+ * Receives a draft session's events (`draft: true`: a runtime warmed for a
+ * new-session draft). They never reach the reducer or the catalog, so no
+ * sidebar row or transcript exists for them. `onReset` fires when every
+ * draft runtime is gone: a daemon restart or a runtime switch.
+ */
+export interface DraftEventListener {
+  onEvent: (event: PiSessionEvent) => void;
+  onReset: () => void;
+}
+
+export const subscribeDraftEvents = (
+  listener: DraftEventListener,
+): (() => void) => getPiSessionStore().subscribeDraftEvents(listener);
+
+/**
  * Subscribe to Open requests (`session.openUrl`) accepted by the shared
  * store, live or replayed; listeners judge freshness from the payload.
  * Returns an unsubscribe function.
@@ -595,6 +610,8 @@ export class PiSessionStore {
    */
   private resetForEpochChange(): Set<PiSessionId> {
     const previouslyHydrated = new Set(this.hydratedSessionIds);
+    // The restarted daemon has none of the old one's draft sessions.
+    this.emitDraftReset();
     // Every pending request died with the retired daemon lifetime, but rows
     // that recovery never re-lists (e.g. stubs whose directory is never
     // listed) would stay `undefined` forever while their toast and OS
@@ -1140,6 +1157,46 @@ export class PiSessionStore {
       this.pendingInputTransitionListeners.delete(listener);
     };
   };
+  private draftListeners = new Set<DraftEventListener>();
+  subscribeDraftEvents = (listener: DraftEventListener): (() => void) => {
+    this.draftListeners.add(listener);
+    return () => {
+      this.draftListeners.delete(listener);
+    };
+  };
+  // Highest sequence seen on a draft event in the current stream epoch.
+  // Draft events share the daemon's global sequence and replay log but never
+  // reach the reducer, so they move no reducer cursor and a reconnect may
+  // replay them: one at or below this was already heard and is dropped. The
+  // stream cursor itself is left to the reducer, so a draft event can never
+  // make a reconnect skip a session event still buffered or queued here.
+  private draftSequence = -1;
+  private emitDraftEvent(event: PiSessionEvent): void {
+    // Only the current daemon lifetime's drafts exist; an older epoch's
+    // frame describes a runtime that is already gone.
+    if (this.streamEpoch !== null && event.streamEpoch !== this.streamEpoch) return;
+    if (this.streamEpoch !== null && Number.isSafeInteger(event.sequence)) {
+      if (event.sequence <= this.draftSequence) return;
+      this.draftSequence = event.sequence;
+    }
+    for (const listener of [...this.draftListeners]) {
+      try {
+        listener.onEvent(event);
+      } catch (error) {
+        console.error('[pi-session-store] draft listener failed', error);
+      }
+    }
+  }
+  private emitDraftReset(): void {
+    this.draftSequence = -1;
+    for (const listener of [...this.draftListeners]) {
+      try {
+        listener.onReset();
+      } catch (error) {
+        console.error('[pi-session-store] draft listener failed', error);
+      }
+    }
+  }
   private openRequestListeners = new Set<OpenRequestListener>();
   subscribeOpenRequests = (listener: OpenRequestListener): (() => void) => {
     this.openRequestListeners.add(listener);
@@ -2434,6 +2491,8 @@ export class PiSessionStore {
     model?: { providerId: string; modelId: string };
     thinking?: PiThinkingLevel;
     select?: boolean;
+    /** The draft session to adopt (see `PiSessionCreateInput.draftSessionId`). */
+    draftSessionId?: string;
   }): Promise<string> {
     const directory = options?.directory || this.directory(); const expected = this.runtimeGeneration;
     let model = options?.model;
@@ -2466,6 +2525,7 @@ export class PiSessionStore {
       ...(title ? { title } : {}),
       ...(model ? { model } : {}),
       ...(thinking ? { thinking } : {}),
+      ...(options?.draftSessionId ? { draftSessionId: options.draftSessionId } : {}),
     }, { directory, runtimeKey: getRuntimeKey() });
     if (expected !== this.runtimeGeneration) return detail.session.id;
     this.state = {
@@ -2769,6 +2829,7 @@ export class PiSessionStore {
           streamingMessages: new Set(),
           queue: { steering: 0, followUp: 0 },
           extensionStatuses: new Map(),
+          extensionControls: new Map(),
           extensionWidgets: new Map(),
           extensionDialogs: [],
           extensionNotices: [],
@@ -3428,7 +3489,10 @@ export class PiSessionStore {
         && streamGeneration === this.streamGeneration;
       const onEvent = (event: PiSessionEvent) => {
         if (!bootstrapCallbackIsCurrent()) return;
-        if (!ready) buffered.push(event);
+        // A draft session's events never enter the buffer that is committed
+        // into the reducer and catalog; `apply` routes them to draft listeners.
+        if (event.draft === true) this.apply(event);
+        else if (!ready) buffered.push(event);
         else this.apply(event);
       };
       const bootstrap = await bootstrapPiDirectory({
@@ -3670,6 +3734,9 @@ export class PiSessionStore {
             // residents hydrated at this point. Selected session first,
             // bounded concurrency; failed scopes keep a retry obligation.
             this.queueSyncRecovery({ directories: 'all-known', residents: this.hydratedSessionIds });
+            // The replay missed events, so a draft listener may have missed
+            // its draft's reports or the runtime's end: start the draft over.
+            this.emitDraftReset();
           }
           this.apply(event);
         },
@@ -3793,6 +3860,11 @@ export class PiSessionStore {
     } finally { this.recovering = false; }
   }
   private apply(event: PiSessionEvent) {
+    // A draft session's events stay out of the session list and transcripts.
+    if (event.draft === true) {
+      this.emitDraftEvent(event);
+      return;
+    }
     this.cadence.push(event);
   }
 
@@ -4615,6 +4687,7 @@ export class PiSessionStore {
   }
   private resetForRuntime() {
     this.catalogCache.flush();
+    this.emitDraftReset();
     this.resetLiveRuntimeState();
     this.state = initialSessionStoreState(this.readCachedCatalog(getRuntimeKey()));
     clearAllRevertNavigations();

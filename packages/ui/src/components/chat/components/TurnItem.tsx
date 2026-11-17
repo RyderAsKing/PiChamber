@@ -5,6 +5,7 @@ import type { StreamPhase } from '../message/types';
 import type { ChatMessageEntry, TurnRecord } from '../lib/turns/types';
 import TurnActivityRail from './TurnActivityRail';
 import TurnAssistantBlock from './TurnAssistantBlock';
+import TurnPluginArtifacts from './TurnPluginArtifacts';
 import TurnWorkingHeader from './TurnWorkingHeader';
 import { resolveTurnActivityDisclosure } from './turnActivityDisclosure';
 
@@ -166,6 +167,8 @@ const TurnItem: React.FC<TurnItemProps> = ({
                     onContentChange={onActivityContentChange}
                 />
             ) : null}
+
+            {turn.hasTools ? <TurnPluginArtifacts turn={turn} /> : null}
 
             <TurnAssistantBlock
                 turnId={turn.turnId}

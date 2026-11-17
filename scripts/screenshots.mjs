@@ -22,7 +22,8 @@ const HELP = `Usage: BASE_URL=http://127.0.0.1:5180 bun run screenshots [label] 
           staged-then-edited, and staged new files), <dir>/folders (more
           projects: one with a favicon, a monorepo, one without an icon),
           <dir>/data (a PICHAMBER_DATA_DIR that opens them all), and <dir>/home
-          (a HOME whose Pi agent dir holds one demo session)
+          (a HOME whose Pi agent dir holds one demo session), with the
+          bundled Visuals and Sub-agents plugins turned on
 
 Environment:
   BASE_URL   PiChamber UI origin (default: http://127.0.0.1:5180)
@@ -70,6 +71,37 @@ b{display:block;font-size:26px;margin-top:6px}</style></head>
 // writeShelfSessions): recent ones stay in the list and one is snoozed. Two are
 // archived: one by hand a little while ago and an old one by auto-archive, so
 // they leave Threads and By folder and show only in search and Timeline.
+// Two sessions that show the bundled plugins' results. Backdated so they sit
+// below the other demo sessions; the seed turns both plugins on.
+const VISUALS_SESSION_ID = '0193f6a0-5b1e-7c2d-9e3f-4a5b6c7d8ea1';
+const VISUALS_SESSION_PATH = `/?session=${VISUALS_SESSION_ID}`;
+const VISUALS_TITLE = 'Test runs this week';
+const VISUALS_REPLY = 'The pass rate climbed from 82% to 96% this week.';
+const AGENTS_SESSION_ID = '0193f6a0-5b1e-7c2d-9e3f-4a5b6c7d8ea2';
+const AGENTS_SESSION_PATH = `/?session=${AGENTS_SESSION_ID}`;
+const AGENTS_REPLY = 'The reviewer found one blocking issue in billing.ts.';
+const VISUALS_HTML = `<style>
+.wrap{display:grid;gap:14px}
+.head{display:flex;justify-content:space-between;align-items:baseline}
+.head h1{font-size:15px;font-weight:600;margin:0}
+.head span{color:var(--pc-muted);font-size:12px}
+.chart{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;align-items:end;height:150px;padding-bottom:4px;border-bottom:1px solid var(--pc-border)}
+.bar{display:grid;gap:6px;justify-items:center;align-self:stretch;align-content:end}
+.bar i{display:block;width:100%;max-width:44px;border-radius:6px 6px 2px 2px;background:var(--pc-c1)}
+.bar b{font-size:11px;font-weight:500;color:var(--pc-muted);font-variant-numeric:tabular-nums}
+.days{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;text-align:center;font-size:11px;color:var(--pc-muted)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat{border:1px solid var(--pc-border);border-radius:10px;padding:10px 12px}
+.stat div{font-size:11px;color:var(--pc-muted)}
+.stat strong{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+</style>
+<div class="wrap">
+<div class="head"><h1>Pass rate by day</h1><span>Nov 3 to Nov 9</span></div>
+<div class="chart">${[82, 85, 84, 89, 91, 94, 96].map((value) => `<div class="bar"><b>${value}%</b><i style="height:${(value - 70) * 3.6}px"></i></div>`).join('')}</div>
+<div class="days"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+<div class="stats"><div class="stat"><div>Runs</div><strong>148</strong></div><div class="stat"><div>Failures</div><strong style="color:var(--pc-bad)">11</strong></div><div class="stat"><div>Slowest suite</div><strong>4.2 s</strong></div></div>
+</div>`;
+
 const SHELF_SESSIONS = [
   { id: '0193f6a0-0001-7000-8000-000000000001', folder: 'repo', title: 'Add retry with backoff to the billing client', hoursAgo: 0.3 },
   { id: '0193f6a0-0002-7000-8000-000000000002', folder: 'night-shift', title: 'Fix the dark logo on the dark theme', hoursAgo: 2 },
@@ -78,6 +110,84 @@ const SHELF_SESSIONS = [
   { id: '0193f6a0-0005-7000-8000-000000000005', folder: 'dotfiles', title: 'Draft the release notes', hoursAgo: 5 * 24, archived: true },
 ];
 const SHELF_SESSION_PATH = `/?session=${SHELF_SESSIONS[0].id}`;
+// Visuals' render_choices. One session in the demo repo holds an answered
+// call. Another, in Acme Web, has nothing but its name: that folder's own
+// extension is a scripted model (no provider, no network) that answers any
+// message with a render_choices call, so a capture can send one and get a
+// question that waits.
+const CHOICES_SESSION_ID = '0193f6a0-5b1e-7c2d-9e3f-4a5b6c7d8ea3';
+const CHOICES_SESSION_PATH = `/?session=${CHOICES_SESSION_ID}`;
+const CHOICES_LIVE_SESSION = { id: '0193f6a0-0006-7000-8000-000000000006', folder: 'acme-web', title: 'Pick a header for the pricing page', hoursAgo: 3 };
+const CHOICES_LIVE_SESSION_PATH = `/?session=${CHOICES_LIVE_SESSION.id}`;
+const CHOICES_PROMPT = 'Mock up three headers for the pricing page.';
+const CHOICES_TITLE = 'Which pricing header?';
+const CHOICES_REPLY = 'Going with the split header.';
+const CHOICES_NOTE = 'Keep the yearly toggle from A.';
+const choicePage = (body) => `<style>
+.h{display:grid;gap:10px}
+.h h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-0.01em}
+.h p{margin:0;color:var(--pc-muted);font-size:12px;line-height:1.45}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{font-size:12px;font-weight:500;border-radius:8px;padding:6px 10px;border:1px solid var(--pc-border)}
+.btn.main{background:var(--pc-fg);color:var(--pc-bg);border-color:var(--pc-fg)}
+.tag{font-size:11px;color:var(--pc-muted);border:1px solid var(--pc-border);border-radius:999px;padding:2px 8px}
+.seg{display:inline-flex;border:1px solid var(--pc-border);border-radius:8px;overflow:hidden;font-size:11px}
+.seg span{padding:4px 9px}
+.seg .on{background:var(--pc-surface);font-weight:500}
+.box{border:1px solid var(--pc-border);border-radius:10px;padding:10px 12px;display:grid;gap:4px}
+.box strong{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.box span{font-size:11px;color:var(--pc-muted)}
+</style>
+<div class="h">${body}</div>`;
+const CHOICES_OPTIONS = [
+  {
+    label: 'Centered',
+    description: 'Headline, billing toggle, one button',
+    html: choicePage('<div style="text-align:center;display:grid;gap:10px;justify-items:center"><span class="tag">Pricing</span><h1>Simple plans for every team</h1><p>Start free. Upgrade when you need more seats.</p><div class="seg"><span class="on">Monthly</span><span>Yearly</span></div><span class="btn main">Start free</span></div>'),
+  },
+  {
+    label: 'Split',
+    description: 'Copy on the left, the popular plan on the right',
+    html: choicePage('<div style="display:grid;grid-template-columns:1.2fr 1fr;gap:12px;align-items:center"><div style="display:grid;gap:8px"><h1>Simple plans for every team</h1><p>Start free. Upgrade when you need more seats.</p><div class="row"><span class="btn main">Start free</span><span class="btn">Compare plans</span></div></div><div class="box"><span>Team, most popular</span><strong>$12</strong><span>per seat, each month</span></div></div>'),
+  },
+  {
+    label: 'Compact',
+    description: 'One line, for a page that leads with the table',
+    html: choicePage('<div class="row" style="justify-content:space-between"><h1>Pricing</h1><div class="row"><div class="seg"><span class="on">Monthly</span><span>Yearly</span></div><span class="btn main">Start free</span></div></div><p>Every plan includes unlimited projects.</p>'),
+  },
+];
+// The details render_choices records: its options lettered in order.
+const CHOICES_DETAILS = {
+  title: CHOICES_TITLE,
+  options: CHOICES_OPTIONS.map((option, index) => ({ id: String.fromCharCode(97 + index), ...option })),
+};
+// The options have drawn. They share one cell, so their frames mount
+// together once it nears the viewport; each has fitted to its page.
+const CHOICES_DRAWN = `(() => {
+  const artifacts = document.querySelectorAll('[data-plugin-artifact="visuals-choices"]');
+  const pages = [...(artifacts[artifacts.length - 1]?.querySelectorAll('[data-choice-page]') ?? [])].filter((page) => page.querySelector('iframe'));
+  return pages.length > 0 && pages.every((page) => page.dataset.choicePage === 'fitted');
+})()`;
+// The question waits and its options have drawn. On a used seed the session
+// has earlier turns and a phone can open above the newest one, so bring that
+// one into view first.
+const CHOICES_WAITING = `(() => {
+  if (!document.querySelector('[role="dialog"][aria-label="${CHOICES_TITLE}"]')) return false;
+  const artifacts = document.querySelectorAll('[data-plugin-artifact="visuals-choices"]');
+  const last = artifacts[artifacts.length - 1];
+  if (!last || !/Choose [A-F]/.test(last.innerText)) return false;
+  if (last.getBoundingClientRect().bottom > window.innerHeight) last.scrollIntoView({ block: 'end' });
+  return ${CHOICES_DRAWN};
+})()`;
+// The same waiting question with the second variant switched to.
+const CHOICES_SWITCHED = `(() => {
+  if (!${CHOICES_WAITING}) return false;
+  const artifacts = document.querySelectorAll('[data-plugin-artifact="visuals-choices"]');
+  const last = artifacts[artifacts.length - 1];
+  const second = last.querySelector('[data-choice-tab="b"]');
+  if (second?.getAttribute('aria-pressed') !== 'true') { second?.click(); return false; }
+  return last.innerText.includes('Choose B');
+})()`;
 // Opens the row menu of the 5-day-old archived session, picks Unarchive, and
 // settles once the list has had time to regroup.
 const TIMELINE_UNARCHIVE = `(() => {
@@ -672,6 +782,209 @@ const PAGES = {
       return true;
     })()`,
   },
+  'settings-plugins': {
+    // Settings → Extensions & Plugins with both bundled plugins on: a row per
+    // plugin with its switch and what it adds to the agent, then the start of
+    // Pi's extensions.
+    path: '/?settings=plugins',
+    readyText: ['Visuals', 'Sub-agents', 'Built in'],
+    viewports: ['desktop'],
+  },
+  'settings-extensions': {
+    // The same page at Pi extensions, Global: the seed's local package with
+    // one extension off, the demo extensions, and Pi's built-ins.
+    path: '/?settings=plugins',
+    readyText: ['Pi extensions', 'review-kit', 'Built into Pi'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="plugins.extensions"]');
+      if (!section) return false;
+      section.scrollIntoView({ block: 'start' });
+      return true;
+    })()`,
+  },
+  'settings-extensions-project': {
+    // Pi extensions on This project: each extension has the project's own
+    // choice (the global setting, on, off) as three chips in place of a switch.
+    path: '/?settings=plugins',
+    readyText: ['Pi extensions', 'review-kit', 'Built into Pi'],
+    expandSelector: '[aria-label="Extension settings for"] button:nth-of-type(2)',
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="plugins.extensions"]');
+      if (!section || !section.querySelector('[aria-label$=" in this project"]')) return false;
+      section.scrollIntoView({ block: 'start' });
+      return true;
+    })()`,
+  },
+  'settings-extensions-mobile': {
+    // Pi extensions on a phone, This project: reached from the composer
+    // sheet's Plugin settings, since a phone has no settings link to open.
+    path: VISUALS_SESSION_PATH,
+    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    viewports: ['mobile'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="plugins.extensions"]');
+      if (!section) {
+        // One press each: the sheet's button, then its settings link.
+        const link = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Plugin settings');
+        if (link && !window.__settingsAsked) {
+          window.__settingsAsked = true;
+          link.click();
+        } else if (!link && !window.__sheetAsked) {
+          window.__sheetAsked = true;
+          document.querySelector('button[aria-label^="Composer controls"]')?.click();
+        }
+        return false;
+      }
+      const project = section.querySelector('[aria-label="Extension settings for"] button:nth-of-type(2)');
+      if (project?.getAttribute('aria-pressed') !== 'true') {
+        project?.click();
+        return false;
+      }
+      if (!section.querySelector('[aria-label$=" in this project"]')) return false;
+      section.scrollIntoView({ block: 'start' });
+      return true;
+    })()`,
+  },
+  'settings-extensions-remove': {
+    // The package's Remove action: a dialog that names the package and where
+    // it stops loading. Nothing is removed.
+    path: '/?settings=plugins',
+    readyText: ['Pi extensions', 'review-kit', 'Built into Pi'],
+    expandSelector: '[data-settings-item="plugins.extensions"] button[aria-label^="Remove "]',
+    settledScript: `Boolean(document.querySelector('[role="dialog"]')) && document.body.innerText.includes('Remove package?')`,
+    viewports: ['desktop'],
+  },
+  'settings-plugin-detail': {
+    // Visuals' own page, opened from its row: what it adds to the agent and
+    // to PiChamber, its options, and About.
+    path: '/?settings=plugins',
+    readyText: ['Visuals', 'Sub-agents', 'Built in'],
+    expandSelector: 'button[aria-label="Visuals settings"]',
+    settledScript: `document.body.innerText.includes('What it adds to the agent')`,
+    viewports: ['desktop'],
+  },
+  'settings-plugin-replaced': {
+    // Sub-agents' own page from the Night Shift session. That folder has its
+    // own `subagent` extension, so Pi loads it and not the plugin: the page
+    // opens with a warning that names the extension and a button that turns
+    // it off in that project. Opening the session starts the folder's runtime,
+    // which is what the server reads the replacement from.
+    path: `/?session=${SHELF_SESSIONS[1].id}&settings=plugins`,
+    readyText: ['Sub-agents', 'Built in', 'takes its place'],
+    expandSelector: 'button[aria-label="Sub-agents settings"]',
+    settledScript: `document.body.innerText.includes('Pi is not loading this plugin') && document.body.innerText.includes('What it adds to the agent')`,
+    viewports: ['desktop'],
+  },
+  'visuals-page': {
+    // A render_html page drawn in its frame under the turn's activity, with
+    // the Sub-agents composer toggle below (Visuals has none).
+    path: VISUALS_SESSION_PATH,
+    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    // The page has drawn and the frame has fitted to it.
+    settledScript: `(() => {
+      const frame = document.querySelector('[data-plugin-artifact="visuals"] iframe');
+      return Boolean(frame) && frame.getBoundingClientRect().height > 0 && frame.getBoundingClientRect().height !== 240;
+    })()`,
+  },
+  'visuals-choices': {
+    // An answered render_choices call: one variant at a time at full width,
+    // opened on the chosen one, the note under the frame.
+    path: CHOICES_SESSION_PATH,
+    readyText: [CHOICES_TITLE, CHOICES_REPLY, 'You chose B'],
+    settledScript: CHOICES_DRAWN,
+  },
+  'visuals-choices-pending': {
+    // A render_choices call that waits. Acme Web's scripted model answers the
+    // message with the call; the shown variant has a Choose button and the
+    // same question sits above the composer. The question stays open for the next
+    // viewport and theme, then this page closes it, which adds a turn to the
+    // session: re-seed for a clean capture.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [CHOICES_PROMPT],
+    submitComposer: true,
+    settledScript: CHOICES_WAITING,
+    dismissAfter: '[role="dialog"] button[aria-label="Dismiss extension dialog"]',
+  },
+  'visuals-choices-switch': {
+    // The same waiting question after its second switcher button: variant B
+    // is in the frame with its own Choose button. When done, this page
+    // presses Choose B, which answers the question and adds a turn.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [CHOICES_PROMPT],
+    submitComposer: true,
+    settledScript: CHOICES_SWITCHED,
+    dismissAfter: '[data-plugin-artifact="visuals-choices"] figcaption button',
+  },
+  'composer-plugin-sheet': {
+    // Phones: the plugin button beside Send pressed, opening the sheet with a
+    // switch per composer toggle (only Sub-agents declares one).
+    path: VISUALS_SESSION_PATH,
+    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    expandSelector: 'button[aria-label^="Composer controls"]',
+    settledScript: `document.body.innerText.includes('Plugin settings')`,
+    viewports: ['mobile'],
+  },
+  'composer-controls': {
+    // The seed's demo extension declares a Mode cycle and a Plan toggle with
+    // `pichamber:composer`; they follow the plugin toggles in the footer.
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    settledScript: `Boolean(document.querySelector('[data-extension-control="mode"]'))`,
+    viewports: ['desktop'],
+  },
+  'composer-controls-draft': {
+    // A new-session draft: its draft session (a runtime started for the
+    // draft, never listed) reports the demo extension's controls before
+    // anything is sent.
+    path: '/',
+    readyText: ['Add folder'],
+    settledScript: `Boolean(document.querySelector('[data-extension-control="mode"]'))`,
+    viewports: ['desktop'],
+  },
+  'composer-controls-sheet': {
+    // Phones: the composer controls sheet from the button beside Send, with
+    // a chip for every mode and a switch for Plan.
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    expandSelector: 'button[aria-label^="Composer controls"]',
+    settledScript: `document.body.innerText.includes('From your Pi extensions')`,
+    viewports: ['mobile'],
+  },
+  'visuals-expanded': {
+    // The same page opened full window from its Expand action.
+    path: VISUALS_SESSION_PATH,
+    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    expandSelector: '[data-plugin-artifact="visuals"] [aria-label="Expand page"]',
+    settledScript: `Boolean(document.querySelector('[role="dialog"] iframe'))`,
+    viewports: ['desktop'],
+  },
+  'subagents-turn': {
+    // A finished sub-agent chain in its turn: a card per run with its model's
+    // logo, task, and status.
+    path: AGENTS_SESSION_PATH,
+    readyText: [AGENTS_REPLY, 'Sub-agent chain'],
+    settledScript: `document.querySelectorAll('[data-plugin-artifact="subagents"] button[aria-label*=": Done"]').length === 2`,
+  },
+  'subagents-run': {
+    // The reviewer's card pressed: the run on its own, in the Agents panel on
+    // desktop and in a sheet on phones.
+    path: AGENTS_SESSION_PATH,
+    readyText: [AGENTS_REPLY, 'Sub-agent chain'],
+    expandSelector: '[data-plugin-artifact="subagents"] button[aria-label^="reviewer"]',
+    settledScript: `document.body.innerText.includes('Answer') && document.body.innerText.includes('Task')`,
+  },
+  'subagents-panel': {
+    // The same chain in the Agents panel, opened from the turn's Open in panel.
+    path: AGENTS_SESSION_PATH,
+    readyText: [AGENTS_REPLY, 'Sub-agent chain'],
+    expandSelector: '[data-plugin-artifact="subagents"] header button',
+    settledScript: `Boolean(document.querySelector('[data-testid="agents-surface"]'))`,
+    viewports: ['desktop'],
+  },
   'command-palette': {
     path: DEMO_SESSION_PATH,
     readyText: [DEMO_REPLY],
@@ -1093,7 +1406,117 @@ const writeDemoExtension = async (home) => {
 }
 `);
   await writeFile(join(dir, 'demo-surface.ts'), DEMO_SURFACE_EXTENSION);
+  await writeFile(join(dir, 'demo-controls.ts'), DEMO_CONTROLS_EXTENSION);
+  await writeDemoPackage(home);
 };
+
+// A project's own extension with the tool name of the bundled Sub-agents
+// plugin. It is never called: the captures only open the folder's session.
+const PROJECT_SUBAGENT_EXTENSION = `export default function (pi) {
+  pi.registerTool({
+    name: 'subagent',
+    label: 'Subagent',
+    description: 'Hand a task to a sub-agent.',
+    parameters: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'] },
+    execute: async () => ({ content: [{ type: 'text', text: 'done' }], details: {} }),
+  });
+}
+`;
+
+// Acme Web's own extension: a model that runs in the daemon and answers from
+// this script, so the pending render_choices capture needs no provider. A
+// message gets the call; its result gets one line back.
+const PROJECT_SCRIPTED_MODEL_EXTENSION = `import { fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
+
+const CALL = ${JSON.stringify({ title: CHOICES_TITLE, options: CHOICES_OPTIONS })};
+
+export default function (pi) {
+  const faux = fauxProvider({
+    provider: 'demo',
+    models: [{ id: 'demo-model', name: 'Demo Model', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 8192 }],
+    tokensPerSecond: 400,
+  });
+  const respond = (context) => {
+    const last = context.messages.at(-1);
+    if (last?.role !== 'toolResult') {
+      return fauxAssistantMessage([fauxToolCall('render_choices', CALL)], { stopReason: 'toolUse' });
+    }
+    const text = (last.content ?? []).map((part) => part.text ?? '').join('');
+    return fauxAssistantMessage(text.includes('chose') ? ${JSON.stringify(CHOICES_REPLY)} : 'No problem. Tell me which one you want when you are ready.');
+  };
+  faux.setResponses(Array.from({ length: 200 }, () => respond));
+  pi.registerProvider(faux.provider);
+}
+`;
+
+// A local Pi package for Settings → Extensions & Plugins to list: two
+// extensions that do nothing, one turned off in Pi's settings. It sits in a
+// hidden folder so the Add folder dialog's view of home stays the same.
+const writeDemoPackage = async (home) => {
+  const root = join(home, '.pi-packages', 'review-kit');
+  await mkdir(join(root, 'extensions'), { recursive: true });
+  await writeFile(join(root, 'package.json'), `${JSON.stringify({
+    name: 'review-kit', version: '1.0.0', keywords: ['pi-package'],
+  }, null, 2)}\n`);
+  for (const name of ['checklist.ts', 'release-notes.ts']) {
+    await writeFile(join(root, 'extensions', name), 'export default function () {}\n');
+  }
+  await writeFile(join(home, '.pi', 'agent', 'settings.json'), `${JSON.stringify({
+    packages: [{ source: '../../.pi-packages/review-kit', extensions: ['-extensions/release-notes.ts'] }],
+  }, null, 2)}\n`);
+};
+
+// Composer controls a plain Pi extension declares with `pichamber:composer`:
+// a mode picker that cycles through its own `/demo-mode <name>` command and a
+// plan toggle. A mode switches model and thinking, as a real mode extension
+// does, so the composer can be seen following it: the cheapest, middle, or
+// priciest model of the session's provider (by input price), and low, medium,
+// or high thinking. Switching sends nothing to a model.
+const DEMO_CONTROLS_EXTENSION = `const MODES = ['economy', 'balance', 'premium'];
+const THINKING = { economy: 'low', balance: 'medium', premium: 'high' };
+const pickModel = (ctx, name) => {
+  const available = ctx.modelRegistry.getAvailable();
+  const sameProvider = available.filter((model) => model.provider === ctx.model?.provider);
+  const models = (sameProvider.length > 1 ? sameProvider : available)
+    .slice()
+    .sort((a, b) => (a.cost?.input ?? 0) - (b.cost?.input ?? 0) || a.id.localeCompare(b.id));
+  if (models.length < 2) return undefined;
+  if (name === 'economy') return models[0];
+  if (name === 'premium') return models[models.length - 1];
+  return models[Math.floor(models.length / 2)];
+};
+const label = (name) => name[0].toUpperCase() + name.slice(1);
+
+export default function (pi) {
+  let mode = 'balance';
+  let plan = false;
+  const publish = () => {
+    pi.events.emit('pichamber:composer', {
+      id: 'mode', kind: 'cycle', label: 'Mode', description: 'Model and thinking presets', value: mode,
+      options: MODES.map((name) => ({ value: name, label: label(name), command: 'demo-mode ' + name })),
+    });
+    pi.events.emit('pichamber:composer', {
+      id: 'plan', kind: 'toggle', label: 'Plan', description: 'Read-only planning before edits', value: plan, command: 'demo-plan',
+    });
+  };
+  pi.registerCommand('demo-mode', {
+    description: 'Switch the demo mode',
+    handler: async (args, ctx) => {
+      if (!MODES.includes(args.trim())) return;
+      mode = args.trim();
+      const model = pickModel(ctx, mode);
+      if (model) await pi.setModel(model);
+      pi.setThinkingLevel(THINKING[mode]);
+      publish();
+    },
+  });
+  pi.registerCommand('demo-plan', {
+    description: 'Toggle demo plan mode',
+    handler: async () => { plan = !plan; publish(); },
+  });
+  pi.on('session_start', async () => publish());
+}
+`;
 
 // A permission prompt drawn the way terminal-first extensions draw theirs:
 // with ctx.ui.custom() under the terminal UI, and select() otherwise, which
@@ -1207,13 +1630,108 @@ const writeDemoSession = async (home, repo) => {
   await writeFile(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
 };
 
+const writeSessionFile = async (home, cwd, id, start, messages) => {
+  const sessionDir = join(home, '.pi', 'agent', 'sessions', encodePiSessionCwd(cwd));
+  await mkdir(sessionDir, { recursive: true });
+  const lines = [{ type: 'session', version: 3, id, timestamp: new Date(start).toISOString(), cwd }];
+  let parentId = null;
+  messages.forEach((message, index) => {
+    const timestamp = start + (index + 1) * 1000;
+    const entryId = `${id.slice(-4)}${String(index).padStart(4, '0')}`;
+    lines.push({ type: 'message', id: entryId, parentId, timestamp: new Date(timestamp).toISOString(), message: { ...message, timestamp } });
+    parentId = entryId;
+  });
+  const file = join(sessionDir, `${new Date(start).toISOString().replace(/[:.]/g, '-')}_${id}.jsonl`);
+  await writeFile(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+  // The session list dates a session by its file's modification time.
+  const end = new Date(start + messages.length * 1000);
+  await utimes(file, end, end);
+};
+
+// A render_html page and a sub-agent chain, as the bundled plugins record
+// them, plus the data-dir file that turns both plugins on.
+const writePluginSessions = async (home, data, repo) => {
+  const usage = {
+    input: 2400, output: 160, cacheRead: 0, cacheWrite: 0, totalTokens: 2560,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+  const assistant = (content) => ({
+    role: 'assistant', content, api: 'anthropic-messages', provider: 'demo', model: 'demo-model', usage,
+    stopReason: content.some((part) => part.type === 'toolCall') ? 'toolUse' : 'stop',
+  });
+  const result = (toolCallId, toolName, text, details) => ({
+    role: 'toolResult', toolCallId, toolName, content: [{ type: 'text', text }], details, isError: false,
+  });
+
+  const page = { title: VISUALS_TITLE, html: VISUALS_HTML };
+  await writeSessionFile(home, repo, VISUALS_SESSION_ID, Date.parse('2026-10-20T09:00:00.000Z'), [
+    { role: 'user', content: 'Chart this week\'s test runs.' },
+    assistant([{ type: 'toolCall', id: 'call_visual_1', name: 'render_html', arguments: page }]),
+    result('call_visual_1', 'render_html', `Rendered "${VISUALS_TITLE}".`, page),
+    assistant([{ type: 'text', text: `${VISUALS_REPLY} Most of the early failures were the settings test, fixed on Thursday.` }]),
+  ]);
+
+  const answered = { ...CHOICES_DETAILS, answer: { id: 'b', note: CHOICES_NOTE } };
+  await writeSessionFile(home, repo, CHOICES_SESSION_ID, Date.parse('2026-10-20T09:30:00.000Z'), [
+    { role: 'user', content: CHOICES_PROMPT },
+    assistant([{ type: 'toolCall', id: 'call_choices_1', name: 'render_choices', arguments: { title: CHOICES_TITLE, options: CHOICES_OPTIONS } }]),
+    result('call_choices_1', 'render_choices', `The user chose B: "Split". Their note: ${JSON.stringify(CHOICES_NOTE)}`, answered),
+    assistant([{ type: 'text', text: `${CHOICES_REPLY} I will carry the yearly toggle over from the centered one.` }]),
+  ]);
+
+  // Each run names its provider so its card shows that provider's logo.
+  const run = (agent, task, step, activity, output, turns, input, out, model) => ({
+    agent, agentSource: 'bundled', task, step, status: 'done', model,
+    usage: { input, output: out, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: input, turns },
+    activity, output,
+  });
+  const chain = [
+    { agent: 'scout', task: 'Find the code the billing change touches and how it is tested.' },
+    { agent: 'reviewer', task: 'Review the billing change using this context: {previous}' },
+  ];
+  const details = {
+    mode: 'chain',
+    agentScope: 'user',
+    results: [
+      run('scout', chain[0].task, 1, [
+        { kind: 'tool', name: 'bash', text: '$ git diff --stat main' },
+        { kind: 'tool', name: 'read', text: 'read billing.ts' },
+        { kind: 'tool', name: 'grep', text: 'grep /formatAmount/ in src' },
+        { kind: 'text', text: 'billing.ts adds paidAt and formats amounts with Intl.NumberFormat. src/index.ts re-exports both helpers; no test covers formatAmount.' },
+      ], 'billing.ts adds `paidAt` and formats amounts with `Intl.NumberFormat`. `src/index.ts` re-exports both helpers. No test covers `formatAmount`.', 3, 8200, 410, 'openai/gpt-5-mini'),
+      run('reviewer', 'Review the billing change using the scout\'s findings.', 2, [
+        { kind: 'tool', name: 'read', text: 'read billing.ts' },
+        { kind: 'tool', name: 'read', text: 'read src/index.ts' },
+        { kind: 'text', text: 'One blocking issue and one suggestion.' },
+      ], [
+        '**Blocking:** `formatAmount` now returns `$1,234.00` where callers expected `$1234`. Check the invoice email template before merging.',
+        '',
+        '**Suggestion:** add a test for `formatAmount` with a zero and a negative amount.',
+      ].join('\n'), 2, 6100, 380, 'anthropic/claude-sonnet-4-5'),
+    ],
+  };
+  await writeSessionFile(home, repo, AGENTS_SESSION_ID, Date.parse('2026-10-20T10:00:00.000Z'), [
+    { role: 'user', content: 'Review the billing change before I merge it.' },
+    assistant([{ type: 'toolCall', id: 'call_agents_1', name: 'subagent', arguments: { chain } }]),
+    result('call_agents_1', 'subagent', details.results[1].output, details),
+    assistant([{ type: 'text', text: `${AGENTS_REPLY} \`formatAmount\` changed its output format, which the invoice email depends on.` }]),
+  ]);
+
+  await mkdir(join(data, 'pi'), { recursive: true });
+  await writeFile(join(data, 'pi', 'plugins.json'), `${JSON.stringify({
+    version: 1,
+    enabled: { visuals: true, subagents: true },
+    state: {},
+  }, null, 2)}\n`);
+};
+
 // Short sessions across the seeded folders, timed relative to the seed, plus
 // the shelf sidecar that snoozes one and the archive sidecar that archives two.
 const writeShelfSessions = async (home, data, folderPath) => {
   const now = Date.now();
   const shelf = {};
   const archive = {};
-  for (const session of SHELF_SESSIONS) {
+  for (const session of [...SHELF_SESSIONS, CHOICES_LIVE_SESSION]) {
     const cwd = folderPath(session.folder);
     const sessionDir = join(home, '.pi', 'agent', 'sessions', encodePiSessionCwd(cwd));
     await mkdir(sessionDir, { recursive: true });
@@ -1316,15 +1834,23 @@ const seed = async (dir) => {
   git('add', 'retry.ts');
 
   const extraFolders = [
-    { name: 'acme-web', label: 'Acme Web', files: { 'public/favicon.svg': demoIcon('#e5484d', 'M9 22V10h8a4 4 0 0 1 0 8h-4v4z') } },
+    // Its own extension is the scripted model behind the pending
+    // render_choices capture; only this folder's sessions have a model.
+    { name: 'acme-web', label: 'Acme Web', files: {
+      'public/favicon.svg': demoIcon('#e5484d', 'M9 22V10h8a4 4 0 0 1 0 8h-4v4z'),
+      '.pi/extensions/scripted-model.ts': PROJECT_SCRIPTED_MODEL_EXTENSION,
+    } },
     { name: 'chamber-mono', label: 'Chamber Mono', files: {
       'packages/docs/README.md': '# docs\n',
       'packages/web/public/favicon.svg': demoIcon('#30a46c', 'M16 8l8 8-8 8-8-8z'),
     } },
     { name: 'dotfiles', label: 'Dotfiles', files: { 'README.md': '# dotfiles\n' } },
     // A dark logo on a transparent background: the case a dark theme must keep visible.
+    // Its own `subagent` extension registers the tool the Sub-agents plugin
+    // registers, so in this folder Pi loads the extension and not the plugin.
     { name: 'night-shift', label: 'Night Shift', files: {
       'public/favicon.svg': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M20 4a12 12 0 1 0 8 20A10 10 0 0 1 20 4z" fill="#14141a"/></svg>',
+      '.pi/extensions/subagent.ts': PROJECT_SUBAGENT_EXTENSION,
     } },
   ];
   for (const folder of extraFolders) {
@@ -1350,6 +1876,7 @@ const seed = async (dir) => {
   }, null, 2)}\n`);
   await writeDemoSession(home, repo);
   await writeDemoExtension(home);
+  await writePluginSessions(home, data, repo);
   await writeShelfSessions(home, data, (name) => (name === 'repo' ? repo : join(folders, name)));
   // Folders for the Add folder dialog to list; home holds nothing else visible.
   for (const name of ['api-gateway', 'design-notes', 'sandbox']) {

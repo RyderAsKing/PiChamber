@@ -62,6 +62,7 @@ export const getOrCreateSession = (
     streamingMessages: new Set(),
     queue: { steering: 0, followUp: 0 },
     extensionStatuses: new Map(),
+    extensionControls: new Map(),
     extensionWidgets: new Map(),
     extensionDialogs: [],
     extensionNotices: [],

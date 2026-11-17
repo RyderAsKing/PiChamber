@@ -139,6 +139,52 @@ describe('extension public projections', () => {
     }))).toBeNull();
   });
 
+  it('projects choose dialogs with cleaned choices and drops one with nothing to choose', () => {
+    const projected = projectEventFrame(frame('extension.dialog', {
+      requestId: 'choose-1',
+      method: 'choose',
+      title: 'Which header?',
+      choices: [
+        { id: 'a', label: 'A: Compact', description: 'One row', path: '/secret/a.html' },
+        { id: 'b', label: ' B: Tall ' },
+        { id: 'a', label: 'Same id again' },
+        { id: 'c' },
+        null,
+      ],
+      allowNote: true,
+      toolCallId: 'call-7',
+      html: '<p>never public</p>',
+    }));
+    expect(projected?.payload).toEqual({
+      requestId: 'choose-1',
+      method: 'choose',
+      title: 'Which header?',
+      choices: [
+        { id: 'a', label: 'A: Compact', description: 'One row' },
+        { id: 'b', label: 'B: Tall' },
+      ],
+      allowNote: true,
+      toolCallId: 'call-7',
+    });
+
+    // No note unless asked for, and an oversized tool call id is left out.
+    expect(projectEventFrame(frame('extension.dialog', {
+      requestId: 'choose-2',
+      method: 'choose',
+      title: 'Pick',
+      choices: [{ id: 'x', label: 'X' }],
+      allowNote: 'yes',
+      toolCallId: 'c'.repeat(300),
+    }))?.payload).toEqual({ requestId: 'choose-2', method: 'choose', title: 'Pick', choices: [{ id: 'x', label: 'X' }] });
+
+    expect(projectEventFrame(frame('extension.dialog', {
+      requestId: 'choose-3',
+      method: 'choose',
+      title: 'Pick',
+      choices: [{ label: 'no id' }],
+    }))).toBeNull();
+  });
+
   it('projects extension.working events and sanitizes/bounds payloads', () => {
     expect(projectEventFrame(frame('extension.working', { message: 'Thinking\u0000 deeply', visible: true }))).toMatchObject({
       name: 'extension.working',
@@ -645,3 +691,72 @@ describe('projectMessageRender and message render route passthrough', () => {
   });
 });
 
+
+describe('composer controls', () => {
+  let server;
+  const listen = (app) => new Promise((resolve, reject) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    s.once('error', reject);
+  });
+  afterEach(async () => {
+    await new Promise((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    server = undefined;
+  });
+
+  it('projects extension.control with the daemon parser and passes removals', () => {
+    const control = {
+      id: 'mode',
+      kind: 'cycle',
+      label: 'Mode',
+      value: 'balance',
+      options: [{ value: 'economy', label: 'Economy', command: 'economy' }, { value: 'balance', label: 'Balance', command: 'balance' }],
+      extra: 'dropped',
+    };
+    expect(projectEventFrame(frame('extension.control', { control }))).toMatchObject({
+      name: 'extension.control',
+      payload: { control: { id: 'mode', kind: 'cycle', value: 'balance', options: control.options } },
+    });
+    expect(projectEventFrame(frame('extension.control', { control })).payload.control).not.toHaveProperty('extra');
+    expect(projectEventFrame(frame('extension.control', { id: 'mode', removed: true }))).toMatchObject({ payload: { id: 'mode', removed: true } });
+    expect(projectEventFrame(frame('extension.control', { control: { ...control, kind: 'slider' } }))).toBeNull();
+    expect(projectEventFrame(frame('extension.control', { control: { id: 'mode', remove: true } }))).toBeNull();
+  });
+
+  it('forwards a click and answers whether a command ran', async () => {
+    const calls = [];
+    let answer = { ran: true };
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const url = `http://127.0.0.1:${server.address().port}/api/pi/extensions/control`;
+    const post = (body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+    const ok = await post({ sessionId: 's1', id: 'mode', value: 'balance', clientId: 'tab-1', command: '/rm -rf' });
+    expect(ok.status).toBe(200);
+    await expect(ok.json()).resolves.toEqual({ ran: true });
+    // The browser names the control and value only; a command it sends is never forwarded.
+    expect(calls).toEqual([{ command: 'extensions.control', payload: { sessionId: 's1', id: 'mode', value: 'balance', clientId: 'tab-1' } }]);
+
+    answer = { ran: false };
+    await expect((await post({ sessionId: 's1', id: 'plan', value: true })).json()).resolves.toEqual({ ran: false });
+
+    for (const bad of [{}, { sessionId: 's1' }, { sessionId: 's1', id: 'mode', value: 3 }, { sessionId: 's1', id: 'x'.repeat(65) }, { sessionId: 's1', id: 'mode', value: 'v'.repeat(65) }]) {
+      const res = await post(bad);
+      expect(res.status).toBe(400);
+    }
+    expect(calls).toHaveLength(2);
+
+    answer = Object.assign(new Error('gone'), { code: 'CONTROL_UNAVAILABLE' });
+    const unavailable = await post({ sessionId: 's1', id: 'ghost' });
+    expect(unavailable.status).toBe(409);
+    await expect(unavailable.json()).resolves.toEqual({ error: { code: 'CONTROL_UNAVAILABLE' } });
+  });
+});

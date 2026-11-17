@@ -51,6 +51,8 @@ Load every matching reference before editing.
 | Short segmented options | `SettingsChipGroup` |
 | Sub-cluster with a quiet L3 title inside a section | `SettingsControlGroup` |
 | Two-column area on wide panes | `SettingsTwoColumn` |
+| Rows of things the user has (plugins, extensions, packages, facts about one) | `SettingsList` + `SettingsListRow` |
+| Warning that must stay visible, with an optional fix button | `SettingsCallout` |
 | Helper text on demand (hover + tap) | `info` prop or `SettingsInfoHint` |
 
 Do not introduce raw `<Tooltip>`-based info icons, direct Remixicon components, hardcoded user-facing strings, or one-off color/button systems. New icons: reference a Remix icon name in code, then run `bun run icons:generate` to add it to the sprite.
@@ -60,6 +62,7 @@ Do not introduce raw `<Tooltip>`-based info icons, direct Remixicon components, 
 - Explanatory prose (what a feature does, when it applies) goes behind the info icon via the `info` prop — never as always-visible `description`.
 - Stays visible: security/data-loss warnings, destructive consequences, required syntax/placeholder lists the user reads while typing, dynamic status, empty states, validation errors, active-flow wizard instructions.
 - Mixed text: keep the warning sentence visible, move the explanation to `info`.
+- A `SettingsListRow` detail says what the item is or its current state, in one line. It is not a place for explanation.
 
 ## Save Feedback
 

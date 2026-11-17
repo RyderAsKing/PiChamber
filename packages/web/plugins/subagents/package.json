@@ -1,0 +1,41 @@
+{
+  "name": "@pi-chamber/plugin-subagents",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lets the agent hand tasks to sub-agents that work in their own context.",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./extension.js"]
+  },
+  "pichamber": {
+    "apiVersion": 1,
+    "id": "subagents",
+    "name": "Sub-agents",
+    "description": "Lets the agent hand tasks to sub-agents that work in their own context. Each is a separate Pi run with tokens of its own.",
+    "icon": "robot-2",
+    "defaultEnabled": false,
+    "replaceable": true,
+    "state": {
+      "on": {
+        "type": "boolean",
+        "scope": "global",
+        "default": true,
+        "label": "Sub-agents in this session"
+      }
+    },
+    "contributes": {
+      "composerToggles": [
+        {
+          "id": "subagents",
+          "state": "on",
+          "label": "Sub-agents",
+          "icon": "robot-2",
+          "description": "Let the agent hand tasks to sub-agents"
+        }
+      ],
+      "ui": "subagents"
+    }
+  }
+}

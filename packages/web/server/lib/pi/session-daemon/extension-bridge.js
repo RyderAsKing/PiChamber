@@ -2,12 +2,16 @@ import { randomUUID } from 'node:crypto';
 
 import {
   MAX_EXTENSION_APP_HTML_CHARS,
+  projectExtensionChooseFields,
   sanitizeExtensionFormFields,
+  validateExtensionChoiceAnswer,
   validateExtensionFormValues,
 } from '../extension-protocol.js';
 import { handleBrowserArguments, isHttpUrl } from '../../open-url/browser-handler.mjs';
+import { createComposerControls } from './extension-controls.js';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
+import { PICHAMBER_UI } from './pichamber-ui.js';
 
 const MAX_EXTENSION_PANELS_PER_SESSION = 24;
 const MAX_EXTENSION_APPS_PER_SESSION = 8;
@@ -85,6 +89,10 @@ export const createExtensionBridge = ({
   // into public stream events; blocking dialogs are resolved by the
   // `extensions.respond` daemon command.
   const pendingExtensionDialogs = new Map();
+  // Composer controls extensions declare on `pi.events` (extension-controls.js).
+  const composerControls = createComposerControls({
+    publish: (sessionId, payload) => publishForSession('extension.control', payload, sessionId),
+  });
 
   const cancelPendingExtensionDialogs = (sessionId, reason = 'aborted') => {
     for (const pending of pendingExtensionDialogs.values()) {
@@ -267,6 +275,7 @@ export const createExtensionBridge = ({
     extensionWorkingBySession.delete(sessionId);
     extensionDraftBySession.delete(sessionId);
     extensionDraftTrackedSessions.delete(sessionId);
+    composerControls.clear(sessionId);
     cancelPendingExtensionDialogs(sessionId, 'session-closed');
   };
 
@@ -286,6 +295,7 @@ export const createExtensionBridge = ({
       ...extensionWorkingBySession.keys(),
       ...extensionDraftBySession.keys(),
       ...extensionDraftTrackedSessions.keys(),
+      ...composerControls.sessionIds(),
     ]);
     for (const id of sessionIds) clearOneExtensionState(id);
     cancelPendingExtensionDialogs(undefined, 'daemon-stopped');
@@ -374,6 +384,60 @@ export const createExtensionBridge = ({
       });
     };
 
+    // PiChamber's own dialog calls, reached through `pichamber.ui.x(ctx, ...)`.
+    const pichamberUi = {
+      // Structured multi-input dialog resolved with a values object keyed by
+      // field id.
+      form: (title, fields, opts) => {
+        const sanitizedFields = sanitizeExtensionFormFields(fields);
+        return dialog(
+          'form',
+          { title, ...(sanitizedFields.length > 0 ? { fields: sanitizedFields } : {}) },
+          opts,
+          (response) => (response?.values && typeof response.values === 'object' && !Array.isArray(response.values)
+            ? response.values
+            : undefined),
+        );
+      },
+      // One question with choices that carry an id, a label and an optional
+      // description, and an optional note. Resolves `{ id, note? }`, or
+      // `undefined` when it is dismissed. `opts.toolCallId` names the tool
+      // call that asks, so a plugin's chat component can draw the question.
+      choose: (title, choices, opts) => {
+        const fields = projectExtensionChooseFields({
+          choices,
+          allowNote: opts?.allowNote,
+          toolCallId: opts?.toolCallId,
+        });
+        // The public event needs a title; without one no client would show
+        // the question and the caller would wait forever.
+        const question = typeof title === 'string' ? title.trim().slice(0, 512) : '';
+        if (!question || fields.choices.length === 0) {
+          return Promise.reject(new TypeError('pichamber.ui.choose needs a title and at least one choice with an id and a label.'));
+        }
+        return dialog(
+          'choose',
+          { title: question, ...(typeof opts?.message === 'string' ? { message: opts.message } : {}), ...fields },
+          opts,
+          (response) => (typeof response?.value === 'string'
+            ? { id: response.value, ...(typeof response.note === 'string' ? { note: response.note } : {}) }
+            : undefined),
+        );
+      },
+      // Show a URL to the person, attributed to exactly this session. Same
+      // path as `$BROWSER` (lib/open-url), so with no device connected it
+      // opens on the server machine instead. Resolves whether it was shown
+      // or opened.
+      openUrl: async (url) => {
+        if (process.platform === 'win32' || typeof url !== 'string' || !isHttpUrl(url)) return false;
+        const code = await handleBrowserArguments({
+          args: [url],
+          env: { ...process.env, PI_SESSION_ID: sessionId },
+        });
+        return code === 0;
+      },
+    };
+
     return {
       select: (title, options, opts) => dialog(
         'select',
@@ -393,32 +457,9 @@ export const createExtensionBridge = ({
         opts,
         (response) => (typeof response?.value === 'string' ? response.value : undefined),
       ),
-      form: (title, fields, opts) => {
-        // PiChamber-specific extension of the pi UI bridge (gate with
-        // isPiChamber(ctx)): structured multi-input dialogs resolved with a
-        // values object keyed by field id.
-        const sanitizedFields = sanitizeExtensionFormFields(fields);
-        return dialog(
-          'form',
-          { title, ...(sanitizedFields.length > 0 ? { fields: sanitizedFields } : {}) },
-          opts,
-          (response) => (response?.values && typeof response.values === 'object' && !Array.isArray(response.values)
-            ? response.values
-            : undefined),
-        );
-      },
-      openUrl: async (url) => {
-        // PiChamber-specific (gate with isPiChamber(ctx)): show a URL to the
-        // person, attributed to exactly this session. Same path as `$BROWSER`
-        // (lib/open-url), so with no device connected it opens on the server
-        // machine instead. Resolves whether it was shown or opened.
-        if (process.platform === 'win32' || typeof url !== 'string' || !isHttpUrl(url)) return false;
-        const code = await handleBrowserArguments({
-          args: [url],
-          env: { ...process.env, PI_SESSION_ID: sessionId },
-        });
-        return code === 0;
-      },
+      // Nothing PiChamber-only goes on `ctx.ui` under a string name, so a
+      // method Pi adds later is never shadowed; see `pichamber-ui.js`.
+      [PICHAMBER_UI]: pichamberUi,
       editor: (title, prefill) => dialog(
         'editor',
         { title, ...(typeof prefill === 'string' ? { prefill } : {}) },
@@ -707,6 +748,16 @@ export const createExtensionBridge = ({
       pending.settle({}, 'cancelled');
     } else if (payload.confirmed === true) {
       pending.settle({ confirmed: true });
+    } else if (pending.payload?.method === 'choose') {
+      // Only an id the dialog offered resolves it; anything else is a bad
+      // request and leaves the question open for a real answer.
+      if (payload.value === undefined && payload.note === undefined) {
+        pending.settle({});
+      } else {
+        const answer = validateExtensionChoiceAnswer(pending.payload, payload.value, payload.note);
+        if (!answer) throw protocolError('INVALID_ARGUMENT', 'The extension choice response is invalid.');
+        pending.settle({ value: answer.id, ...(answer.note ? { note: answer.note } : {}) });
+      }
     } else if (typeof payload.value === 'string') {
       pending.settle({ value: payload.value });
     } else if (payload.values && typeof payload.values === 'object' && !Array.isArray(payload.values)) {
@@ -898,8 +949,10 @@ export const createExtensionBridge = ({
     const working = extensionWorkingBySession.get(sessionId);
     const draftTracked = extensionDraftTrackedSessions.has(sessionId);
     const surfaces = customHost?.snapshot(sessionId);
+    const controls = composerControls.snapshot(sessionId);
     return {
       ...(statuses?.size ? { statuses: [...statuses.entries()].map(([key, text]) => ({ key, text })) } : {}),
+      ...(controls ? { controls } : {}),
       ...(widgets?.size ? { widgets: [...widgets.entries()].map(([key, widget]) => ({ key, ...widget })) } : {}),
       ...(dialogs.length ? { dialogs } : {}),
       ...(panels?.size ? { panels: [...panels.values()] } : {}),
@@ -923,5 +976,7 @@ export const createExtensionBridge = ({
     resetExtensionDraft,
     resolveExtensionDialog,
     updateExtensionDraft,
+    setComposerControl: composerControls.set,
+    resolveComposerControl: composerControls.resolve,
   };
 };

@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { deriveExtensionName, resolveExtensionName } from './extension-name.js';
 
 describe('deriveExtensionName', () => {
+  it('names a PiChamber plugin factory like a Pi built-in', () => {
+    expect(deriveExtensionName('<inline:pichamber:visuals>')).toBe('pichamber:visuals');
+    expect(deriveExtensionName('<inline:other>')).toBe('<inline:other>');
+  });
+
   it('derives single-file extension name without sourceInfo', () => {
     expect(deriveExtensionName('/home/u/.pi/agent/extensions/modes.ts')).toBe('modes');
   });

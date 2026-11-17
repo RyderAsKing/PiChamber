@@ -16,6 +16,9 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { usePromptTemplatesStore } from '@/stores/usePromptTemplatesStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
+import { useExtensionConfigStore } from '@/plugins/extensionConfigStore';
+import { usePluginsStore } from '@/plugins/store';
+import { usePluginSessionStore } from '@/plugins/sessionStore';
 import { clearCommandCatalogForRuntimeSwitch } from '@/lib/pi/commandCatalog';
 import { resetFilesystemHomeCache } from '@/lib/fsApi';
 import { resetSttStatusCache } from '@/lib/dictation/stt-status';
@@ -55,6 +58,10 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   resetPiRuntimeHealthCache();
   resetSttStatusCache();
   useSkillsStore.getState().resetForRuntimeSwitch();
+  // Plugin state belongs to the previous server.
+  usePluginsStore.getState().resetForRuntimeSwitch();
+  usePluginSessionStore.getState().resetForRuntimeSwitch();
+  useExtensionConfigStore.getState().resetForRuntimeSwitch();
   useConfigStore.setState({
     providers: [],
     isConnected: false,

@@ -35,6 +35,7 @@ export const pageOrder: SettingsPageSlug[] = [
   'snippets',
   'prompt-templates',
   'skills.installed',
+  'plugins',
 ];
 
 export function isPageAvailable(

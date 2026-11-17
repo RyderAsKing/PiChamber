@@ -10,7 +10,8 @@ export type ContextSurfaceId =
   | 'preview'
   | 'pull-requests'
   | 'issues'
-  | 'extensions';
+  | 'extensions'
+  | 'agents';
 
 export type ContextSurfaceDescriptor = {
   id: ContextSurfaceId;
@@ -28,8 +29,10 @@ export type ContextSurfaceDescriptor = {
    * loading, visible when scope resolution FAILED so the failure renders.
    * 'extensions' surfaces are visible when the selected session has
    * `ctx.ui.setWidget` content or an extensions tab is already open.
+   * 'agents' surfaces are visible when the selected session has a sub-agent
+   * call or an agents tab is already open.
    */
-  availability: 'always' | 'has-content' | 'github-repo' | 'extensions';
+  availability: 'always' | 'has-content' | 'github-repo' | 'extensions' | 'agents';
   /** Short tooltip explanation shown on the rail. */
   description: string;
 };
@@ -110,6 +113,16 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     icon: 'plug-2',
     label: "Extensions",
     availability: 'extensions',
+  },
+  {
+    // Sub-agents plugin. On the rail once the session has a sub-agent call,
+    // and while its tab exists.
+    id: 'agents',
+    description: "Sub-agent runs in this session",
+    mode: 'agents',
+    icon: 'robot-2',
+    label: "Agents",
+    availability: 'agents',
   },
 ];
 
@@ -220,6 +233,8 @@ type VisibleRailSurfacesOptions = {
   githubScope?: GitHubRailScopeState;
   /** Whether the selected session has `ctx.ui.setWidget` content. */
   hasExtensionContent?: boolean;
+  /** Whether the selected session has a sub-agent call. */
+  hasAgentContent?: boolean;
 };
 
 /**
@@ -243,6 +258,10 @@ export const getVisibleContextRailSurfaces = (options: VisibleRailSurfacesOption
     if (surface.availability === 'extensions') {
       if (options.tabs.some((tab) => tab.mode === surface.mode)) return true;
       return Boolean(options.hasExtensionContent);
+    }
+    if (surface.availability === 'agents') {
+      if (options.tabs.some((tab) => tab.mode === surface.mode)) return true;
+      return Boolean(options.hasAgentContent);
     }
     return true;
   });
