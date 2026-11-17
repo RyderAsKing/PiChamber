@@ -229,6 +229,31 @@ Native plugins add to slots; none replaces a built-in control.
 Turn artifacts draw any finished call whose details have the plugin's shape,
 also after the plugin was turned off: the result is part of the session.
 
+### Questions
+
+A plugin's tool asks the user with `pichamber.ui.choose(ctx, title, choices, opts)`
+(see the session daemon's documentation). When the call passes its own
+`toolCallId`, the question belongs to that tool call:
+
+- `TurnPluginArtifacts` reads the session's pending `choose` dialogs on the
+  `dialogs` topic (`questions.ts`: `selectToolQuestions`), maps them by tool
+  call id, and hands the artifact a `question` prop (`PluginQuestion`: the
+  title, the choices, `allowNote`, `answer(choiceId, note?)`, `dismiss()`).
+  Both calls go through `respondToExtensionDialog`, the same request the dock
+  sends, so a question another device answered counts as done.
+- The component must offer every choice in `question.choices` for as long as
+  it has the prop, whatever else it could read. While it is mounted with a
+  question, `markQuestionDrawn` records the request id and the dock above the
+  composer (`ExtensionPromptDock`) folds to one line, "Choose above" and the
+  question, so the two do not repeat each other. Its header still opens the
+  full list, and it unfolds by itself if the component goes away.
+- The dock always knows `choose`: a question with no `toolCallId`, or one
+  whose tool has no artifact here, is answered there (a list with a
+  description per choice, keys 1 to 9, and a note field when allowed).
+- The question is live state, never part of the session file. What was
+  answered belongs in the tool's result details, which is what the artifact
+  draws after the call ends.
+
 Manifest icons are data the sprite generator cannot see; `icons.ts` lists the
 names a manifest may use and falls back to `puzzle` for any other.
 
@@ -262,6 +287,28 @@ names a manifest may use and falls back to `puzzle` for any other.
   28rem), and Expand (a full-window dialog with the same
   switch). While the call streams, `VisualDrawing` shows the title and the
   page's size instead of an empty frame.
+
+- `render_choices` calls draw one variant at a time at the chat's full width
+  (`ChoicesArtifact.tsx`, parsing in `choices.ts`): a row of buttons, one per
+  option with its letter and label, switches the variant in the frame, with
+  Left and Right stepping through them; the shown one has its description
+  and Expand. An option is a page (the same sandboxed frame, fitted to its
+  own page between 120 and 560 px) or an image (a `data:` URL of a type the
+  agent half encodes; anything else is refused). Every variant is laid out
+  in the same grid cell and only the shown one is visible, so the frame is
+  as tall as the tallest and does not move on a switch. Side by side was
+  tried first and dropped: at a third of the chat's width a layout no longer
+  reads as itself.
+- While the call waits on its question, the shown variant has a Choose
+  button, a note field goes with the choice, and Skip closes the question.
+  Afterwards the header says what was chosen, its button is marked, the
+  frame opens on it (`shownChoice`), and the note shows under the frame; a
+  closed question says "No choice made". The details carry
+  `answer` (`{ id, note? }`, or `null` when closed).
+- A waiting call draws from its details. Without them (the question arrived
+  first), it draws from the call's input, where an option given as a file
+  shows its path and "Preview not loaded"; failing that, from the question's
+  own choices. The choice works in every case.
 
 ### Sub-agents (`subagents/`)
 
@@ -306,3 +353,5 @@ server through `piClient`.
 2. Add a `NativePluginUi` entry in `registry.ts` with lazily loaded components.
 3. Add any manifest icon name to `icons.ts`, then run `bun run icons:generate`.
 4. Keep detail parsing in a pure module with tests; components only render.
+5. If the tool asks a question with `pichamber.ui.choose` and its `toolCallId`,
+   draw the `question` prop: every choice, and the note when `allowNote`.

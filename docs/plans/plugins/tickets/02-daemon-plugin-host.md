@@ -2,12 +2,12 @@
 
 - `session-daemon/plugin-host.js` (new): holds the configured plugins, imports
   each enabled agent half, builds `extensionFactories` entries
-  (`{ name: 'pichamber:<id>', factory: (pi) => mod.default(pi, chamber), replaceable }`).
+  (`{ name: 'pichamber:<id>', factory: (pi) => mod.default(pi, pichamber), replaceable }`).
 - `createPiSessionRuntime` and `createFreshPromptServices` append plugin
   factories after the built-ins.
 - IPC command `plugins.configure` (private): validates, imports, then
   `scheduleRuntimeRecreation()` only when the enabled set changed; state-only
-  changes notify `chamber.onStateChange` listeners without a reload.
+  changes notify `pichamber.onStateChange` listeners without a reload.
 - Server side: push on daemon start, on every change, and before the first
   request to a daemon process not yet configured (tracked by stream epoch or
   equivalent). A failed push logs and retries on the next request; it never

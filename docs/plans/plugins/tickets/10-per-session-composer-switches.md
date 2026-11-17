@@ -12,7 +12,7 @@ plugin's own switch there stays the master switch.
   `PUT /api/pi/plugins/:id/sessions/:sessionId` (`value: null` clears).
   At most 1000 sessions per plugin (least recently set dropped). Deleting a
   session drops its values.
-- Daemon: `plugins.configure` carries `state.sessions`; `chamber.state(cwd,
+- Daemon: `plugins.configure` carries `state.sessions`; `pichamber.state(cwd,
   sessionId)` resolves session over project over global. Visuals and
   Sub-agents read the id at `session_start`.
 - UI: `plugins/sessionStore.ts`. A value is stored only while it differs from

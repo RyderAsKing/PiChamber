@@ -55,7 +55,7 @@ disabled, and a disabled plugin loads no agent code.
   scope falls back to the default. Project directories are absolute and
   normalized (`~` expands to the home folder).
 - `impact.js` imports the agent half and calls it once with a recording
-  stand-in for the Pi API and a `chamber` handle with default state. It reports
+  stand-in for the Pi API and a `pichamber` handle with default state (its `ui` calls resolve with nothing, `openUrl` with `false`). It reports
   `{ tools: [{ name, exposure, tokens }], hooks, commands }`. `tokens` is
   `ceil(chars / 4)` of JSON `{ name, description, parameters }`. `hooks` lists
   the prompt-affecting events the plugin handles (`PROMPT_AFFECTING_EVENTS`:
@@ -133,11 +133,24 @@ When it pushes (`daemon-sync.js`):
 
 Listed in `packages/web/plugins/registry.json`, one folder each:
 
-- `visuals/`: the `render_html` tool. Reads a page from the call's `html` or
-  from a file inside the session's folder, and returns it as the result
-  details for the UI to draw. State `allowNetwork` only: no composer toggle,
-  so the tool is in every session while the plugin is on. It adds its tool at
-  `session_start` and does not use the `chamber` handle.
+- `visuals/`: two tools. `render_html` reads a page from the call's `html`
+  or from a file inside the session's folder, and returns it as the result
+  details for the UI to draw. `render_choices` (`choices.js`) takes a
+  question and 2 to 6 options, each a page (`html`, or `path` to an `.html`
+  file) or an image file in the project (`path` to a `.png`, `.jpg`, `.webp`,
+  `.gif` or `.svg`, sent as a `data:` URL). It reports the options as a
+  partial result, waits a turn of the event loop so they reach clients first,
+  then asks with `pichamber.ui.choose(ctx, ...)` and its own tool call id, and returns the
+  chosen option and the user's note. The details are
+  `{ title, options, answer }`: `answer` is `{ id, note? }`, `null` when the
+  question was closed, and absent when the client could not ask. Under plain
+  Pi it asks with `ctx.ui.select` (labels only, the variants are not drawn).
+  `files.js` resolves every path through links and keeps it inside the
+  project. Limits: 512,000 characters a page, 750 KB an image before
+  encoding, 1.5 million characters for one call's options together, since
+  they are stored in the session file. State `allowNetwork` only: no composer
+  toggle, so both tools are in every session while the plugin is on. It adds
+  its tools at `session_start` and uses the `pichamber` handle only for `render_choices`.
 - `subagents/`: the `subagent` tool, adapted from Pi's MIT example (credit in
   its `LICENSE`). Runs `pi --mode json -p --no-session` children through the
   daemon's Pi CLI (`process.argv[1]`), so a sandboxed daemon's children stay
@@ -150,7 +163,7 @@ Listed in `packages/web/plugins/registry.json`, one folder each:
 Sub-agents switches its tool with the `on` value through `pi.setActiveTools`,
 so a composer toggle takes effect without recreating the runtime. It reads the
 session id from `ctx.sessionManager.getSessionId()` at `session_start` and
-pass it to `chamber.state(cwd, sessionId)`, so a composer switch changes that
+pass it to `pichamber.state(cwd, sessionId)`, so a composer switch changes that
 session only. It adds or removes only its own tool, and only at
 `session_start` or when their resolved `on` value flips, so an unrelated
 state push leaves a tool list the user edited as it is.
@@ -158,6 +171,9 @@ state push leaves a tool list the user edited as it is.
 ## Deliberate limits
 
 - Bundled plugins only. User installs and frame-hosted UI are out of scope.
+- A question is live: a daemon restart or a runtime recreation cancels it,
+  and the tool returns as if the user had closed it. A message typed while a
+  question waits is queued like any other.
 - A forked session starts with the plugin's defaults, not its parent's
   composer switches.
 - No `plugins.changed` event reaches other devices yet; they see changes on

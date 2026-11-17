@@ -2,7 +2,7 @@
 
 - `lib/plugins/impact.js`: import the agent half, call it with a recording
   stub (`registerTool`, `on`, `registerCommand`, `setActiveTools`, ... as
-  no-ops) and `chamber` with default state. Report `{ tools: [{ name,
+  no-ops) and `pichamber` with default state. Report `{ tools: [{ name,
   exposure, tokens }], hooks: ['before_agent_start', ...], commands: [...] }`.
 - Token estimate: ceil(chars / 4) of JSON `{ name, description, parameters }`.
 - Cached per plugin version. A throwing plugin reports `impact: null` with a

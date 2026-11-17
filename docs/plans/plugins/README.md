@@ -17,6 +17,10 @@ Ticket 12: plain Pi extensions declare composer controls (a toggle, a
 cycle such as a mode picker, or an action) that run their own commands.
 Ticket 13: a new-session draft gets them too, from a draft session the
 daemon starts for it (remembered controls until it reports; adopted on send).
+Ticket 14 (2026-11-17): a plugin's tool can ask a question with
+`pichamber.ui.choose(ctx, ...)`, tied to its tool call so its chat component answers it;
+Visuals gains `render_choices` (variants one at a time at full width, pick
+one, add a note).
 Open: merging with `pichamber/nono-sandbox` (below), a check of the packaged
 Electron app, and a `plugins.changed` push to other devices.
 
@@ -63,8 +67,10 @@ registers no tools, prompt text or hooks.
    plugins, so a sandboxed daemon works without new grants. A daemon that was
    never configured runs with every plugin off.
 6. **Agent half contract.** The extension module's default export is a normal
-   Pi extension factory, `(pi, chamber) => void`. PiChamber passes `chamber`:
-   `{ id, state(directory, sessionId), onStateChange(listener) }`. The Pi CLI passes
+   Pi extension factory, `(pi, pichamber) => void`. PiChamber passes `pichamber`:
+   `{ id, ui, state(directory, sessionId), onStateChange(listener) }`, where `ui`
+   holds PiChamber's own dialog calls (`choose`, `form`, `openUrl`, each taking
+   `ctx` first). The Pi CLI passes
    nothing, so the extension falls back to its declared defaults. A state
    change reaches live runtimes without a reload; the extension reacts (for
    example with `pi.setActiveTools`).

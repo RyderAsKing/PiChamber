@@ -119,6 +119,19 @@ pi.on('session_start', async (_event, ctx) => {
 Keep the check local to your extension. It has no PiChamber runtime dependency,
 so the same extension continues to work in the plain pi CLI.
 
+PiChamber's own calls live on `globalThis.pichamber`, a frozen object with
+`version` and `ui`. They are not on pi's `ctx.ui`: if pi later adds a method
+with the same name and another shape, ours would shadow it. Each call takes the
+tool or handler `ctx` first, which tells PiChamber the session.
+
+```ts
+const pichamber = (globalThis as any).pichamber;
+if (pichamber) await pichamber.ui.openUrl(ctx, "http://localhost:3000");
+```
+
+Without `ctx`, or with a `ctx` from outside a PiChamber session, a call rejects
+with a `TypeError`.
+
 ## Composer controls
 
 An extension can put a switch, a mode picker, or a button in the composer
@@ -306,24 +319,61 @@ returns the current text, including an empty string. Cancel returns
 
 ### Structured form dialogs
 
-PiChamber extends pi's UI bridge with `ctx.ui.form(title, fields)` (gate with
-`isPiChamber()`; plain pi has no `form` method):
+`pichamber.ui.form(ctx, title, fields)` asks for several typed inputs at once
+(plain pi has no such call, so check that `pichamber` exists first):
 
 ```ts
-const values = await (ctx.ui as any).form("Spawn agent", [
-  { id: "name", label: "Name", type: "text", required: true },
-  { id: "task", label: "Task", type: "textarea" },
-  { id: "priority", label: "Priority", type: "select", options: ["low", "high"], initial: "normal" },
-  { id: "dryRun", label: "Dry run", type: "checkbox", initial: "true" },
-]);
-// values: Record<fieldId, string> — or undefined when cancelled/timed out.
+const pichamber = (globalThis as any).pichamber;
+if (pichamber) {
+  const values = await pichamber.ui.form(ctx, "Spawn agent", [
+    { id: "name", label: "Name", type: "text", required: true },
+    { id: "task", label: "Task", type: "textarea" },
+    { id: "priority", label: "Priority", type: "select", options: ["low", "high"], initial: "normal" },
+    { id: "dryRun", label: "Dry run", type: "checkbox", initial: "true" },
+  ]);
+  // values: Record<fieldId, string>, or undefined when cancelled or timed out.
+}
 ```
+
+Releases up to 1.0.7 had these two calls as `ctx.ui.form(title, fields)` and
+`ctx.ui.openUrl(url)`. Both are removed. Call `pichamber.ui.form(ctx, title,
+fields)` and `pichamber.ui.openUrl(ctx, url)` instead.
 
 Field types: `text`, `textarea`, `number`, `select`, `checkbox`. The dialog is
 blocking like `ctx.ui.input` and resolves with a values object keyed by field
 id. The daemon validates required fields, number bounds, select options, and
 checkbox values before resolving the extension. Fields are capped at 12;
 options at 20.
+
+### Choice dialogs
+
+`pichamber.ui.choose(ctx, title, choices, options)` asks the user to pick one of
+a few choices, each with a short description, and can take a note with the
+answer (plain pi has no such call, so check that `pichamber` exists and fall
+back to `select`):
+
+```ts
+const pichamber = (globalThis as any).pichamber;
+if (pichamber) {
+  const answer = await pichamber.ui.choose(ctx, "Which layout?", [
+    { id: "grid", label: "Grid", description: "Cards in three columns" },
+    { id: "list", label: "List", description: "One row per item" },
+  ], { allowNote: true });
+  // answer: { id: "grid", note?: "..." }, or undefined when closed or timed out.
+}
+```
+
+Up to 12 choices. `options` takes `message` (a line under the title),
+`allowNote`, and the `signal` and `timeout` every dialog takes. The daemon
+only accepts an answer whose id is one of the choices. PiChamber's bundled
+plugins also pass `toolCallId` from a tool's `execute`, which lets their own
+chat components show the question beside what it is about; for other
+extensions the question appears above the composer like any dialog.
+
+The bundled Visuals plugin builds on this: its `render_choices` tool shows a
+few page or image variants in the chat, one at a time at full width with
+buttons to switch between them, and returns the one you picked, with your
+note.
 
 ### Sandboxed app surfaces
 
