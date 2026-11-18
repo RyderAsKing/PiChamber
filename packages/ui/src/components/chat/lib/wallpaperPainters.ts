@@ -50,9 +50,9 @@ const INK_ALPHA = {
 } as const;
 
 /** Moving patterns draw this often; the drift is slow, so more buys nothing. */
-const FRAME_MS = 1000 / 12;
+const FRAME_MS = 1000 / 6;
 /** Contours trace every line each frame, so they draw a little less often. */
-const CONTOUR_FRAME_MS = 1000 / 8;
+const CONTOUR_FRAME_MS = 1000 / 4;
 
 const HALFTONE_CELL_PX = 8;
 const HALFTONE_LEVELS = 8;
