@@ -24,7 +24,10 @@ disabled, and a disabled plugin loads no agent code.
   bound to a boolean key; optional), `contributes.settings` (ordered keys,
   never a key a composer toggle sets), and
   `contributes.ui` (native UI id). The agent half must be a `.js`/`.mjs`
-  module inside the package. The package `version` is the plugin version.
+  module inside the package. The package `version` is the plugin version,
+  its `name` is `packageName`, and its `keywords` (lowercased, at most 16,
+  without the listing keywords `pi-package` and `pichamber-plugin`) are
+  `keywords`, which the marketplace matches a search against.
 - `registry.js` reads `packages/web/plugins/registry.json`
   (`{ version: 1, plugins: [id] }`) and loads each listed folder. An invalid
   plugin is skipped with a logged reason; the others still load. A missing or
@@ -90,9 +93,13 @@ disabled, and a disabled plugin loads no agent code.
 - Errors: 404 `{ error: { code: 'PLUGIN_NOT_FOUND' } }`, 400
   `INVALID_PLUGIN_REQUEST`, 500 `PLUGINS_UNREADABLE`.
 
-`PluginView` is `{ id, name, description, icon, version, bundled, enabled,
-state, stateSchema, contributes, impact, impactError? }`. It never carries
-module paths.
+`PluginView` is `{ id, name, description, icon, version, keywords, bundled,
+enabled, state, stateSchema, contributes, impact, impactError? }`. It never
+carries module paths.
+
+`service.bundledPackageNames()` lists the npm names of the bundled plugins.
+The marketplace (`../marketplace/`) leaves them out of every answer, since
+PiChamber already ships them.
 
 ## Daemon push
 
@@ -183,4 +190,4 @@ state push leaves a tool list the user edited as it is.
 
 ## Replaced plugins
 
-Pi leaves a `replaceable` extension out when another extension registers the same tool, command, or flag. Bundled plugins load as replaceable inline factories, so a plugin can be on in Settings and still not loaded (the user's own `subagent` extension replaces Sub-agents, for example). The server does nothing about this itself. The daemon reports it in the `replaced` field of the extension config answers (see `extension-replacements.js` and `plugin-host.js` in `../pi/session-daemon/DOCUMENTATION.md`), and the public routes `GET /api/pi/extensions/config`, `PUT /api/pi/extensions/config/:id`, and `DELETE /api/pi/extensions/packages/:id` pass it through `projectExtensionConfig` in `../pi/routes.js`. That projection keeps only `kind` (`plugin` or `builtin`), `id`, and the optional `registers` and `by`. It drops an entry with a bad kind or id, leaves out a malformed optional part, and copies nothing else. The field is absent when no live runtime answered, which means unknown, not "nothing replaced".
+Pi leaves a `replaceable` extension out when another extension registers the same tool, command, or flag. Bundled plugins load as replaceable inline factories, so a plugin can be on in Settings and still not loaded (the user's own `subagent` extension replaces Sub-agents, for example). The server does nothing about this itself. The daemon reports it in the `replaced` field of the extension config answers (see `extension-replacements.js` and `plugin-host.js` in `../pi/session-daemon/DOCUMENTATION.md`), and the public routes `GET /api/pi/extensions/config`, `PUT /api/pi/extensions/config/:id`, `POST /api/pi/extensions/packages`, `POST /api/pi/extensions/packages/:id/update`, and `DELETE /api/pi/extensions/packages/:id` pass it through `projectExtensionConfig` in `../pi/routes.js`. That projection keeps only `kind` (`plugin` or `builtin`), `id`, and the optional `registers` and `by`. It drops an entry with a bad kind or id, leaves out a malformed optional part, and copies nothing else. The field is absent when no live runtime answered, which means unknown, not "nothing replaced".
