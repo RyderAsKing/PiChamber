@@ -228,6 +228,15 @@ done, which adds a turn to that session, so re-seed for a clean capture);
 `visuals-choices-switch` (the same waiting question after its second
 switcher button, so variant B is in the frame; the page presses Choose B
 when it is done, which also adds a turn);
+`notices-mid-turn` (the same session's scripted model answers
+`Run the release checks.` with three `run_check` tool rounds, and an
+extension notice lands after each passing check, so each notice sits between
+the rounds it arrived between while the last check runs; notices are
+live-only, so the page stops the turn when done, which adds a turn, desktop
+only); `notices-mid-turn-mobile` (the same on a phone, mobile only);
+`notices-idle` (the same model answers `Start the nightly backup.` at once
+and its extension raises a notice 1.5 s after the turn ends, so the notice
+is its own row below the finished turn; each capture adds a turn);
 `composer-plugin-sheet` (on a phone, the plugin button beside Send opened
 to its sheet of switches, mobile only);
 `composer-controls` (the demo session's footer with the seed's demo
