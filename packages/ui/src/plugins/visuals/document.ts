@@ -115,9 +115,10 @@ const BASE_STYLE = [
   ':where(button:hover){border-color:var(--pc-muted)}',
   ':where(input,select,textarea){background:var(--pc-bg);border:1px solid var(--pc-border);border-radius:8px;padding:6px 10px}',
   ':where(input[type=range],input[type=checkbox],input[type=radio]){accent-color:var(--pc-accent)}',
-  // SVG text inherits these; a font-size or fill set on the text or its group still wins.
-  ':where(svg){overflow:visible;font-family:var(--pc-font);font-size:12px;font-variant-numeric:tabular-nums}',
-  ':where(svg text:not([fill],[fill] text)){fill:var(--pc-muted)}',
+  // Inherited, so a font-size or fill set on the text, its group, or by a
+  // page rule still wins. Shapes with no fill of their own get the muted
+  // colour instead of black.
+  ':where(svg){overflow:visible;fill:var(--pc-muted);font-family:var(--pc-font);font-size:12px;font-variant-numeric:tabular-nums}',
 ].join('');
 
 const themeStyle = (theme: VisualTheme): string => (

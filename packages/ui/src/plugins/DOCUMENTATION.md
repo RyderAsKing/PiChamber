@@ -285,9 +285,9 @@ names a manifest may use and falls back to `puzzle` for any other.
   `--pc-good`/`--pc-warn`/`--pc-bad` (status colours). The defaults put the
   page on the chat background with an 8 px gutter on `html` (room for focus
   rings and shadows; scrollbar hidden), style body text, headings (16 px at
-  most), tables, buttons, inputs, and code, and make SVG text 12 px and
-  muted unless the text or its group has a `fill`, so the agent writes only
-  layout. The tool description names the variables and sets the layout,
+  most), tables, buttons, inputs, and code, and give `svg` a 12 px size and
+  the muted fill, which its text inherits unless the text, a group, or a
+  page rule sets its own, so the agent writes only layout. The tool description names the variables and sets the layout,
   text-size, and colour rules (no outer card or title banner, one colour per
   series in `--pc-c1`, at most three series hues).
 - `VisualFrame.tsx` draws the page without a frame of its own: no border,
@@ -295,7 +295,8 @@ names a manifest may use and falls back to `puzzle` for any other.
   the iframe, the expanded view, and the download. It fits the frame to its
   page up to 560 px (or the call's `height`) and mounts it when it nears the
   viewport. More (Copy HTML, Download page) and Expand sit at its top right,
-  shown on hover or focus and always on touch screens. Expand opens a
+  shown on hover or focus; on touch screens they sit in a row under the page
+  so they never cover it. Expand opens a
   full-window dialog with the Page/Code switch, Copy, and Download. While
   the call streams, `PageDrawing` shows one muted line with the title and
   the page's size. `render_choices` keeps its framed look and

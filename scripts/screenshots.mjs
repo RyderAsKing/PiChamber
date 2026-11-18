@@ -910,7 +910,7 @@ const PAGES = {
   },
   'visuals-page-hover': {
     // The same page with the pointer on it: its More and Expand buttons show
-    // at its top right (always shown on touch screens). Desktop only.
+    // at its top right (on touch screens they sit under the page). Desktop only.
     path: VISUALS_SESSION_PATH,
     readyText: [VISUALS_REPLY],
     settledScript: `(() => {

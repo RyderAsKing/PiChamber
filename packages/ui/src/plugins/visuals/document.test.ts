@@ -84,9 +84,10 @@ describe('buildVisualDocument', () => {
   test('sits on the chat background with a gutter and small muted SVG labels the page can override', () => {
     const doc = buildVisualDocument({ html: '', theme, allowNetwork: false });
     expect(doc).toContain(':where(html){background:var(--pc-bg);padding:8px;');
-    expect(doc).toContain(':where(svg){overflow:visible;font-family:var(--pc-font);font-size:12px;');
-    // Labels given their own fill, or inside a group that has one, keep it.
-    expect(doc).toContain(':where(svg text:not([fill],[fill] text)){fill:var(--pc-muted)}');
+    // On the svg itself, so text inherits it and any fill on the text or a
+    // group (attribute, style, or page rule) wins.
+    expect(doc).toContain(':where(svg){overflow:visible;fill:var(--pc-muted);font-family:var(--pc-font);font-size:12px;');
+    expect(/svg text[^{]*\{fill/.test(doc)).toBe(false);
   });
 });
 

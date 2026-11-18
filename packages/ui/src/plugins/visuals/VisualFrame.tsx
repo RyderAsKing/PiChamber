@@ -256,11 +256,15 @@ export function PageDrawing({ title, size }: { title?: string; size: number }) {
   );
 }
 
-/** The inline page's buttons: shown on hover or focus, always on touch screens. */
+/**
+ * The inline page's buttons: over its top right on hover or focus. Touch
+ * screens cannot hover them away, so there they sit in a row under the page
+ * and never cover it.
+ */
 function InlineActions({ details, onExpand }: { details: VisualDetails; onExpand: () => void }) {
   const { handleCopy, handleDownload } = useFrameActions(details);
   return (
-    <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-border/60 bg-background p-0.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/visual:opacity-100 pointer-coarse:opacity-100">
+    <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-border/60 bg-background p-0.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/visual:opacity-100 pointer-coarse:static pointer-coarse:ml-auto pointer-coarse:mt-1 pointer-coarse:w-fit pointer-coarse:border-0 pointer-coarse:bg-transparent pointer-coarse:p-0 pointer-coarse:opacity-100">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="xs" className="text-muted-foreground" aria-label="More page actions" title="More">
