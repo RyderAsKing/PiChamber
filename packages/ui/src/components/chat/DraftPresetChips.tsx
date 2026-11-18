@@ -234,7 +234,8 @@ const AddStarterPicker: React.FC<{
 /**
  * The editable row of starter chips on the draft welcome screen. Shows the
  * global group then the project group (each reorderable within itself), plus a
- * "+" picker to pin available prompt templates. The surface owns how a chip click is
+ * "+" picker to pin available prompt templates, shown only while one is left
+ * to pin. The surface owns how a chip click is
  * inserted via `onInsert` (insertion, not immediate send; see DraftWelcome).
  *
  * Both groups share a single DndContext so the mobile trash drop-zone (which
@@ -282,6 +283,8 @@ const DraftPresetChipsContent: React.FC<DraftPresetChipsProps> = ({ onInsert, cl
         }
     };
 
+    if (global.length === 0 && project.length === 0 && pinnable.length === 0) return null;
+
     return (
         <DndContext
             sensors={sensors}
@@ -312,9 +315,11 @@ const DraftPresetChipsContent: React.FC<DraftPresetChipsProps> = ({ onInsert, cl
                 ) : null}
                 {isMobile && isDragging ? (
                     <TrashDropZone />
-                ) : (
+                ) : pinnable.length > 0 ? (
+                    // Only offered when there is a prompt template left to pin;
+                    // templates themselves are written in Settings.
                     <AddStarterPicker pinnable={pinnable} onOpen={ensureLoaded} onAdd={addStarter} />
-                )}
+                ) : null}
             </div>
         </DndContext>
     );
