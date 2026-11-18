@@ -44,8 +44,10 @@ made in the CLI shows up here.
   Switch it back and the project follows the global setting again. Pi must
   trust the project first; until then the page shows the global list without
   controls.
-- **Packages** installed with `pi install` are listed with their extensions.
-  Remove deletes a package the way `pi remove` does: an npm or git package's
+- **Packages** installed with `pi install` or from Browse are listed with
+  their version and extensions. An npm package shows **Update to X** when npm
+  has a newer version; a package pinned to a version (`npm:name@1.2.3`) is
+  left as it is. Remove deletes a package the way `pi remove` does: an npm or git package's
   files are deleted, a local folder is only dropped from settings and stays
   on disk. A global package is removed from Global, a project's package from
   This project.
@@ -55,9 +57,49 @@ made in the CLI shows up here.
 
 Running sessions pick a change up when they are idle. The page changes Pi on
 the machine that runs the PiChamber server, also when you open it from a
-phone or another computer. Installing packages still happens in a terminal
-with `pi install`. Skills, prompt templates, and themes from packages keep
-their own pages.
+phone or another computer. Skills, prompt templates, and themes from packages
+keep their own pages.
+
+## Finding and installing packages
+
+**Browse**, at the top of Settings → Extensions & Plugins, searches the Pi
+packages on npm: every npm package with the `pi-package` keyword, the same
+list as Pi's package gallery. PiChamber hosts no registry of its own. The
+PiChamber server asks npm and reads only each package's metadata (name,
+description, version, maintainer, license, downloads, links), never its
+README or images.
+
+- **Featured** is a short list kept in the PiChamber repository. The server
+  checks it for changes every few hours and falls back to the copy it
+  shipped with.
+- **Enhanced for PiChamber** shows packages that add features only
+  PiChamber shows, built with the PiChamber plugin SDK, as their authors
+  mark them. Every Pi package works in PiChamber; these do more here. A package's page checks that its
+  `package.json` really says so.
+- PiChamber's own plugins never show as results. When a search matches one,
+  it shows first with its switch, since it is already installed.
+
+**Install** asks where to load the package: every project (`pi install`) or
+only the open project (`pi install -l`), which Pi must trust first. A package
+runs as code with Pi's access on the server's machine, so install only
+packages you trust. The install runs in the background; the package shows
+under Packages when it is done.
+
+## Marking a package as enhanced for PiChamber
+
+Add the `pichamber-plugin` keyword next to `pi-package` in `package.json`,
+and declare a `pichamber` block with the API version you target:
+
+```json
+{
+  "keywords": ["pi-package", "pichamber-plugin"],
+  "pichamber": { "apiVersion": 1 }
+}
+```
+
+The keyword puts the package under Enhanced for PiChamber in Browse; the block
+is what its page checks. Installed packages with the block get an Enhanced tag
+with the PiChamber mark under Packages. They load as plain Pi packages, here and in the terminal.
 
 ### When your extension replaces a plugin
 
