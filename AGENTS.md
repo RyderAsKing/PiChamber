@@ -273,7 +273,7 @@ commands, one failing: its `Worked for` line with the counts and `1 error`);
 screen with each pattern, set through the `draftWallpaper` UI setting and
 held still through `draftWallpaperMotion`, desktop only; pages without one
 reset it to None); `settings-themes-all` (Appearance with the theme list
-opened by Show all, one tile per theme family, desktop only);
+opened by Show all, one pill per theme family, desktop only);
 `settings-wallpaper` (Appearance at Wallpaper: a still swatch per pattern,
 and the picture and motion rows; the seed has no picture, so only its
 Choose button works, desktop only); `session-wallpaper`

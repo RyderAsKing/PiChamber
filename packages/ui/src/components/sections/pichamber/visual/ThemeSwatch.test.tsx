@@ -4,24 +4,24 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { Theme } from '@/types/theme';
 import flexokiLightRaw from '@/lib/theme/themes/flexoki-light.json';
 import pichamberDarkRaw from '@/lib/theme/themes/pichamber-dark.json';
-import { ThemePreview } from './ThemePreview';
+import { ThemeSwatch } from './ThemeSwatch';
 
-describe('ThemePreview', () => {
+describe('ThemeSwatch', () => {
   const lightTheme = flexokiLightRaw as unknown as Theme;
   const darkTheme = pichamberDarkRaw as unknown as Theme;
 
-  test('renders data-theme-preview="<id>" and contains theme surface.background, primary.base, and interactive.selection colors', () => {
-    const markup = renderToStaticMarkup(React.createElement(ThemePreview, { theme: lightTheme }));
+  test('renders data-theme-swatch="<id>" with the theme background, text and accent colours', () => {
+    const markup = renderToStaticMarkup(React.createElement(ThemeSwatch, { theme: lightTheme }));
 
-    expect(markup).toContain(`data-theme-preview="${lightTheme.metadata.id}"`);
+    expect(markup).toContain(`data-theme-swatch="${lightTheme.metadata.id}"`);
     expect(markup).toContain(lightTheme.colors.surface.background);
+    expect(markup).toContain(lightTheme.colors.surface.foreground);
     expect(markup).toContain(lightTheme.colors.primary.base);
-    expect(markup).toContain(lightTheme.colors.interactive.selection);
   });
 
   test('two different themes produce different markup', () => {
-    const lightMarkup = renderToStaticMarkup(React.createElement(ThemePreview, { theme: lightTheme }));
-    const darkMarkup = renderToStaticMarkup(React.createElement(ThemePreview, { theme: darkTheme }));
+    const lightMarkup = renderToStaticMarkup(React.createElement(ThemeSwatch, { theme: lightTheme }));
+    const darkMarkup = renderToStaticMarkup(React.createElement(ThemeSwatch, { theme: darkTheme }));
 
     expect(lightMarkup).not.toBe(darkMarkup);
   });
@@ -29,7 +29,7 @@ describe('ThemePreview', () => {
   test('the markup contains no scaled spacing utility', () => {
     const scaledSpacingPattern = /\b(?:p|px|py|pl|pr|m|mx|my|ml|mr|gap|h|w)-\d/;
     for (const theme of [lightTheme, darkTheme]) {
-      const markup = renderToStaticMarkup(React.createElement(ThemePreview, { theme }));
+      const markup = renderToStaticMarkup(React.createElement(ThemeSwatch, { theme }));
       expect(scaledSpacingPattern.test(markup)).toBe(false);
     }
   });

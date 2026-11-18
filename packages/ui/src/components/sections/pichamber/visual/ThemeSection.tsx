@@ -6,7 +6,6 @@ import {
   SettingsChipGroup,
   SettingsControlGroup,
   SettingsInset,
-  SettingsPreviewOption,
   SettingsRadioGroup,
   SettingsSection,
   SettingsStackedField,
@@ -25,7 +24,7 @@ import {
   themeFamilies,
 } from './visualSettingsConstants';
 import { WallpaperSettings } from './WallpaperSettings';
-import { ThemePreview } from './ThemePreview';
+import { ThemeSwatch } from './ThemeSwatch';
 
 export interface ThemeSectionProps {
   themes: Theme[];
@@ -46,10 +45,51 @@ export interface ThemeSectionProps {
   setDockBadgeEnabled: (enabled: boolean) => void;
 }
 
+/** One theme family as a radio pill: its swatch, in the half the mode shows, and its name. */
+const ThemePill: React.FC<{
+  family: ThemeFamily;
+  variant: 'light' | 'dark';
+  selected: boolean;
+  onSelect: () => void;
+}> = ({ family, variant, selected, onSelect }) => {
+  const swatch = family[variant] ?? family.light ?? family.dark;
+  const only = !family.light ? 'Dark only' : !family.dark ? 'Light only' : undefined;
+  return (
+    <div
+      role="radio"
+      tabIndex={0}
+      aria-checked={selected}
+      aria-label={only ? `${family.name}, ${only.toLowerCase()}` : family.name}
+      title={family.name}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === ' ' || event.key === 'Enter') {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      className={cn(
+        'flex min-w-0 max-w-full cursor-pointer items-center gap-2.5 rounded-lg border py-1.5 pl-1.5 pr-3 transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary-base)]',
+        // Border and ring share one colour and neither changes the box, so selecting never shifts the pill.
+        selected
+          ? 'border-[var(--primary-base)] ring-1 ring-[var(--primary-base)]'
+          : 'border-[var(--interactive-border)] hover:border-foreground/30',
+      )}
+    >
+      {swatch ? <ThemeSwatch theme={swatch} /> : null}
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate typography-settings-field-label font-normal text-foreground">{family.name}</span>
+        {only ? <span className="truncate typography-meta text-muted-foreground">{only}</span> : null}
+      </span>
+    </div>
+  );
+};
+
 /**
  * Settings → Appearance: System, Light or Dark, then the theme, picked from
- * one tile per family (PiChamber covers PiChamber Light and Dark), then the
- * wallpaper. Each tile shows the half the current mode uses.
+ * one pill per family (PiChamber covers PiChamber Light and Dark), then the
+ * wallpaper. Each pill shows the half the current mode uses.
  */
 export const ThemeSection: React.FC<ThemeSectionProps> = ({
   themes,
@@ -98,26 +138,19 @@ export const ThemeSection: React.FC<ThemeSectionProps> = ({
       <SettingsControlGroup title={'Theme'} settingsItem="appearance.theme">
         <SettingsRadioGroup
           aria-label={'Theme'}
-          className="grid max-w-[48rem] grid-cols-2 gap-2 space-y-0 @xl:grid-cols-3 @xl:gap-3 @3xl:grid-cols-5"
+          className="flex max-w-[48rem] flex-wrap gap-2 space-y-0"
         >
-          {shown.map((family) => {
-            const preview = family[variant] ?? family.light ?? family.dark;
-            const only = !family.light ? 'Dark only' : !family.dark ? 'Light only' : undefined;
-            return (
-              <SettingsPreviewOption
-                key={family.key}
-                selected={family.key === currentFamily?.key}
-                onSelect={() => onSelectFamily(family)}
-                label={family.name}
-                ariaLabel={only ? `${family.name}, ${only.toLowerCase()}` : family.name}
-                description={only}
-                previewClassName="aspect-[16/10]"
-                preview={preview ? <ThemePreview theme={preview} /> : null}
-              />
-            );
-          })}
+          {shown.map((family) => (
+            <ThemePill
+              key={family.key}
+              family={family}
+              variant={variant}
+              selected={family.key === currentFamily?.key}
+              onSelect={() => onSelectFamily(family)}
+            />
+          ))}
         </SettingsRadioGroup>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-3">
           {families.length > COLLAPSED_THEME_COUNT ? (
             <button
               type="button"
