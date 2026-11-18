@@ -1347,7 +1347,7 @@ const PAGES = {
     viewports: ['desktop'],
   },
   'settings-themes-all': {
-    // Appearance with the theme list opened by Show all: one tile per
+    // Appearance with the theme list opened by Show all: one pill per
     // built-in theme family, in the mode's half, the one in use marked.
     path: '/?settings=appearance',
     readyText: ['Show all'],
