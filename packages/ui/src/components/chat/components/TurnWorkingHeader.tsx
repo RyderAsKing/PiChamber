@@ -12,7 +12,7 @@ import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { WorkingPlaceholder } from '../message/parts/WorkingPlaceholder';
 import { formatTurnDuration, resolveTurnDurationMs } from '../message/turnDuration';
-import { formatTurnActivityClauses, type TurnActivitySummary } from '../lib/turns/summarizeTurnActivity';
+import { formatTurnActivityClauses, formatTurnActivityFailures, type TurnActivitySummary } from '../lib/turns/summarizeTurnActivity';
 
 interface TurnWorkingHeaderProps {
     turnId: string;
@@ -190,7 +190,7 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
                             ) : null}
                             {failed > 0 ? (
                                 <span className="text-[var(--status-error)]" data-turn-activity-failed="true">
-                                    {` · ${failed} failed`}
+                                    {` · ${formatTurnActivityFailures(failed)}`}
                                 </span>
                             ) : null}
                         </span>

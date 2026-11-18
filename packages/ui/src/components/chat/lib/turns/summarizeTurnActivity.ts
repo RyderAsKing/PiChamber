@@ -102,18 +102,21 @@ export function summarizeTurnActivity(activityParts: readonly TurnActivityRecord
 
 const count = (n: number, one: string, many: string): string => (n === 1 ? `1 ${one}` : `${n} ${many}`);
 
-/** Clauses in reading order; failures last. Empty when the turn used no tools. */
+/** Count-first clauses in reading order. Empty when the turn used no tools. */
 export function formatTurnActivityClauses(summary: TurnActivitySummary): string[] {
     const clauses: string[] = [];
-    if (summary.filesRead > 0) clauses.push(`Read ${count(summary.filesRead, 'file', 'files')}`);
-    if (summary.searches > 0) clauses.push(`${count(summary.searches, 'search', 'searches')}`);
-    if (summary.fetches > 0) clauses.push(`Fetched ${count(summary.fetches, 'page', 'pages')}`);
-    if (summary.filesEdited > 0) clauses.push(`Edited ${count(summary.filesEdited, 'file', 'files')}`);
-    if (summary.commands > 0) clauses.push(`Ran ${count(summary.commands, 'command', 'commands')}`);
+    if (summary.filesRead > 0) clauses.push(`${count(summary.filesRead, 'file', 'files')} read`);
+    if (summary.searches > 0) clauses.push(count(summary.searches, 'search', 'searches'));
+    if (summary.fetches > 0) clauses.push(`${count(summary.fetches, 'page', 'pages')} fetched`);
+    if (summary.filesEdited > 0) clauses.push(`${count(summary.filesEdited, 'file', 'files')} edited`);
+    if (summary.commands > 0) clauses.push(count(summary.commands, 'command', 'commands'));
     if (summary.subagents > 0) clauses.push(count(summary.subagents, 'sub-agent', 'sub-agents'));
     if (summary.otherTools > 0) {
         const named = clauses.length > 0;
-        clauses.push(`${count(summary.otherTools, named ? 'other tool' : 'tool', named ? 'other tools' : 'tools')}`);
+        clauses.push(count(summary.otherTools, named ? 'other tool' : 'tool', named ? 'other tools' : 'tools'));
     }
     return clauses;
 }
+
+/** The failure mark after the clauses, such as `1 error`. */
+export const formatTurnActivityFailures = (failed: number): string => count(failed, 'error', 'errors');

@@ -186,9 +186,9 @@ describe('TurnWorkingHeader', () => {
         );
 
         expect(markup).toContain('Worked for 48.0s');
-        expect(markup).toContain(' · Read 1 file · Edited 1 file · Ran 2 commands');
+        expect(markup).toContain(' · 1 file read · 1 file edited · 2 commands');
         expect(markup).toContain('data-turn-activity-failed="true"');
-        expect(markup).toContain(' · 1 failed');
+        expect(markup).toContain(' · 1 error');
     });
 
     test('a reconnecting turn shows no counts', () => {
@@ -214,7 +214,7 @@ describe('TurnWorkingHeader', () => {
             />,
         );
 
-        expect(markup).not.toContain('Read 3 files');
-        expect(markup).not.toContain('failed');
+        expect(markup).not.toContain('3 files read');
+        expect(markup).not.toContain('error');
     });
 });

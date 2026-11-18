@@ -265,7 +265,7 @@ mobile only); `composer-controls-draft` (a new-session draft whose draft
 session reported those controls before any send, desktop only);
 `visuals-expanded` (the same page from its Expand action, desktop only);
 `turn-activity` (a seeded turn that read, searched, edited and ran two
-commands, one failing: its `Worked for` line with the counts and `1 failed`);
+commands, one failing: its `Worked for` line with the counts and `1 error`);
 `turn-activity-open` (the same line pressed, showing the activity rail);
 `draft-wallpaper-dither` and `draft-wallpaper-ascii` (the new-session screen
 with each wallpaper, set through the `draftWallpaper` UI setting, desktop

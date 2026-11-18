@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { Part } from '@/lib/chat/types';
 import type { TurnActivityRecord } from './types';
-import { formatTurnActivityClauses, summarizeTurnActivity } from './summarizeTurnActivity';
+import { formatTurnActivityClauses, formatTurnActivityFailures, summarizeTurnActivity } from './summarizeTurnActivity';
 
 let nextId = 0;
 const tool = (name: string, input: Record<string, unknown> = {}, status = 'completed'): TurnActivityRecord => {
@@ -40,7 +40,7 @@ describe('summarizeTurnActivity', () => {
 
         expect(summary.filesRead).toBe(2);
         expect(summary.filesEdited).toBe(2);
-        expect(formatTurnActivityClauses(summary)).toEqual(['Read 2 files', 'Edited 2 files']);
+        expect(formatTurnActivityClauses(summary)).toEqual(['2 files read', '2 files edited']);
     });
 
     test('names commands, searches, fetches, sub-agents and other tools in reading order', () => {
@@ -55,10 +55,10 @@ describe('summarizeTurnActivity', () => {
         ]);
 
         expect(formatTurnActivityClauses(summary)).toEqual([
-            'Read 1 file',
+            '1 file read',
             '2 searches',
-            'Fetched 1 page',
-            'Ran 1 command',
+            '1 page fetched',
+            '1 command',
             '1 sub-agent',
             '1 other tool',
         ]);
@@ -73,6 +73,8 @@ describe('summarizeTurnActivity', () => {
         ]);
 
         expect(summary.failed).toBe(2);
+        expect(formatTurnActivityFailures(summary.failed)).toBe('2 errors');
+        expect(formatTurnActivityFailures(1)).toBe('1 error');
         expect(summary.commands).toBe(2);
     });
 
