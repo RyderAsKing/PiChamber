@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Extension statuses sit right above the composer.** The pill with an extension's statuses (for example a mode indicator) now comes below the folder, branch and changes row instead of above it, so the changes summary stays at the top and the status sits next to the box it describes (`ExtensionStatusStrip`).
+
 - **A turn says what it did in one line.** The `Worked for` line above a finished reply now adds what the agent's tools did, such as `2 files read · 1 search · 2 files edited · 2 commands`, and `1 error` in red when calls failed. Files read or edited twice count once. The whole line opens the turn's activity. Shell rows mark `Exit code 1`, `Output truncated` and `Not sent to the model` in small text instead of coloured pills; only a failure is red.
 - **Opening a session fades its messages in.** Going from the new-session screen to a session used to blank the whole chat, composer included, for a moment and then show the messages at once. The composer now stays in place, and the messages fade in after they are drawn, so the fade is not cut short. The loading logo shows only when a session takes longer than 0.4 s.
 - **A lighter composer.** On desktop the composer card uses the input-area surface instead of the darker divider grey, and rests a little shorter. The folder, branch, New worktree and changed-files row stays above it. The extension prompt that takes its place matches it. Phones keep their layout and get the same fill.

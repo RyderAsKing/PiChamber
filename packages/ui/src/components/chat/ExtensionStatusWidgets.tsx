@@ -85,8 +85,10 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
 
   if (statuses.length === 0 && !contentSummary) return null;
 
+  // Rendered inside the composer's column, between the row above the card
+  // and the card, so it takes the column's width and padding.
   return (
-    <div className="chat-input-column flex flex-col gap-2">
+    <div className="mb-2 flex flex-col gap-2">
       <div className="flex min-w-0 items-center justify-between gap-2 overflow-hidden rounded-full border border-border/40 bg-card px-3 py-1.5 shadow-sm transition-[opacity,transform] duration-150">
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-interactive-hover text-muted-foreground">
