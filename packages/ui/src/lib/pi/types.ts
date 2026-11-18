@@ -50,6 +50,9 @@ export interface PiSession {
    */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
+  /** Event sequence of the last model/thinking an extension command chose
+   *  (`session.model` with `source: 'extension'`), for reconnect. */
+  extensionModelSequence?: number;
   /**
    * The Pi `agent` is preserved for reference; PiChamber does not expose it
    * as a user-facing agent selector.
@@ -316,6 +319,8 @@ export interface PiSessionSnapshot {
   /** The active model/thinking for this session at snapshot time. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
+  /** See `PiSession.extensionModelSequence`. */
+  extensionModelSequence?: number;
   /** Last finalized assistant text/thinking at snapshot time. */
   lastText?: string;
   lastThinking?: string;
