@@ -276,17 +276,30 @@ names a manifest may use and falls back to `puzzle` for any other.
   the click still counts as a user action, at most once a second
   (`canOpenLink`).
 - The variables are `--pc-bg`, `--pc-surface`, `--pc-fg`, `--pc-muted`,
-  `--pc-border`, `--pc-accent`, `--pc-font`, `--pc-mono`, `--pc-c1` to
-  `--pc-c5` (the theme's chart palette), and `--pc-good`/`--pc-warn`/`--pc-bad`
-  (status colours). The defaults style body text, headings, tables, buttons,
-  inputs, and code, so the agent writes only layout; the tool description
-  names them.
-- `VisualFrame.tsx` fits the frame to its page up to 560 px (or the call's
-  `height`), mounts it when it nears the viewport, and offers a Page/Code
-  switch, Copy HTML, Download (in a menu when the header is narrower than
-  28rem), and Expand (a full-window dialog with the same
-  switch). While the call streams, `VisualDrawing` shows the title and the
-  page's size instead of an empty frame.
+  `--pc-border`, `--pc-accent` (links and controls; near-black in some light
+  themes, so not for data), `--pc-radius`, `--pc-font`, `--pc-mono`,
+  `--pc-c1` to `--pc-c5` (the theme's chart palette: `--pc-c1` for a single
+  series, the rest for more series), `--pc-shade-1` to `--pc-shade-4`
+  (shades of `--pc-c1` mixed toward the background, strongest first, for
+  ordered values), and
+  `--pc-good`/`--pc-warn`/`--pc-bad` (status colours). The defaults put the
+  page on the chat background with an 8 px gutter on `html` (room for focus
+  rings and shadows; scrollbar hidden), style body text, headings (16 px at
+  most), tables, buttons, inputs, and code, and make SVG text 12 px and
+  muted unless the text or its group has a `fill`, so the agent writes only
+  layout. The tool description names the variables and sets the layout,
+  text-size, and colour rules (no outer card or title banner, one colour per
+  series in `--pc-c1`, at most three series hues).
+- `VisualFrame.tsx` draws the page without a frame of its own: no border,
+  header, or title bar, so it reads as part of the reply; the title names
+  the iframe, the expanded view, and the download. It fits the frame to its
+  page up to 560 px (or the call's `height`) and mounts it when it nears the
+  viewport. More (Copy HTML, Download page) and Expand sit at its top right,
+  shown on hover or focus and always on touch screens. Expand opens a
+  full-window dialog with the Page/Code switch, Copy, and Download. While
+  the call streams, `PageDrawing` shows one muted line with the title and
+  the page's size. `render_choices` keeps its framed look and
+  `VisualDrawing` placeholder.
 
 - `render_choices` calls draw one variant at a time at the chat's full width
   (`ChoicesArtifact.tsx`, parsing in `choices.ts`): a row of buttons, one per

@@ -72,6 +72,22 @@ describe('buildVisualDocument', () => {
     expect(doc).toContain('--pc-bad:red');
     expect(doc).not.toContain('</style><script>x()');
   });
+
+  test('offers shades of the first series colour for ordered values, strongest first', () => {
+    const doc = buildVisualDocument({ html: '', theme, allowNetwork: false });
+    expect(doc).toContain('--pc-shade-1:var(--pc-c1)');
+    expect(doc).toContain('--pc-shade-2:color-mix(in oklab, var(--pc-c1) 72%, var(--pc-bg))');
+    expect(doc).toContain('--pc-shade-4:color-mix(in oklab, var(--pc-c1) 28%, var(--pc-bg))');
+    expect(doc).toContain('--pc-radius:10px');
+  });
+
+  test('sits on the chat background with a gutter and small muted SVG labels the page can override', () => {
+    const doc = buildVisualDocument({ html: '', theme, allowNetwork: false });
+    expect(doc).toContain(':where(html){background:var(--pc-bg);padding:8px;');
+    expect(doc).toContain(':where(svg){overflow:visible;font-family:var(--pc-font);font-size:12px;');
+    // Labels given their own fill, or inside a group that has one, keep it.
+    expect(doc).toContain(':where(svg text:not([fill],[fill] text)){fill:var(--pc-muted)}');
+  });
 });
 
 describe('canOpenLink', () => {

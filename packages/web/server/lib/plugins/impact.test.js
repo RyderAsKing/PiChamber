@@ -65,7 +65,8 @@ describe('plugin impact', () => {
       { name: 'render_html', exposure: 'direct', tokens: expect.any(Number) },
       { name: 'render_choices', exposure: 'direct', tokens: expect.any(Number) },
     ]);
-    expect(impact.tools[0].tokens).toBeLessThan(260);
+    // Includes the layout, text-size and colour rules that keep pages in the chat's look.
+    expect(impact.tools[0].tokens).toBeLessThan(330);
     expect(impact.tools[1].tokens).toBeLessThan(400);
     expect(impact.hooks).toEqual([]);
     expect(impact.commands).toEqual([]);
