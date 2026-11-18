@@ -22,8 +22,12 @@ import {
 } from './document';
 import { useNearViewport, usePageDocument } from './frameHooks';
 
-/** Inline frames fit their page up to this height, then scroll. */
-const INLINE_MAX_HEIGHT = 560;
+/**
+ * Inline frames grow to fit their whole page, so it reads as part of the
+ * reply instead of a box that scrolls. This only stops a page that keeps
+ * growing (vh or 100% heights) from running away.
+ */
+const INLINE_MAX_HEIGHT = 20_000;
 const MIN_HEIGHT = 80;
 const PLACEHOLDER_HEIGHT = 240;
 
@@ -85,6 +89,10 @@ export function PageFrame({
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
+  // The frame's own colour scheme matches the theme's, which the page also
+  // declares: Chrome paints an opaque canvas behind a frame whose scheme
+  // differs from its document's, and the chat column sets `dark` on light
+  // themes for its scrollbar, so an inherited scheme would cover the chat.
   return (
     <iframe
       ref={frameRef}
@@ -92,7 +100,7 @@ export function PageFrame({
       srcDoc={srcDoc}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
-      className={cn('block w-full border-0 bg-transparent', className)}
+      className={cn('block w-full border-0 bg-transparent scheme-light dark:scheme-dark', className)}
       style={style}
     />
   );
@@ -307,17 +315,20 @@ export function VisualFrame({ details, allowNetwork }: VisualFrameProps) {
     setExpanded(true);
   }, []);
 
-  const height = fixedHeight ?? fittedHeight ?? PLACEHOLDER_HEIGHT;
+  // The page's own height wins once it reports one; the call's height only
+  // holds the space until then.
+  const height = fittedHeight ?? fixedHeight ?? PLACEHOLDER_HEIGHT;
 
+  // Pulled out by the page's 8px gutter, so its content lines up with the reply text.
   return (
-    <figure className="group/visual relative my-3" data-plugin-artifact="visuals" aria-label={details.title}>
+    <figure className="group/visual relative -mx-2 my-1" data-plugin-artifact="visuals" aria-label={details.title}>
       <div ref={hostRef} style={{ height }}>
         {mounted ? (
           <PageFrame
             title={details.title}
             srcDoc={srcDoc}
             style={{ height }}
-            onHeight={fixedHeight === null ? handleHeight : undefined}
+            onHeight={handleHeight}
           />
         ) : null}
       </div>

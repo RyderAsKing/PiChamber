@@ -20,7 +20,7 @@ export const MAX_HEIGHT = 2_000;
 const DESCRIPTION = 'Show a finished, self-contained HTML page (chart, diagram, table, mockup) in the chat above your reply. '
   + 'Inline all CSS and JS; no network. It sits in the reply column (~760px, ~360px on phones) on the chat background, so use fluid widths. '
   + 'No outer card, border, background, side padding or title heading; boxes get 12-16px padding and var(--pc-radius). '
-  + 'Charts get a fixed px height; no vh. Text, tables, inputs, code and SVG text are pre-styled. '
+  + 'The frame fits the content: charts get a fixed px height; no vh or 100%. Text, tables, inputs, code and SVG text are pre-styled. '
   + 'Labels and axes 12px in --pc-muted, headings ≤16px, big numbers ≤24px. '
   + 'Colours: --pc-bg, --pc-surface, --pc-fg, --pc-muted, --pc-border, --pc-accent. One series = --pc-c1; '
   + 'ranked values: its shades --pc-shade-1..4; --pc-c2..5 only for more series, max 3 in all; '
@@ -33,7 +33,7 @@ const PARAMETERS = {
     title: { type: 'string', maxLength: MAX_TITLE_CHARS },
     html: { type: 'string', description: 'The page. Use this or path.' },
     path: { type: 'string', description: 'An .html file in the project instead of html.' },
-    height: { type: 'integer', minimum: MIN_HEIGHT, maximum: MAX_HEIGHT, description: 'Frame height in pixels.' },
+    height: { type: 'integer', minimum: MIN_HEIGHT, maximum: MAX_HEIGHT, description: 'Pixels to hold until the page loads.' },
   },
   required: ['title'],
   additionalProperties: false,
