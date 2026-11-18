@@ -63,6 +63,27 @@ export type ChatViewportProps = {
   onLoadEarlierPrompts: () => void;
 };
 
+const HIDDEN: React.CSSProperties = { opacity: 0 };
+
+/**
+ * False for the first two frames after mount, then true. Opening a session
+ * renders its whole transcript in one long task; a fade that started with it
+ * would be over before the first frame showed, so this one starts after.
+ */
+function useRevealAfterPaint(): boolean {
+  const [revealed, setRevealed] = React.useState(
+    () => typeof window === 'undefined' || Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
+  );
+  React.useEffect(() => {
+    if (revealed) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => setRevealed(true));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [revealed]);
+  return revealed;
+}
+
 export const ChatViewport = React.memo(
   ({
     currentSessionId,
@@ -97,6 +118,7 @@ export const ChatViewport = React.memo(
     isLoadingOlderPrompts,
     onLoadEarlierPrompts,
   }: ChatViewportProps) => {
+    const revealed = useRevealAfterPaint();
     const promptPreviewsByTurnIdRef = React.useRef<Map<string, Part[]>>(new Map());
     // Cache normalized parts per source array so unchanged messages keep the
     // same reference and the memo below can bail out to the previous map.
@@ -208,7 +230,11 @@ export const ChatViewport = React.memo(
         )}
         aria-hidden={isDesktopExpandedInput}
       >
-        <div className="absolute inset-0">
+        <div
+          className="absolute inset-0 transition-opacity duration-200 ease-out motion-reduce:transition-none"
+          style={revealed ? undefined : HIDDEN}
+          data-chat-revealed={revealed ? 'true' : 'false'}
+        >
           <ScrollShadow
             className="absolute inset-0 overflow-y-auto overflow-x-hidden z-0 chat-scroll overlay-scrollbar-target"
             ref={scrollRef}
