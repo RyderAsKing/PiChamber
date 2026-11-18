@@ -264,6 +264,21 @@ only); `composer-controls-sheet` (the same controls in the phone sheet,
 mobile only); `composer-controls-draft` (a new-session draft whose draft
 session reported those controls before any send, desktop only);
 `visuals-expanded` (the same page from its Expand action, desktop only);
+`turn-activity` (a seeded turn that read, searched, edited and ran two
+commands, one failing: its `Worked for` line with the counts and `1 error`);
+`turn-activity-open` (the same line pressed, showing the activity rail);
+`draft-wallpaper-dither`, `draft-wallpaper-ascii`,
+`draft-wallpaper-halftone`, `draft-wallpaper-strands`, and
+`draft-wallpaper-grain` (the new-session
+screen with each pattern, set through the `draftWallpaper` UI setting and
+held still through `draftWallpaperMotion`, desktop only; pages without one
+reset it to None); `settings-themes-all` (Appearance with the theme list
+opened by Show all, one pill per theme family, desktop only);
+`settings-wallpaper` (Appearance at Wallpaper: a still swatch per pattern,
+and the picture and motion rows; the seed has no picture, so only its
+Choose button works, desktop only); `session-wallpaper`
+(the demo session with Show in open sessions on: Halftone, still and faint,
+at the top, faded out above the messages, desktop only);
 `subagents-turn` (a finished scout-then-reviewer chain, a card per run);
 `subagents-run` (the reviewer's card pressed: the run on its own, in the
 Agents panel on desktop and a sheet on phones); and `subagents-panel` (the

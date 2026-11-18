@@ -24,6 +24,8 @@ import { registerPluginRoutes } from './lib/plugins/routes.js';
 import { createFeaturedSource, DEFAULT_FEATURED_URL } from './lib/marketplace/featured.js';
 import { createNpmRegistry } from './lib/marketplace/npm-registry.js';
 import { registerMarketplaceRoutes } from './lib/marketplace/routes.js';
+import { registerWallpaperRoutes } from './lib/wallpaper/routes.js';
+import { createWallpaperImageStore } from './lib/wallpaper/store.js';
 import { createMarketplaceService } from './lib/marketplace/service.js';
 import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
 import { detectLinuxDistribution } from './lib/server/linux-distribution.js';
@@ -316,6 +318,8 @@ export async function startWebUiServer(options = {}) {
     },
   });
   registerPluginRoutes(app, { service: pluginService, onChange: pluginDaemonSync.changed });
+  // The new-session wallpaper picture (lib/wallpaper/DOCUMENTATION.md).
+  registerWallpaperRoutes(app, { express, store: createWallpaperImageStore({ dataDir: PICHAMBER_DATA_DIR }) });
   // Marketplace: npm search and the featured list (lib/marketplace/DOCUMENTATION.md).
   // PICHAMBER_NPM_REGISTRY_URL / PICHAMBER_NPM_DOWNLOADS_URL point it at a
   // mirror or a test fixture; PICHAMBER_FEATURED_URL=off stops refreshing the

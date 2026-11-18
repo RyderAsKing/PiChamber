@@ -83,7 +83,7 @@ describe('buildVisualDocument', () => {
 
   test('sits on the chat background with a gutter and small muted SVG labels the page can override', () => {
     const doc = buildVisualDocument({ html: '', theme, allowNetwork: false });
-    expect(doc).toContain(':where(html){background:var(--pc-bg);padding:8px;');
+    expect(doc).toContain(':where(html){background:transparent;padding:8px;');
     // On the svg itself, so text inherits it and any fill on the text or a
     // group (attribute, style, or page rule) wins.
     // An svg's own fill or font-size attribute (an icon's fill="none") is

@@ -334,9 +334,16 @@ names a manifest may use and falls back to `puzzle` for any other.
   series in `--pc-c1`, at most three series hues).
 - `VisualFrame.tsx` draws the page without a frame of its own: no border,
   header, or title bar, so it reads as part of the reply; the title names
-  the iframe, the expanded view, and the download. It fits the frame to its
-  page up to 560 px (or the call's `height`) and mounts it when it nears the
-  viewport. More (Copy HTML, Download page) and Expand sit at its top right,
+  the iframe, the expanded view, and the download. The page has no
+  background of its own (the base sheet leaves `html` transparent), so it
+  sits on the chat and any wallpaper. `PageFrame` sets the iframe's own
+  `color-scheme` to the theme's: Chrome paints an opaque canvas behind a
+  frame whose scheme differs from its document's, and the chat column sets
+  `dark` on light themes for its scrollbar. The frame is pulled out by the
+  page's 8px gutter so its content lines up with the reply text. The frame grows to the page's whole
+  reported height, never scrolling inside the reply (a 20,000 px stop only
+  catches a page that keeps growing); the call's `height` holds the space
+  until the page reports. It mounts when it nears the viewport. More (Copy HTML, Download page) and Expand sit at its top right,
   shown on hover or focus; on touch screens they sit in a row under the page
   so they never cover it. Expand opens a
   full-window dialog with the Page/Code switch, Copy, and Download. While

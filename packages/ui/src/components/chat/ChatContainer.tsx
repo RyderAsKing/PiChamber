@@ -61,6 +61,7 @@ import {
     hasBlockingChatOverlay,
 } from './chatContainerNavigation';
 import { DraftWelcome } from './DraftWelcome';
+import { DraftWallpaper, SessionWallpaper } from './DraftWallpaper';
 import { ChatViewport } from './ChatViewport';
 import { sandboxReasonText } from '@/lib/pi/sandboxText';
 import { SessionReadOnlyNote } from './SessionReadOnlyNote';
@@ -70,6 +71,8 @@ type ChatContainerProps = {
     active?: boolean;
     autoOpenDraft?: boolean;
 };
+
+const LOADING_INDICATOR_DELAY: React.CSSProperties = { animationDelay: '400ms', animationFillMode: 'both' };
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, autoOpenDraft = true }) => {
     
@@ -492,8 +495,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 		return (
 			// No transform on this root: it would become the containing block for
 			// the fullscreen composer's position:fixed visual-viewport pinning in
-			// mobile browsers (see ChatInput's composerFormRef effect).
-			<div data-composer-bound className="relative flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+			// mobile browsers (see ChatInput's composerFormRef effect). `isolate`
+			// keeps the wallpaper under the title without moving that block.
+			<div data-composer-bound className="relative isolate flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+				{isDesktopExpandedInput ? null : (
+					// On phones the composer is an opaque bar along the bottom, so the
+					// wallpaper fades out above it rather than stopping on a hard line.
+					<DraftWallpaper fade={useCompactDraftLayout ? 'bottom' : 'none'} />
+				)}
 				{useCompactDraftLayout && !isDesktopExpandedInput ? <DraftWelcome /> : null}
 				<div
 					className={cn(
@@ -502,7 +511,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 							? 'flex-1 bg-background'
 							: useCompactDraftLayout
 								? 'shrink-0 bg-background px-0'
-								: 'flex-1 items-center justify-center bg-background px-0 pb-[6vh]'
+								// The root paints the page; this layer stays clear so
+								// the wallpaper shows around the composer.
+								: 'flex-1 items-center justify-center px-0 pb-[6vh]'
 					)}
 				>
 					<ChatInput scrollToBottom={scrollToBottomOnSend} />
@@ -550,7 +561,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 			);
 		}
 		return (
-			<div data-composer-bound className="relative flex flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+			// No fade on the root: the composer is on the screen it came from
+			// too, so it stays put while the session loads.
+			<div data-composer-bound className="relative flex flex-col h-full bg-background">
 				<div
 					className={cn(
 						'relative min-h-0 flex items-center justify-center',
@@ -560,7 +573,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                     )}
                     aria-hidden={isDesktopExpandedInput}
                 >
-                    <div className="flex flex-col items-center gap-3">
+                    <div
+                        // Most sessions load well within the delay, so the logo
+                        // shows only for a slow one instead of flashing on each open.
+                        className="flex flex-col items-center gap-3 animate-in fade-in-0 duration-200 motion-reduce:animate-none"
+                        style={LOADING_INDICATOR_DELAY}
+                    >
                         <PiChamberLogo width={120} height={120} isAnimated />
                         {isSendingNewSession ? (
                             <p role="status" className="typography-meta animate-pulse text-muted-foreground">{"Creating session…"}</p>
@@ -610,7 +628,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 	}
 
 	return (
-		<div data-composer-bound className="relative flex min-w-0 flex-1 flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+		// `isolate` keeps the session wallpaper under the timeline without a
+		// transform (see the draft view above).
+		// The transcript fades in on its own once drawn (ChatViewport); the
+		// root does not, so the composer never blanks out on the way in.
+		<div data-composer-bound className="relative isolate flex min-w-0 flex-1 flex-col h-full bg-background">
+			{isDesktopExpandedInput ? null : <SessionWallpaper />}
 			<ChatViewport
 				currentSessionId={currentSessionId}
                 currentSessionKey={currentSessionKey ?? currentSessionId}

@@ -58,4 +58,15 @@ describe('BashExecutionRow', () => {
     expect(failed).toContain('>Failed<');
     expect(failed).toContain('An extension failed while handling this command.');
   });
+
+  test('marks are quiet text: only a failure takes colour, and none is a filled badge', () => {
+    const markup = render({
+      kind: 'recorded',
+      details: { command: 'git log', output: 'x', exitCode: 2, truncated: true, excludeFromContext: true },
+    });
+    expect(markup).toContain('data-bash-status="error"');
+    expect(markup).toContain('· Output truncated');
+    expect(markup).toContain('· Not sent to the model');
+    expect(markup).not.toContain('-background)');
+  });
 });

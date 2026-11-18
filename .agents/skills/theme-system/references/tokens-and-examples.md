@@ -39,6 +39,7 @@ transitional states.
 | `typography-ui-label` | 14px | 13px | Row titles, menu items, buttons |
 | `typography-meta` | 13px | 13px | Secondary lines, compact controls (composer pickers, `xs` buttons) |
 | `typography-micro` | 12px | 12px | Timestamps, counts, badges, shortcuts |
+| `typography-markdown` | 14px | 14px | Reply text, tool rows, the turn's "Worked for" line |
 | `typography-code` | 13px | 12px | Code and command output blocks |
 
 These follow the user's font-size setting; fixed sizes (`text-xs`,
@@ -54,6 +55,14 @@ These follow the user's font-size setting; fixed sizes (`text-xs`,
 | `interactive.selection` | Active/selected items |
 | `interactive.selectionForeground` | Text on selection |
 | `interactive.focusRing` | Focus indicators |
+
+`withInkStates` (`lib/theme/inkStates.ts`) replaces `hover`, `active`,
+`border`, `borderHover`, and an opaque `selection` with the theme's
+foreground at fixed alphas, for the CSS and for `currentTheme`. These
+translucent fills read the same on the page, the sidebar, and cards, so do
+not paint an opaque hover or border of your own. A theme's translucent
+`selection` is kept, since themes tint it on purpose. Text is never derived
+this way.
 
 ### Status
 

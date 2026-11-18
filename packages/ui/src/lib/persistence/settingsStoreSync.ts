@@ -3,6 +3,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useMessageQueueStore, type FollowUpBehavior, isFollowUpBehavior, normalizeFollowUpBehavior } from '@/stores/messageQueueStore';
 import { isTerminalShell } from '@/lib/terminalShell';
 import { isSidebarViewMode } from '@/lib/sidebarViewMode';
+import { isWallpaper, isWallpaperImageVersion } from '@/lib/wallpaper';
 import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
@@ -234,6 +235,24 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     settings.draftStartersVisible !== store.draftStartersVisible
   ) {
     store.setDraftStartersVisible(settings.draftStartersVisible);
+  }
+  if (isWallpaper(settings.draftWallpaper) && settings.draftWallpaper !== store.draftWallpaper) {
+    store.setDraftWallpaper(settings.draftWallpaper);
+  }
+  if (typeof settings.draftWallpaperMotion === 'boolean' && settings.draftWallpaperMotion !== store.draftWallpaperMotion) {
+    store.setDraftWallpaperMotion(settings.draftWallpaperMotion);
+  }
+  if (typeof settings.draftWallpaperPicture === 'boolean' && settings.draftWallpaperPicture !== store.draftWallpaperPicture) {
+    store.setDraftWallpaperPicture(settings.draftWallpaperPicture);
+  }
+  if (typeof settings.draftWallpaperInSessions === 'boolean' && settings.draftWallpaperInSessions !== store.draftWallpaperInSessions) {
+    store.setDraftWallpaperInSessions(settings.draftWallpaperInSessions);
+  }
+  if (
+    (settings.draftWallpaperImageVersion === null || isWallpaperImageVersion(settings.draftWallpaperImageVersion))
+    && settings.draftWallpaperImageVersion !== store.draftWallpaperImageVersion
+  ) {
+    store.setDraftWallpaperImageVersion(settings.draftWallpaperImageVersion);
   }
   if (
     typeof settings.terminalFontSize === 'number' &&

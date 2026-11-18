@@ -16,6 +16,8 @@ export interface ThemeContextValue {
   darkThemeId: string;
   setLightThemePreference: (themeId: string) => void;
   setDarkThemePreference: (themeId: string) => void;
+  /** Sets the light and dark themes together (a theme family); either may be missing. */
+  setThemeFamily: (lightThemeId: string | undefined, darkThemeId: string | undefined) => void;
 }
 
 export const ThemeSystemContext = createContext<ThemeContextValue | undefined>(undefined);
