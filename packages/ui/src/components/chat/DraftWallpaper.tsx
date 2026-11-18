@@ -7,7 +7,13 @@ import { cn } from '@/lib/utils';
 import { wallpaperCanMove, type Wallpaper, type WallpaperFade } from '@/lib/wallpaper';
 import { useUIStore } from '@/stores/useUIStore';
 
-import { createWallpaperPainter, isPixelatedWallpaper, paintPictureBackdrop, wallpaperCanvasSize } from './lib/wallpaperPainters';
+import {
+  createWallpaperPainter,
+  isPixelatedWallpaper,
+  paintPictureBackdrop,
+  wallpaperCanvasSize,
+  type WallpaperPainter,
+} from './lib/wallpaperPainters';
 
 /** Redraws wait for a resize to settle, so a drag costs one rebuild. */
 const RESIZE_SETTLE_MS = 120;
@@ -83,7 +89,8 @@ export const SessionWallpaper: React.FC = () => {
       wallpaper={wallpaper}
       picture={picture}
       moving={false}
-      className="absolute inset-0 -z-10"
+      // A quarter strength: it is a tint behind text, not a picture to look at.
+      className="absolute inset-0 -z-10 opacity-25"
       sizeTo="window"
       fade="session"
     />
@@ -166,20 +173,180 @@ function useBoxSize(ref: React.RefObject<HTMLElement | null>, enabled: boolean):
  */
 let driftSeconds = 0;
 
+/** A drawn canvas and the painter that keeps drawing it, if it moves. */
+type Layer = { canvas: HTMLCanvasElement; painter: WallpaperPainter | null };
+
+/**
+ * Finished full-window canvases, newest last, so going back to a screen
+ * re-attaches the one already drawn instead of building it again. A few
+ * cover the new-session screen and sessions, each with and without the
+ * picture; anything older is dropped.
+ */
+const LAYER_CACHE_SIZE = 4;
+const layerCache = new Map<string, Layer>();
+
+const takeLayer = (key: string): Layer | undefined => {
+  const layer = layerCache.get(key);
+  if (layer) {
+    layerCache.delete(key);
+    layerCache.set(key, layer);
+  }
+  return layer;
+};
+
+const keepLayer = (key: string, layer: Layer) => {
+  layerCache.set(key, layer);
+  while (layerCache.size > LAYER_CACHE_SIZE) {
+    const oldest = layerCache.keys().next().value;
+    if (oldest === undefined) break;
+    layerCache.delete(oldest);
+  }
+};
+
+const bitmapIds = new WeakMap<ImageBitmap, number>();
+let nextBitmapId = 1;
+const bitmapId = (bitmap: ImageBitmap | null): number => {
+  if (!bitmap) return 0;
+  let id = bitmapIds.get(bitmap);
+  if (!id) {
+    id = nextBitmapId;
+    nextBitmapId += 1;
+    bitmapIds.set(bitmap, id);
+  }
+  return id;
+};
+
+/** Runs `task` once the page has painted and the browser is idle (or after 300 ms at most). */
+const whenIdle = (task: () => void): (() => void) => {
+  if (typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(task, { timeout: 300 });
+    return () => window.cancelIdleCallback(handle);
+  }
+  const handle = window.setTimeout(task, 50);
+  return () => window.clearTimeout(handle);
+};
+
+const FADE_IN_MS = 400;
+
 /** Fixed CSS size, centred on the box; the box clips whatever overhangs. */
-const centred = (size: Size): React.CSSProperties => ({
-  position: 'absolute',
-  left: `calc(50% - ${size.width / 2}px)`,
-  top: `calc(50% - ${size.height / 2}px)`,
-  width: `${size.width}px`,
-  height: `${size.height}px`,
-});
+const placeCanvas = (canvas: HTMLCanvasElement, size: Size, slot: number, pixelated: boolean) => {
+  Object.assign(canvas.style, {
+    position: 'absolute',
+    left: `calc(50% - ${size.width / 2}px)`,
+    top: `calc(50% - ${size.height / 2}px)`,
+    width: `${size.width}px`,
+    height: `${size.height}px`,
+    zIndex: String(slot),
+    imageRendering: pixelated ? 'pixelated' : '',
+  });
+};
+
+type LayerSpec = {
+  /** Same key, same drawing: what the cache is looked up by. */
+  key: string;
+  size: Size;
+  pixelated: boolean;
+  /** Draws into a fresh canvas; returns a painter to keep drawing it, or null once drawn. */
+  build: (canvas: HTMLCanvasElement) => WallpaperPainter | null | 'failed';
+};
+
+/**
+ * Keeps one layer (`slot` 0 for the picture, 1 for the pattern) in `box`:
+ * from the cache if it is there, otherwise built once the page has painted and
+ * faded in over whatever it replaces, which only goes once it is covered.
+ */
+function useLayer(boxRef: React.RefObject<HTMLDivElement | null>, slot: number, spec: LayerSpec | null, moving: boolean, cache: boolean) {
+  const specRef = React.useRef(spec);
+  specRef.current = spec;
+  const key = spec?.key ?? null;
+  React.useEffect(() => {
+    const box = boxRef.current;
+    const current = specRef.current;
+    if (!box) return;
+    const others = () => [...box.querySelectorAll<HTMLCanvasElement>(`canvas[data-slot="${slot}"]`)];
+    if (!current) {
+      for (const canvas of others()) canvas.remove();
+      return;
+    }
+    let cancelled = false;
+    let frame = 0;
+    let retire: ReturnType<typeof setTimeout> | null = null;
+    const fadeIn = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    const show = (layer: Layer, fresh: boolean) => {
+      const { canvas, painter } = layer;
+      canvas.dataset.slot = String(slot);
+      placeCanvas(canvas, current.size, slot, current.pixelated);
+      const replaced = others().filter((other) => other !== canvas);
+      if (fresh && fadeIn) {
+        canvas.style.transition = '';
+        canvas.style.opacity = '0';
+        box.appendChild(canvas);
+        // Read layout so the starting opacity takes, then fade to full.
+        void canvas.offsetWidth;
+        canvas.style.transition = `opacity ${FADE_IN_MS}ms ease-out`;
+        canvas.style.opacity = '1';
+        retire = setTimeout(() => replaced.forEach((other) => other.remove()), FADE_IN_MS);
+      } else {
+        canvas.style.transition = '';
+        canvas.style.opacity = '1';
+        box.appendChild(canvas);
+        replaced.forEach((other) => other.remove());
+      }
+      if (!moving || !painter) return;
+      let last = performance.now();
+      let sinceDraw = 0;
+      const tick = (now: number) => {
+        // Capped, so time spent in a hidden tab (no frames run) is not skipped over.
+        const elapsed = Math.min(now - last, 250);
+        last = now;
+        driftSeconds += elapsed / 1000;
+        sinceDraw += elapsed;
+        if (sinceDraw >= painter.frameMs) {
+          sinceDraw %= painter.frameMs;
+          painter.draw(driftSeconds);
+        }
+        frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
+    };
+
+    const cached = cache ? takeLayer(current.key) : undefined;
+    let cancelIdle: (() => void) | null = null;
+    if (cached) {
+      // Catch a moving pattern up with the shared drift before it shows; a
+      // still one is already drawn, and grain would redraw every pixel.
+      if (moving) cached.painter?.draw(driftSeconds);
+      show(cached, false);
+    } else {
+      cancelIdle = whenIdle(() => {
+        if (cancelled) return;
+        const canvas = document.createElement('canvas');
+        const painter = current.build(canvas);
+        if (painter === 'failed') return;
+        painter?.draw(driftSeconds);
+        const layer = { canvas, painter };
+        if (cache) keepLayer(current.key, layer);
+        show(layer, true);
+      });
+    }
+    return () => {
+      cancelled = true;
+      cancelIdle?.();
+      cancelAnimationFrame(frame);
+      if (retire) clearTimeout(retire);
+      // The canvas stays until its replacement covers it, or the box goes.
+    };
+  }, [boxRef, cache, key, moving, slot]);
+}
 
 /**
  * One wallpaper drawn to cover its box; also used for the Settings previews.
  * The picture and the pattern have a canvas each, so a moving pattern never
  * redraws the picture. Each canvas keeps a fixed size centred on the box, so
- * a box that changes size never stretches it.
+ * a box that changes size never stretches it. Canvases are built after the
+ * page paints and fade in; full-window ones are kept, so coming back to a
+ * screen shows them at once.
  */
 export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
   wallpaper,
@@ -190,54 +357,43 @@ export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
   sizeTo = 'box',
 }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
-  const pictureRef = React.useRef<HTMLCanvasElement | null>(null);
-  const patternRef = React.useRef<HTMLCanvasElement | null>(null);
   const { currentTheme } = useThemeSystem();
   const foreground = currentTheme.colors.surface.foreground;
   const variant = currentTheme.metadata.variant === 'dark' ? 'dark' : 'light';
   const windowSize = useWindowSize(sizeTo === 'window');
   const boxSize = useBoxSize(boxRef, sizeTo === 'box');
   const area = sizeTo === 'window' ? windowSize : boxSize;
-  const pictureWidth = area ? wallpaperCanvasSize('none', area.width, area.height).width : 0;
-  const pictureHeight = area ? wallpaperCanvasSize('none', area.width, area.height).height : 0;
-  const patternWidth = area ? wallpaperCanvasSize(wallpaper, area.width, area.height).width : 0;
-  const patternHeight = area ? wallpaperCanvasSize(wallpaper, area.width, area.height).height : 0;
+  const scale = typeof window === 'undefined' ? 1 : Math.min(2, window.devicePixelRatio || 1);
+  const pictureId = bitmapId(picture);
 
-  React.useLayoutEffect(() => {
-    const canvas = pictureRef.current;
-    if (!canvas || !picture || pictureWidth === 0) return;
-    paintPictureBackdrop({ canvas, width: pictureWidth, height: pictureHeight, picture, variant, underPattern: wallpaper !== 'none', fade });
-  }, [fade, picture, pictureHeight, pictureWidth, variant, wallpaper]);
+  const pictureSize = area ? wallpaperCanvasSize('none', area.width, area.height) : null;
+  const pictureSpec: LayerSpec | null = picture && pictureSize && pictureSize.width > 0
+    ? {
+      key: ['picture', pictureId, pictureSize.width, pictureSize.height, scale, variant, wallpaper !== 'none', fade].join('|'),
+      size: pictureSize,
+      pixelated: false,
+      build: (canvas) => {
+        paintPictureBackdrop({ canvas, width: pictureSize.width, height: pictureSize.height, picture, variant, underPattern: wallpaper !== 'none', fade });
+        return null;
+      },
+    }
+    : null;
 
-  // A layout effect, so the canvas is resized and redrawn in the same frame
-  // and never shows cleared.
-  React.useLayoutEffect(() => {
-    const canvas = patternRef.current;
-    const ink = parseColor(foreground);
-    if (!canvas || patternWidth === 0 || !ink || wallpaper === 'none') return;
-    const painter = createWallpaperPainter({ canvas, width: patternWidth, height: patternHeight, ink, variant, wallpaper, picture, fade });
-    if (!painter) return;
-    painter.draw(driftSeconds);
-    if (!moving) return;
+  const patternSize = area ? wallpaperCanvasSize(wallpaper, area.width, area.height) : null;
+  const ink = parseColor(foreground);
+  const patternSpec: LayerSpec | null = wallpaper !== 'none' && patternSize && patternSize.width > 0 && ink
+    ? {
+      key: ['pattern', wallpaper, pictureId, patternSize.width, patternSize.height, scale, variant, foreground, fade].join('|'),
+      size: patternSize,
+      pixelated: isPixelatedWallpaper(wallpaper),
+      build: (canvas) =>
+        createWallpaperPainter({ canvas, width: patternSize.width, height: patternSize.height, ink, variant, wallpaper, picture, fade }) ?? 'failed',
+    }
+    : null;
 
-    let frame = 0;
-    let last = performance.now();
-    let sinceDraw = 0;
-    const tick = (now: number) => {
-      // Capped, so time spent in a hidden tab (no frames run) is not skipped over.
-      const elapsed = Math.min(now - last, 250);
-      last = now;
-      driftSeconds += elapsed / 1000;
-      sinceDraw += elapsed;
-      if (sinceDraw >= painter.frameMs) {
-        sinceDraw %= painter.frameMs;
-        painter.draw(driftSeconds);
-      }
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [fade, foreground, moving, patternHeight, patternWidth, picture, variant, wallpaper]);
+  const cache = sizeTo === 'window';
+  useLayer(boxRef, 0, pictureSpec, false, cache);
+  useLayer(boxRef, 1, patternSpec, moving, cache);
 
   return (
     <div
@@ -247,21 +403,6 @@ export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
       data-draft-wallpaper-picture={picture ? 'true' : 'false'}
       data-draft-wallpaper-moving={moving ? 'true' : 'false'}
       className={cn('pointer-events-none relative h-full w-full select-none overflow-hidden', className)}
-    >
-      {picture && pictureWidth > 0 ? (
-        <canvas ref={pictureRef} style={centred({ width: pictureWidth, height: pictureHeight })} />
-      ) : null}
-      {wallpaper !== 'none' && patternWidth > 0 ? (
-        <canvas
-          // A new canvas per pattern: a canvas cannot switch between pixel and smooth scaling cleanly mid-life.
-          key={wallpaper}
-          ref={patternRef}
-          style={{
-            ...centred({ width: patternWidth, height: patternHeight }),
-            imageRendering: isPixelatedWallpaper(wallpaper) ? 'pixelated' : undefined,
-          }}
-        />
-      ) : null}
-    </div>
+    />
   );
 };
