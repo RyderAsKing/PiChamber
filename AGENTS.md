@@ -272,9 +272,11 @@ commands, one failing: its `Worked for` line with the counts and `1 error`);
 `draft-wallpaper-grain` (the new-session
 screen with each pattern, set through the `draftWallpaper` UI setting and
 held still through `draftWallpaperMotion`, desktop only; pages without one
-reset it to None); `settings-wallpaper` (Appearance at Wallpaper: a preview
-tile per pattern, and the picture and motion rows; the seed has no
-picture, so only its Choose button works, desktop only); `session-wallpaper`
+reset it to None); `settings-themes-all` (Appearance with the theme list
+opened by Show all, light and dark themes in one list, desktop only);
+`settings-wallpaper` (Appearance at Wallpaper: a still swatch per pattern,
+and the picture and motion rows; the seed has no picture, so only its
+Choose button works, desktop only); `session-wallpaper`
 (the demo session with Show in open sessions on: Halftone, still and faint,
 at the top, faded out above the messages, desktop only);
 `subagents-turn` (a finished scout-then-reviewer chain, a card per run);

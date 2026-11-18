@@ -65,9 +65,6 @@ export const DraftWallpaper: React.FC<{ fade: WallpaperFade }> = ({ fade }) => {
       picture={picture}
       moving={motion && !reducedMotion && wallpaperCanMove(wallpaper)}
       className="absolute inset-0 -z-10"
-      // Drawn for the whole window, so opening a sidebar or panel only
-      // uncovers more of it rather than redrawing it.
-      sizeTo="window"
       // Drawn into the canvas: a CSS mask on a canvas this large sometimes
       // left a strip unmasked in Chrome.
       fade={fade}
@@ -91,7 +88,6 @@ export const SessionWallpaper: React.FC = () => {
       moving={false}
       // A quarter strength: it is a tint behind text, not a picture to look at.
       className="absolute inset-0 -z-10 opacity-25"
-      sizeTo="window"
       fade="session"
     />
   );
@@ -103,12 +99,6 @@ type WallpaperCanvasProps = {
   moving: boolean;
   className?: string;
   fade?: WallpaperFade;
-  /**
-   * What the drawing covers. `window` draws for the whole window and centres
-   * it on the box, so the box can change size (sidebars, panels) without a
-   * redraw; only a window resize redraws. `box` fits the box (previews).
-   */
-  sizeTo?: 'box' | 'window';
 };
 
 type Size = { width: number; height: number };
@@ -116,11 +106,10 @@ type Size = { width: number; height: number };
 const sameSize = (a: Size | null, b: Size) => a?.width === b.width && a.height === b.height;
 
 /** The window's size, updated once a resize settles. */
-function useWindowSize(enabled: boolean): Size | null {
+function useWindowSize(): Size | null {
   const read = () => ({ width: window.innerWidth, height: window.innerHeight });
-  const [size, setSize] = React.useState<Size | null>(() => (enabled && typeof window !== 'undefined' ? read() : null));
+  const [size, setSize] = React.useState<Size | null>(() => (typeof window !== 'undefined' ? read() : null));
   React.useEffect(() => {
-    if (!enabled) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const update = () => {
       const next = read();
@@ -136,33 +125,7 @@ function useWindowSize(enabled: boolean): Size | null {
       window.removeEventListener('resize', onResize);
       if (timer) clearTimeout(timer);
     };
-  }, [enabled]);
-  return size;
-}
-
-/** An element's size, updated once a resize settles. */
-function useBoxSize(ref: React.RefObject<HTMLElement | null>, enabled: boolean): Size | null {
-  const [size, setSize] = React.useState<Size | null>(null);
-  React.useEffect(() => {
-    const box = ref.current;
-    if (!enabled || !box) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const measure = () => {
-      const rect = box.getBoundingClientRect();
-      const next = { width: Math.round(rect.width), height: Math.round(rect.height) };
-      setSize((previous) => (sameSize(previous, next) ? previous : next));
-    };
-    measure();
-    const observer = new ResizeObserver(() => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(measure, RESIZE_SETTLE_MS);
-    });
-    observer.observe(box);
-    return () => {
-      observer.disconnect();
-      if (timer) clearTimeout(timer);
-    };
-  }, [enabled, ref]);
+  }, []);
   return size;
 }
 
@@ -255,7 +218,7 @@ type LayerSpec = {
  * from the cache if it is there, otherwise built once the page has painted and
  * faded in over whatever it replaces, which only goes once it is covered.
  */
-function useLayer(boxRef: React.RefObject<HTMLDivElement | null>, slot: number, spec: LayerSpec | null, moving: boolean, cache: boolean) {
+function useLayer(boxRef: React.RefObject<HTMLDivElement | null>, slot: number, spec: LayerSpec | null, moving: boolean) {
   const specRef = React.useRef(spec);
   specRef.current = spec;
   const key = spec?.key ?? null;
@@ -311,7 +274,7 @@ function useLayer(boxRef: React.RefObject<HTMLDivElement | null>, slot: number, 
       frame = requestAnimationFrame(tick);
     };
 
-    const cached = cache ? takeLayer(current.key) : undefined;
+    const cached = takeLayer(current.key);
     let cancelIdle: (() => void) | null = null;
     if (cached) {
       // Catch a moving pattern up with the shared drift before it shows; a
@@ -326,7 +289,7 @@ function useLayer(boxRef: React.RefObject<HTMLDivElement | null>, slot: number, 
         if (painter === 'failed') return;
         painter?.draw(driftSeconds);
         const layer = { canvas, painter };
-        if (cache) keepLayer(current.key, layer);
+        keepLayer(current.key, layer);
         show(layer, true);
       });
     }
@@ -337,32 +300,29 @@ function useLayer(boxRef: React.RefObject<HTMLDivElement | null>, slot: number, 
       if (retire) clearTimeout(retire);
       // The canvas stays until its replacement covers it, or the box goes.
     };
-  }, [boxRef, cache, key, moving, slot]);
+  }, [boxRef, key, moving, slot]);
 }
 
 /**
- * One wallpaper drawn to cover its box; also used for the Settings previews.
+ * One wallpaper drawn for the whole window and centred on its box, so opening
+ * a sidebar or panel only uncovers more of it; only a window resize redraws.
  * The picture and the pattern have a canvas each, so a moving pattern never
- * redraws the picture. Each canvas keeps a fixed size centred on the box, so
- * a box that changes size never stretches it. Canvases are built after the
- * page paints and fade in; full-window ones are kept, so coming back to a
- * screen shows them at once.
+ * redraws the picture. Canvases are built after the page paints and fade in,
+ * and are kept, so coming back to a screen shows them at once. Settings shows
+ * still swatches instead (`lib/wallpaperSwatch`).
  */
-export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
+const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
   wallpaper,
   picture = null,
   moving,
   className,
   fade = 'none',
-  sizeTo = 'box',
 }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const { currentTheme } = useThemeSystem();
   const foreground = currentTheme.colors.surface.foreground;
   const variant = currentTheme.metadata.variant === 'dark' ? 'dark' : 'light';
-  const windowSize = useWindowSize(sizeTo === 'window');
-  const boxSize = useBoxSize(boxRef, sizeTo === 'box');
-  const area = sizeTo === 'window' ? windowSize : boxSize;
+  const area = useWindowSize();
   const scale = typeof window === 'undefined' ? 1 : Math.min(2, window.devicePixelRatio || 1);
   const pictureId = bitmapId(picture);
 
@@ -391,9 +351,8 @@ export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
     }
     : null;
 
-  const cache = sizeTo === 'window';
-  useLayer(boxRef, 0, pictureSpec, false, cache);
-  useLayer(boxRef, 1, patternSpec, moving, cache);
+  useLayer(boxRef, 0, pictureSpec, false);
+  useLayer(boxRef, 1, patternSpec, moving);
 
   return (
     <div

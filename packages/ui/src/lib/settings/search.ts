@@ -49,16 +49,11 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['sidebar', 'sessions', 'folders', 'workspace', 'timeline', 'threads', 'layout', 'group'],
   },
   {
-    id: 'appearance.light-theme',
+    id: 'appearance.theme',
     page: 'appearance',
-    title: "Light theme",
-    keywords: ['theme', 'color', 'light mode'],
-  },
-  {
-    id: 'appearance.dark-theme',
-    page: 'appearance',
-    title: "Dark theme",
-    keywords: ['theme', 'color', 'dark mode'],
+    title: "Theme",
+    description: "Pick the theme the app uses; light and dark themes are in the same list.",
+    keywords: ['theme', 'color', 'colour', 'light mode', 'dark mode', 'appearance', 'palette', 'custom themes', 'reload themes'],
   },
   {
     id: 'appearance.wallpaper',

@@ -158,12 +158,6 @@ export const HelpDialog: React.FC = () => {
       categoryKey: "Interface",
       items: [
         {
-          id: 'cycle_theme',
-          descriptionKey: "Cycle Theme (Light → Dark → System)",
-          icon: "palette",
-          keys: '',
-        },
-        {
           id: 'toggle_services_menu',
           descriptionKey: 'helpDialog.item.toggleServicesMenu',
           icon: "stack",

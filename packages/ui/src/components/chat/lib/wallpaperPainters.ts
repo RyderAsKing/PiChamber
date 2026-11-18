@@ -451,8 +451,8 @@ function grainPainter(
         const grain = grainAt(x, y);
         if (grain < 0.55) continue;
         const rx = (x - halfW) / halfW;
-        // Lighter in the middle, heavier toward the corners.
-        const edge = Math.min(1, Math.sqrt(rx * rx + ry * ry));
+        // Lighter in the middle, heavier toward the corners (all of it for a swatch).
+        const edge = fade === 'full' ? 1 : Math.min(1, Math.sqrt(rx * rx + ry * ry));
         const at = (y * canvas.width + x) * 4;
         data[at] = colours ? colours[at] : ink.r;
         data[at + 1] = colours ? colours[at + 1] : ink.g;
@@ -466,7 +466,7 @@ function grainPainter(
 }
 
 /** Fades a finished, still frame out toward the bottom, matching `wallpaperFade`. */
-const fadeBottom = (context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, fade: Exclude<WallpaperFade, 'none'>) => {
+const fadeBottom = (context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, fade: 'bottom' | 'session') => {
   const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
   gradient.addColorStop(WALLPAPER_FADE_STOPS[fade][0], '#000');
   gradient.addColorStop(WALLPAPER_FADE_STOPS[fade][1], 'transparent');
@@ -502,7 +502,7 @@ export function paintPictureBackdrop(options: {
   context.imageSmoothingQuality = 'high';
   context.drawImage(picture, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
   context.globalAlpha = 1;
-  if (fade !== 'none') fadeBottom(context, canvas, fade);
+  if (fade === 'bottom' || fade === 'session') fadeBottom(context, canvas, fade);
 }
 
 /**

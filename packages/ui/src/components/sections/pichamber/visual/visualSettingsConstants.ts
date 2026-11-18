@@ -1,5 +1,5 @@
 import type { Wallpaper } from '@/lib/wallpaper';
-import type { ThemeMode } from '@/types/theme';
+import type { Theme } from '@/types/theme';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
 import type { FollowUpBehavior } from '@/stores/messageQueueStore';
@@ -10,28 +10,6 @@ export interface Option<T extends string> {
   label: string;
   description?: string;
 }
-
-export const THEME_MODE_OPTIONS: Array<{
-  value: ThemeMode;
-  label: string;
-  description: string;
-}> = [
-  {
-    value: 'system',
-    label: 'System',
-    description: 'Follow system setting',
-  },
-  {
-    value: 'light',
-    label: 'Light',
-    description: 'Always use light appearance',
-  },
-  {
-    value: 'dark',
-    label: 'Dark',
-    description: 'Always use dark appearance',
-  },
-];
 
 export const DIFF_LAYOUT_OPTIONS: Option<'dynamic' | 'inline' | 'side-by-side'>[] = [
   {
@@ -212,3 +190,29 @@ export type VisibleSetting =
   | 'expandedEditorToolbar'
   | 'wrapLinesByDefault'
   | 'autoSaveEnabled';
+
+/** How many themes show before Show all. */
+export const COLLAPSED_THEME_COUNT = 5;
+
+/**
+ * The first few themes, with the one in use swapped in for the last of them
+ * when it is further down, so the current theme is always on screen.
+ */
+export function collapsedThemes(themes: readonly Theme[], currentId: string, count = COLLAPSED_THEME_COUNT): Theme[] {
+  const shown = themes.slice(0, count);
+  if (shown.some((theme) => theme.metadata.id === currentId)) return shown;
+  const current = themes.find((theme) => theme.metadata.id === currentId);
+  if (!current || shown.length < count) return shown;
+  return [...shown.slice(0, count - 1), current];
+}
+
+/**
+ * A theme's name as the picker shows it: with Light or Dark when the name
+ * does not already say which it is, since one list holds both (PiChamber
+ * Light, PiChamber Dark, and One Dark Pro Light for the light One Dark Pro).
+ */
+export function themeLabel(theme: Theme): string {
+  const name = theme.metadata.name.trim();
+  const variant = theme.metadata.variant === 'dark' ? 'Dark' : 'Light';
+  return new RegExp(`\\b${variant}\\b`, 'i').test(name) ? name : `${name} ${variant}`;
+}

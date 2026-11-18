@@ -4,8 +4,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   FOLLOW_UP_BEHAVIOR_OPTIONS,
+  collapsedThemes,
+  themeLabel,
   normalizePwaOrientation,
 } from './visualSettingsConstants';
+import type { Theme } from '@/types/theme';
 import {
   DEFAULT_FOLLOW_UP_BEHAVIOR,
   isFollowUpBehavior,
@@ -99,5 +102,42 @@ describe('follow-up behavior wording', () => {
     expect(result?.description ?? '').toContain('waits until the agent finishes');
     expect(result?.description ?? '').toContain('tool or turn boundary');
     expect(result?.description ?? '').toContain('stay on this device');
+  });
+});
+
+describe('collapsedThemes', () => {
+  const themes = Array.from({ length: 8 }, (_, i) => ({ metadata: { id: `t${i}` } }) as unknown as Theme);
+  const ids = (list: Theme[]) => list.map((theme) => theme.metadata.id);
+
+  test('shows the first five when the current theme is among them', () => {
+    expect(ids(collapsedThemes(themes, 't2'))).toEqual(['t0', 't1', 't2', 't3', 't4']);
+  });
+
+  test('swaps the current theme in for the last one when it is further down', () => {
+    expect(ids(collapsedThemes(themes, 't7'))).toEqual(['t0', 't1', 't2', 't3', 't7']);
+  });
+
+  test('an unknown current theme leaves the first five', () => {
+    expect(ids(collapsedThemes(themes, 'gone'))).toEqual(['t0', 't1', 't2', 't3', 't4']);
+    expect(ids(collapsedThemes(themes.slice(0, 3), 't7'))).toEqual(['t0', 't1', 't2']);
+  });
+});
+
+describe('themeLabel', () => {
+  const theme = (name: string, variant: 'light' | 'dark') => ({ metadata: { id: name, name, variant } }) as unknown as Theme;
+
+  test('adds the variant when the name does not say it', () => {
+    expect(themeLabel(theme('PiChamber', 'light'))).toBe('PiChamber Light');
+    expect(themeLabel(theme('PiChamber', 'dark'))).toBe('PiChamber Dark');
+  });
+
+  test('keeps a name that already says it', () => {
+    expect(themeLabel(theme('Vitesse Dark', 'dark'))).toBe('Vitesse Dark');
+    expect(themeLabel(theme('Solarized light', 'light'))).toBe('Solarized light');
+    expect(themeLabel(theme('One Dark Pro', 'dark'))).toBe('One Dark Pro');
+  });
+
+  test('says Light for a light theme whose name has Dark in it', () => {
+    expect(themeLabel(theme('One Dark Pro', 'light'))).toBe('One Dark Pro Light');
   });
 });

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Theme, ThemeMode } from '@/types/theme';
+import type { Theme } from '@/types/theme';
 
 /** Schematic of the app in a theme's own colours for the Settings theme picker; fixed px on purpose so it ignores the padding scale. */
 export const ThemePreview: React.FC<{ theme: Theme }> = React.memo(
@@ -80,42 +80,3 @@ export const ThemePreview: React.FC<{ theme: Theme }> = React.memo(
     );
   },
 );
-
-/** Schematic of the app in light, dark, or split system mode for the Settings color mode picker. */
-export const ColorModePreview: React.FC<{
-  mode: ThemeMode;
-  lightTheme: Theme | null | undefined;
-  darkTheme: Theme | null | undefined;
-}> = ({ mode, lightTheme, darkTheme }) => {
-  return (
-    <div data-color-mode-preview={mode} className="relative h-full w-full">
-      {mode === 'light' && lightTheme && <ThemePreview theme={lightTheme} />}
-      {mode === 'dark' && darkTheme && <ThemePreview theme={darkTheme} />}
-      {mode === 'system' && (
-        <>
-          {lightTheme && <ThemePreview theme={lightTheme} />}
-          {darkTheme && (
-            <div className="absolute inset-0 [clip-path:polygon(100%_0,100%_100%,0_100%)]">
-              <ThemePreview theme={darkTheme} />
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-};
-
-/** Compact swatch of a theme's own colours, shown beside its name in the theme selects; fixed px so it ignores the padding scale. */
-export const ThemeSwatch: React.FC<{ theme: Theme }> = ({ theme }) => (
-  <span
-    aria-hidden
-    data-theme-swatch={theme.metadata.id}
-    className="inline-flex h-[16px] w-[30px] shrink-0 items-center justify-center gap-[3px] rounded-[4px] border"
-    style={{ backgroundColor: theme.colors.surface.background, borderColor: theme.colors.interactive.border }}
-  >
-    <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: theme.colors.primary.base }} />
-    <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: theme.colors.syntax.base.keyword }} />
-    <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: theme.colors.syntax.base.string }} />
-  </span>
-);
-

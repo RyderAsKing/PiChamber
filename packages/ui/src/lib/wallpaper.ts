@@ -73,12 +73,14 @@ const DRIFT_RADIANS_PER_SECOND = (2 * Math.PI) / 60;
 /**
  * How a wallpaper fades out toward the bottom. `bottom` is for the phone
  * layout, whose composer is a bar along the bottom; `session` keeps it to the
- * top of an open session, well clear of the messages and composer.
+ * top of an open session, well clear of the messages and composer. `full` is
+ * no fade and no cleared middle either: the pattern at full strength
+ * everywhere, for the still swatches in Settings.
  */
-export type WallpaperFade = 'none' | 'bottom' | 'session';
+export type WallpaperFade = 'none' | 'bottom' | 'session' | 'full';
 
 /** Where each fade starts and ends, as shares of the height from the top. */
-export const WALLPAPER_FADE_STOPS: Record<Exclude<WallpaperFade, 'none'>, readonly [number, number]> = {
+export const WALLPAPER_FADE_STOPS: Record<'bottom' | 'session', readonly [number, number]> = {
   bottom: [0.45, 0.78],
   session: [0.12, 0.55],
 };
@@ -88,7 +90,7 @@ export const WALLPAPER_FADE_STOPS: Record<Exclude<WallpaperFade, 'none'>, readon
  * given fade: 1 above its first stop, 0 below its second, linear between.
  */
 export function wallpaperFade(y: number, height: number, fade: WallpaperFade): number {
-  if (fade === 'none') return 1;
+  if (fade === 'none' || fade === 'full') return 1;
   const [from, to] = WALLPAPER_FADE_STOPS[fade];
   const t = (y / Math.max(1, height) - from) / (to - from);
   return t <= 0 ? 1 : t >= 1 ? 0 : 1 - t;
@@ -176,7 +178,8 @@ export function createWallpaperField(
       const terms = staticTerms(col * cellWidth + cellWidth / 2 - cx, y, width, height);
       // An open session has no title or composer in the middle to keep clear,
       // only messages below, so its fade alone decides what shows.
-      if (fade === 'session') terms.reveal = wallpaperFade(y + cy, height, fade);
+      if (fade === 'full') terms.reveal = 1;
+      else if (fade === 'session') terms.reveal = wallpaperFade(y + cy, height, fade);
       else if (fade !== 'none') terms.reveal *= wallpaperFade(y + cy, height, fade);
       if (terms.reveal <= 0) continue;
       cells.push(row * cols + col);

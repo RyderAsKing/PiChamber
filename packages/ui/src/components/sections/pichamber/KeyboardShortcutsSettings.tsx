@@ -85,7 +85,6 @@ const SHORTCUT_ACTION_LABELS: Record<string, string> = {
   "cycle_favorite_model_backward": "Cycle favorite model backward",
   "cycle_favorite_model_forward": "Cycle favorite model forward",
   "cycle_session_folder": "Cycle session folder",
-  "cycle_theme": "Cycle theme",
   "focus_input": "Focus input",
   "new_chat": "New session",
   "new_mini_chat": "New Mini Chat window",

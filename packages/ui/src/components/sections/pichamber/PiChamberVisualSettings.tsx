@@ -32,7 +32,7 @@ import {
   type VisibleSetting,
 } from './visual/visualSettingsConstants';
 import { SettingsDisclosure } from '@/components/sections/shared/SettingsSection';
-import { ColorModeAndThemeSection } from './visual/ColorModeAndThemeSection';
+import { ThemeSection } from './visual/ThemeSection';
 import { LocalizationSection } from './visual/LocalizationSection';
 import { AppInstallSection } from './visual/AppInstallSection';
 import { DensityAndTypeSection } from './visual/DensityAndTypeSection';
@@ -92,15 +92,11 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const draftStartersVisible = useUIStore(state => state.draftStartersVisible);
     const setDraftStartersVisible = useUIStore(state => state.setDraftStartersVisible);
     const {
-        themeMode,
-        setThemeMode,
+        currentTheme,
         availableThemes,
+        setTheme,
         customThemesLoading,
         reloadCustomThemes,
-        lightThemeId,
-        darkThemeId,
-        setLightThemePreference,
-        setDarkThemePreference,
     } = useThemeSystem();
 
     const [themesReloading, setThemesReloading] = React.useState(false);
@@ -154,35 +150,6 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     }, [setSidebarViewMode]);
 
 
-
-    const lightThemes = React.useMemo(
-        () => availableThemes
-            .filter((theme) => theme.metadata.variant === 'light')
-            .sort((a, b) => a.metadata.name.localeCompare(b.metadata.name)),
-        [availableThemes],
-    );
-
-    const darkThemes = React.useMemo(
-        () => availableThemes
-            .filter((theme) => theme.metadata.variant === 'dark')
-            .sort((a, b) => a.metadata.name.localeCompare(b.metadata.name)),
-        [availableThemes],
-    );
-
-    const selectedLightTheme = React.useMemo(
-        () => lightThemes.find((theme) => theme.metadata.id === lightThemeId) ?? lightThemes[0],
-        [lightThemes, lightThemeId],
-    );
-
-    const selectedDarkTheme = React.useMemo(
-        () => darkThemes.find((theme) => theme.metadata.id === darkThemeId) ?? darkThemes[0],
-        [darkThemes, darkThemeId],
-    );
-
-    const formatThemeLabel = React.useCallback((themeName: string, variant: 'light' | 'dark') => {
-        const suffix = variant === 'dark' ? ' Dark' : ' Light';
-        return themeName.endsWith(suffix) ? themeName.slice(0, -suffix.length) : themeName;
-    }, []);
 
     const shouldShow = (setting: VisibleSetting): boolean => {
         if (!visibleSettings) return true;
@@ -446,19 +413,13 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         <>
             {/* --- Appearance & Themes --- */}
             {hasAppearanceSettings && hasThemeSettings && (
-                <ColorModeAndThemeSection
-                    themeMode={themeMode}
-                    setThemeMode={setThemeMode}
+                <ThemeSection
+                    themes={availableThemes}
+                    currentThemeId={currentTheme.metadata.id}
+                    onSelectTheme={setTheme}
                     showMobileLayoutSetting={showMobileLayoutSetting}
                     mobileLayoutPreference={mobileLayoutPreference}
                     onMobileLayoutPreferenceChange={handleMobileLayoutPreferenceChange}
-                    selectedLightTheme={selectedLightTheme}
-                    setLightThemePreference={setLightThemePreference}
-                    lightThemes={lightThemes}
-                    selectedDarkTheme={selectedDarkTheme}
-                    setDarkThemePreference={setDarkThemePreference}
-                    darkThemes={darkThemes}
-                    formatThemeLabel={formatThemeLabel}
                     customThemesLoading={customThemesLoading}
                     themesReloading={themesReloading}
                     setThemesReloading={setThemesReloading}

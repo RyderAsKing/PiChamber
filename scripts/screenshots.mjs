@@ -1346,8 +1346,17 @@ const PAGES = {
     settledScript: `Boolean(document.querySelector('[data-draft-wallpaper="halftone"] canvas'))`,
     viewports: ['desktop'],
   },
+  'settings-themes-all': {
+    // Appearance with the theme list opened by Show all: every built-in
+    // theme, light and dark in one list, the one in use marked.
+    path: '/?settings=appearance',
+    readyText: ['Show all'],
+    expandSelector: '[data-settings-item="appearance.theme"] button[aria-expanded]',
+    settledScript: `document.body.innerText.includes('Show fewer')`,
+    viewports: ['desktop'],
+  },
   'settings-wallpaper': {
-    // Appearance at Wallpaper: a preview tile per pattern, and the picture
+    // Appearance at Wallpaper: a still swatch per pattern, and the picture
     // and motion rows under them; the seed has no picture, so only Choose works.
     path: '/?settings=appearance',
     readyText: ['Moving wallpaper'],
@@ -1355,7 +1364,7 @@ const PAGES = {
     viewports: ['desktop'],
     settledScript: `(() => {
       const group = document.querySelector('[data-settings-item="appearance.wallpaper"]');
-      if (!group || group.querySelectorAll('canvas').length < 5) return false;
+      if (!group || group.querySelectorAll('img').length < 5) return false;
       group.scrollIntoView({ block: 'start' });
       return true;
     })()`,
