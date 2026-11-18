@@ -460,7 +460,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
           )}
           hasSessionSearchQuery={false}
           mobileVariant={props.mobileVariant}
-          className="mt-auto border-t border-border pt-1"
+          className="mt-auto pt-1"
         />
       ) : null}
       </div>

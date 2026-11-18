@@ -10,6 +10,7 @@ import type { DesktopSettings } from '@/lib/desktop';
 import { isDesktopLocalOriginActive, isDesktopShell as detectDesktopShell } from '@/lib/desktop';
 import { setDesktopWindowTheme } from '@/lib/desktopNative';
 import { CSSVariableGenerator } from '@/lib/theme/cssGenerator';
+import { withInkStates } from '@/lib/theme/inkStates';
 import { updateDesktopSettings } from '@/lib/persistence';
 import {
   themes,
@@ -193,16 +194,18 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     [availableThemes, getThemeByIdFromAvailable],
   );
 
+  // Hover, pressed, border and selection come from the theme's ink, so the
+  // editor, terminal and diagrams read the same states the CSS does.
   const currentTheme = useMemo(() => {
     if (preferences.themeMode === 'light') {
-      return ensureThemeById(preferences.lightThemeId, 'light');
+      return withInkStates(ensureThemeById(preferences.lightThemeId, 'light'));
     }
     if (preferences.themeMode === 'dark') {
-      return ensureThemeById(preferences.darkThemeId, 'dark');
+      return withInkStates(ensureThemeById(preferences.darkThemeId, 'dark'));
     }
-    return systemPrefersDark
+    return withInkStates(systemPrefersDark
       ? ensureThemeById(preferences.darkThemeId, 'dark')
-      : ensureThemeById(preferences.lightThemeId, 'light');
+      : ensureThemeById(preferences.lightThemeId, 'light'));
   }, [ensureThemeById, preferences, systemPrefersDark]);
 
   const reloadCustomThemes = useCallback(async () => {
@@ -601,6 +604,44 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     [availableThemes],
   );
 
+  /**
+   * Picks a theme family: its light half for light mode and its dark half for
+   * dark mode, in one update. The mode is left alone, except that a family
+   * without the variant on screen switches to the one it has, so picking it
+   * always shows it.
+   */
+  const setThemeFamily = useCallback(
+    (lightId: string | undefined, darkId: string | undefined) => {
+      const light = lightId
+        ? availableThemes.find((candidate) => candidate.metadata.id === lightId && candidate.metadata.variant === 'light')
+        : undefined;
+      const dark = darkId
+        ? availableThemes.find((candidate) => candidate.metadata.id === darkId && candidate.metadata.variant === 'dark')
+        : undefined;
+      if (!light && !dark) {
+        return;
+      }
+      const showing = currentTheme.metadata.variant;
+      const forcedMode: ThemeMode | null =
+        showing === 'dark' && !dark ? 'light' : showing === 'light' && !light ? 'dark' : null;
+
+      setPreferences((prev) => {
+        const next = {
+          ...prev,
+          lightThemeId: light?.metadata.id ?? prev.lightThemeId,
+          darkThemeId: dark?.metadata.id ?? prev.darkThemeId,
+          themeMode: forcedMode ?? prev.themeMode,
+        };
+        return next.lightThemeId === prev.lightThemeId &&
+          next.darkThemeId === prev.darkThemeId &&
+          next.themeMode === prev.themeMode
+          ? prev
+          : next;
+      });
+    },
+    [availableThemes, currentTheme.metadata.variant],
+  );
+
   const value: ThemeContextValue = {
     currentTheme,
     availableThemes,
@@ -615,6 +656,7 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     darkThemeId: preferences.darkThemeId,
     setLightThemePreference,
     setDarkThemePreference,
+    setThemeFamily,
   };
 
   return (

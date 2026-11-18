@@ -12,6 +12,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import type { TerminalShell } from '@/lib/api/types';
 import { DEFAULT_SIDEBAR_VIEW_MODE, type SidebarViewMode } from '@/lib/sidebarViewMode';
+import { DEFAULT_WALLPAPER, isWallpaper, type Wallpaper } from '@/lib/wallpaper';
 import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 import {
@@ -163,6 +164,16 @@ interface UIStore {
   // Global draft welcome starters; null = unset (use the default built-in set).
   globalDraftStarters: DraftStarterRef[] | null;
   draftStartersVisible: boolean;
+  /** Wallpaper behind the new-session screen. */
+  draftWallpaper: Wallpaper;
+  /** Whether the wallpaper's pattern drifts; reduced motion keeps it still regardless. */
+  draftWallpaperMotion: boolean;
+  /** Whether the uploaded picture shows behind the wallpaper, which then takes its colours. */
+  draftWallpaperPicture: boolean;
+  /** Whether the wallpaper also shows, still and faint, at the top of open sessions. */
+  draftWallpaperInSessions: boolean;
+  /** Version of the server's wallpaper picture; null when there is none. */
+  draftWallpaperImageVersion: string | null;
   terminalFontSize: number;
   terminalShell: TerminalShell;
   terminalLoginShells: TerminalShell[];
@@ -308,6 +319,11 @@ interface UIStore {
   setFontSize: (size: number) => void;
   setGlobalDraftStarters: (refs: DraftStarterRef[]) => void;
   setDraftStartersVisible: (value: boolean) => void;
+  setDraftWallpaper: (value: Wallpaper) => void;
+  setDraftWallpaperMotion: (value: boolean) => void;
+  setDraftWallpaperPicture: (value: boolean) => void;
+  setDraftWallpaperInSessions: (value: boolean) => void;
+  setDraftWallpaperImageVersion: (value: string | null) => void;
   setTerminalFontSize: (size: number) => void;
   setTerminalShell: (shell: TerminalShell) => void;
   setTerminalLoginShells: (shells: TerminalShell[]) => void;
@@ -495,6 +511,11 @@ export const useUIStore = create<UIStore>()(
         sessionAutoDeleteAfterDays: 0,
         expandedEditorToolbar: false,
         draftStartersVisible: true,
+        draftWallpaper: DEFAULT_WALLPAPER,
+        draftWallpaperMotion: true,
+        draftWallpaperPicture: false,
+        draftWallpaperInSessions: false,
+        draftWallpaperImageVersion: null,
         isExpandedInput: false,
         shortcutOverrides: {},
         commandTriggers: [],
@@ -1198,6 +1219,27 @@ export const useUIStore = create<UIStore>()(
 
         setDraftStartersVisible: (value) => {
           set({ draftStartersVisible: value });
+        },
+
+        setDraftWallpaper: (value) => {
+          if (!isWallpaper(value)) return;
+          set({ draftWallpaper: value });
+        },
+
+        setDraftWallpaperMotion: (value) => {
+          set({ draftWallpaperMotion: value });
+        },
+
+        setDraftWallpaperPicture: (value) => {
+          set({ draftWallpaperPicture: value === true });
+        },
+
+        setDraftWallpaperInSessions: (value) => {
+          set({ draftWallpaperInSessions: value === true });
+        },
+
+        setDraftWallpaperImageVersion: (value) => {
+          set({ draftWallpaperImageVersion: value });
         },
 
         setTerminalFontSize: (size) => {
@@ -1955,6 +1997,11 @@ export const useUIStore = create<UIStore>()(
           sessionAutoDeleteAfterDays: state.sessionAutoDeleteAfterDays,
           expandedEditorToolbar: state.expandedEditorToolbar,
           draftStartersVisible: state.draftStartersVisible,
+          draftWallpaper: state.draftWallpaper,
+          draftWallpaperMotion: state.draftWallpaperMotion,
+          draftWallpaperPicture: state.draftWallpaperPicture,
+          draftWallpaperInSessions: state.draftWallpaperInSessions,
+          draftWallpaperImageVersion: state.draftWallpaperImageVersion,
           shortcutOverrides: state.shortcutOverrides,
           fileEditorKeymap: state.fileEditorKeymap,
         })

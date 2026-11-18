@@ -3,6 +3,7 @@ import type { CommandTrigger } from '@/lib/pi/command-triggers';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { SidebarViewMode } from '@/lib/sidebarViewMode';
+import type { Wallpaper } from '@/lib/wallpaper';
 
 export type ManagedRemoteTunnelPreset = {
   id: string;
@@ -149,6 +150,16 @@ export type DesktopSettings = {
   responseStyleCustomInstructions?: string;
   draftStarters?: DraftStarterRef[];
   draftStartersVisible?: boolean;
+  /** Wallpaper behind the new-session screen. */
+  draftWallpaper?: Wallpaper;
+  /** Whether the wallpaper's pattern drifts. */
+  draftWallpaperMotion?: boolean;
+  /** Whether the uploaded picture shows behind the wallpaper, which then takes its colours. */
+  draftWallpaperPicture?: boolean;
+  /** Whether the wallpaper also shows, still and faint, at the top of open sessions. */
+  draftWallpaperInSessions?: boolean;
+  /** Version of the server's wallpaper picture; null when there is none. */
+  draftWallpaperImageVersion?: string | null;
   draftStartersScheduleTaskAdded?: boolean;
 };
 

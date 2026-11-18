@@ -177,7 +177,7 @@ function BranchCopyButton({ branchName }: { branchName: string | null }) {
     );
 }
 
-/** Desktop project selector and branch picker for a new session; an existing session's branch shows in the header. */
+/** Desktop project selector and branch picker above the composer card; an existing session's branch shows in the header. */
 export function DraftTargetSelectors(props: DraftTargetProps) {
     const {
         projects,

@@ -12,6 +12,7 @@ import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { WorkingPlaceholder } from '../message/parts/WorkingPlaceholder';
 import { formatTurnDuration, resolveTurnDurationMs } from '../message/turnDuration';
+import { formatTurnActivityClauses, formatTurnActivityFailures, type TurnActivitySummary } from '../lib/turns/summarizeTurnActivity';
 
 interface TurnWorkingHeaderProps {
     turnId: string;
@@ -27,6 +28,8 @@ interface TurnWorkingHeaderProps {
     durationMs?: number;
     liveStatusText?: string;
     wasSteered?: boolean;
+    /** What the turn's tools did, shown after the duration once it settles. */
+    activitySummary?: TurnActivitySummary;
 }
 
 const LiveTurnStatus: React.FC<{
@@ -97,6 +100,7 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
     durationMs,
     liveStatusText,
     wasSteered,
+    activitySummary,
 }) => {
     const resolvedDurationMs = resolveTurnDurationMs({ startedAt, completedAt, durationMs });
     // Reconnecting keeps the last-observed state visible without claiming it
@@ -113,6 +117,23 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
               ? 'Agent activity'
               : null;
     const activityId = `turn-${turnId}-activity`;
+    const clauses = !isLiveTurn && !isReconnecting && activitySummary
+        ? formatTurnActivityClauses(activitySummary)
+        : [];
+    const failed = !isLiveTurn && !isReconnecting ? (activitySummary?.failed ?? 0) : 0;
+    const chevron = (
+        <Icon
+            name="arrow-right-s"
+            className={cn(
+                'size-4 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                isActivityExpanded && 'rotate-90',
+            )}
+            aria-hidden="true"
+        />
+    );
+    const labelMarkers = isReconnecting
+        ? { 'data-turn-reconnecting': 'true' }
+        : { 'data-agent-worked-row': 'true' };
 
     return (
         <div
@@ -121,46 +142,69 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
             data-turn-working={isLiveTurn && isWorking ? 'true' : 'false'}
         >
             <div className="flex min-h-6 items-center gap-1 py-0.5">
-                <div className="flex min-w-0 items-center overflow-hidden">
-                    {isLiveTurn ? (
-                        <LiveTurnStatus isWorking={isWorking} startedAt={startedAt} statusText={liveStatusText} />
-                    ) : statusLabel ? (
-                        <span
-                            className="typography-markdown inline-flex min-w-0 items-center leading-5 text-muted-foreground"
-                            role="status"
-                            aria-label={statusLabel}
-                            {...(isReconnecting
-                                ? { 'data-turn-reconnecting': 'true' }
-                                : { 'data-agent-worked-row': 'true' })}
-                        >
-                            {statusLabel}
-                        </span>
-                    ) : null}
-                </div>
-                {hasActivity ? (
-                    <Button
+                {isLiveTurn ? (
+                    <>
+                        <div className="flex min-w-0 items-center overflow-hidden">
+                            <LiveTurnStatus isWorking={isWorking} startedAt={startedAt} statusText={liveStatusText} />
+                        </div>
+                        {hasActivity ? (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className={cn(
+                                    'h-6 w-6 shrink-0 rounded-md p-0 text-muted-foreground',
+                                    'hover:bg-interactive-hover hover:text-foreground',
+                                )}
+                                aria-expanded={isActivityExpanded}
+                                aria-controls={activityId}
+                                aria-label={isActivityExpanded ? 'Collapse activity' : 'Expand activity'}
+                                data-turn-activity-toggle="true"
+                                onClick={onToggleActivity}
+                            >
+                                {chevron}
+                            </Button>
+                        ) : null}
+                    </>
+                ) : hasActivity && statusLabel ? (
+                    // The whole settled line opens the activity: the duration,
+                    // what the tools did, and the chevron are one target.
+                    <button
                         type="button"
-                        variant="ghost"
-                        size="icon"
                         className={cn(
-                            'h-6 w-6 shrink-0 rounded-md p-0 text-muted-foreground',
+                            'group/turn-activity -mx-1.5 flex min-w-0 max-w-full items-center gap-1 rounded-md px-1.5',
+                            'typography-markdown leading-6 text-muted-foreground',
                             'hover:bg-interactive-hover hover:text-foreground',
                         )}
                         aria-expanded={isActivityExpanded}
                         aria-controls={activityId}
-                        aria-label={isActivityExpanded ? 'Collapse activity' : 'Expand activity'}
                         data-turn-activity-toggle="true"
                         onClick={onToggleActivity}
                     >
-                        <Icon
-                            name="arrow-right-s"
-                            className={cn(
-                                'size-4 transition-transform duration-200 ease-out motion-reduce:transition-none',
-                                isActivityExpanded && 'rotate-90',
-                            )}
-                            aria-hidden="true"
-                        />
-                    </Button>
+                        <span className="min-w-0 truncate">
+                            <span {...labelMarkers}>{statusLabel}</span>
+                            {clauses.length > 0 ? (
+                                <span className="text-subtle-foreground group-hover/turn-activity:text-muted-foreground" data-turn-activity-summary="true">
+                                    {clauses.map((clause) => ` · ${clause}`).join('')}
+                                </span>
+                            ) : null}
+                            {failed > 0 ? (
+                                <span className="text-[var(--status-error)]" data-turn-activity-failed="true">
+                                    {` · ${formatTurnActivityFailures(failed)}`}
+                                </span>
+                            ) : null}
+                        </span>
+                        {chevron}
+                    </button>
+                ) : statusLabel ? (
+                    <span
+                        className="typography-markdown inline-flex min-w-0 items-center leading-5 text-muted-foreground"
+                        role="status"
+                        aria-label={statusLabel}
+                        {...labelMarkers}
+                    >
+                        {statusLabel}
+                    </span>
                 ) : null}
             </div>
         </div>

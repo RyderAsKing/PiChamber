@@ -88,13 +88,13 @@ const themeVariables = (theme: VisualTheme): string => {
 
 /**
  * Zero-specificity defaults (`:where`), so any rule in the page wins. They
- * make plain markup look at home in the chat: the page sits on the chat
- * background with an 8px gutter (room for focus rings and shadows), text
+ * make plain markup look at home in the chat: the page has no background of
+ * its own, so it sits right on the chat (and any wallpaper behind it), with an 8px gutter (room for focus rings and shadows), text
  * stays at the chat's sizes, and SVG labels come out small and muted unless
  * the page colours them. The agent adds only layout.
  */
 const BASE_STYLE = [
-  ':where(html){background:var(--pc-bg);padding:8px;scrollbar-width:none}',
+  ':where(html){background:transparent;padding:8px;scrollbar-width:none}',
   'html::-webkit-scrollbar{display:none}',
   ':where(body){margin:0;font-family:var(--pc-font);color:var(--pc-fg);font-size:14px;line-height:1.55;'
     + '-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}',

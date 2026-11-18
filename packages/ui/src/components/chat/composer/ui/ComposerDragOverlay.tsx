@@ -28,7 +28,7 @@ export const ComposerDragOverlay: React.FC<ComposerDragOverlayProps> = ({
 }) => {
   return (
     <div
-      className="absolute -inset-px z-50 flex items-center justify-center border border-border/80 bg-[var(--surface-subtle)]/90"
+      className="absolute -inset-px z-50 flex items-center justify-center border border-border/80 bg-[var(--surface-elevated)]/90"
       style={{ borderRadius: radius }}
     >
       <div className="text-center">

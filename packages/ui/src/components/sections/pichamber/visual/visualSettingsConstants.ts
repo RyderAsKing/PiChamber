@@ -1,4 +1,5 @@
-import type { ThemeMode } from '@/types/theme';
+import type { Wallpaper } from '@/lib/wallpaper';
+import type { Theme, ThemeMode } from '@/types/theme';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
 import type { FollowUpBehavior } from '@/stores/messageQueueStore';
@@ -9,28 +10,6 @@ export interface Option<T extends string> {
   label: string;
   description?: string;
 }
-
-export const THEME_MODE_OPTIONS: Array<{
-  value: ThemeMode;
-  label: string;
-  description: string;
-}> = [
-  {
-    value: 'system',
-    label: 'System',
-    description: 'Follow system setting',
-  },
-  {
-    value: 'light',
-    label: 'Light',
-    description: 'Always use light appearance',
-  },
-  {
-    value: 'dark',
-    label: 'Dark',
-    description: 'Always use dark appearance',
-  },
-];
 
 export const DIFF_LAYOUT_OPTIONS: Option<'dynamic' | 'inline' | 'side-by-side'>[] = [
   {
@@ -83,6 +62,15 @@ export const MOBILE_KEYBOARD_MODE_OPTIONS: Option<MobileKeyboardMode>[] = [
     description:
       'Ask supported browsers to shrink the app layout instead of relying only on panning.',
   },
+];
+
+export const WALLPAPER_OPTIONS: Array<{ value: Wallpaper; label: string }> = [
+  { value: 'none', label: 'None' },
+  { value: 'dither', label: 'Dither' },
+  { value: 'ascii', label: 'ASCII' },
+  { value: 'halftone', label: 'Halftone' },
+  { value: 'strands', label: 'Strands' },
+  { value: 'grain', label: 'Grain' },
 ];
 
 export const MOBILE_LAYOUT_OPTIONS: Array<{
@@ -202,3 +190,68 @@ export type VisibleSetting =
   | 'expandedEditorToolbar'
   | 'wrapLinesByDefault'
   | 'autoSaveEnabled';
+
+export const THEME_MODE_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
+
+/** A theme and its other half: PiChamber is PiChamber Light and PiChamber Dark. */
+export interface ThemeFamily {
+  key: string;
+  name: string;
+  light?: Theme;
+  dark?: Theme;
+}
+
+/** How many theme families show before Show all. */
+export const COLLAPSED_THEME_COUNT = 5;
+
+/** A theme's family name: its own, without a closing Light or Dark (Vitesse Dark is Vitesse). */
+const familyName = (theme: Theme): string =>
+  theme.metadata.name.trim().replace(/\s+(light|dark)$/i, '') || theme.metadata.name.trim();
+
+/**
+ * Themes paired up by name, in the order they first appear. A theme whose
+ * family already has its variant (two custom "Ocean" dark themes) gets a
+ * family of its own, so none is hidden.
+ */
+export function themeFamilies(themes: readonly Theme[]): ThemeFamily[] {
+  const families: ThemeFamily[] = [];
+  const byName = new Map<string, ThemeFamily>();
+  for (const theme of themes) {
+    const name = familyName(theme);
+    const variant = theme.metadata.variant;
+    const known = byName.get(name.toLowerCase());
+    if (known && !known[variant]) {
+      known[variant] = theme;
+      continue;
+    }
+    const family: ThemeFamily = { key: known ? theme.metadata.id : name.toLowerCase(), name, [variant]: theme };
+    if (!known) byName.set(name.toLowerCase(), family);
+    families.push(family);
+  }
+  return families;
+}
+
+/** The family a theme belongs to, if any. */
+export function familyOf(families: readonly ThemeFamily[], themeId: string): ThemeFamily | undefined {
+  return families.find((family) => family.light?.metadata.id === themeId || family.dark?.metadata.id === themeId);
+}
+
+/**
+ * The first few families, with the one in use swapped in for the last of them
+ * when it is further down, so the current theme is always on screen.
+ */
+export function collapsedFamilies(
+  families: readonly ThemeFamily[],
+  currentKey: string | undefined,
+  count = COLLAPSED_THEME_COUNT,
+): ThemeFamily[] {
+  const shown = families.slice(0, count);
+  if (currentKey === undefined || shown.some((family) => family.key === currentKey)) return shown;
+  const current = families.find((family) => family.key === currentKey);
+  if (!current || shown.length < count) return shown;
+  return [...shown.slice(0, count - 1), current];
+}

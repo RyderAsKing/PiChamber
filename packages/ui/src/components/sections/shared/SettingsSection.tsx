@@ -698,6 +698,8 @@ interface SettingsPreviewOptionProps {
   ariaLabel?: string;
   disabled?: boolean;
   className?: string;
+  /** Shape of the tile; 4:3 unless the illustration reads better wider. */
+  previewClassName?: string;
 }
 
 /** Radio option shown as an illustrated tile with its radio and label beneath; used inside SettingsRadioGroup. */
@@ -710,6 +712,7 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
   ariaLabel,
   disabled = false,
   className,
+  previewClassName = 'aspect-[4/3]',
 }) => {
   const descriptionId = React.useId();
   return (
@@ -738,7 +741,8 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
       <div
         aria-hidden
         className={cn(
-          'aspect-[4/3] overflow-hidden rounded-lg border transition-colors',
+          previewClassName,
+          'overflow-hidden rounded-lg border transition-colors',
           // Border and ring share one colour and neither changes the box, so selecting never shifts the tile.
           selected
             ? 'border-[var(--primary-base)] ring-1 ring-[var(--primary-base)]'

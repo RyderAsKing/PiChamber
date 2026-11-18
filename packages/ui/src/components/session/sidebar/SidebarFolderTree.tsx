@@ -394,7 +394,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
             renderItem={renderShelfItem}
             hasSessionSearchQuery={hasSessionSearchQuery}
             mobileVariant={mobileVariant}
-            className="mt-auto border-t border-border pt-1"
+            className="mt-auto pt-1"
           />
         </SessionRowVariantContext.Provider>
       ) : null}

@@ -305,7 +305,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
         renderItem={renderItem}
         hasSessionSearchQuery={hasSessionSearchQuery}
         mobileVariant={mobileVariant}
-        className="mt-auto border-t border-border pt-1"
+        className="mt-auto pt-1"
       />
     </div>
   );

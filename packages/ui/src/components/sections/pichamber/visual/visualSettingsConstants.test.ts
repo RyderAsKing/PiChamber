@@ -4,8 +4,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   FOLLOW_UP_BEHAVIOR_OPTIONS,
+  collapsedFamilies,
+  familyOf,
+  themeFamilies,
+  type ThemeFamily,
   normalizePwaOrientation,
 } from './visualSettingsConstants';
+import type { Theme } from '@/types/theme';
 import {
   DEFAULT_FOLLOW_UP_BEHAVIOR,
   isFollowUpBehavior,
@@ -99,5 +104,65 @@ describe('follow-up behavior wording', () => {
     expect(result?.description ?? '').toContain('waits until the agent finishes');
     expect(result?.description ?? '').toContain('tool or turn boundary');
     expect(result?.description ?? '').toContain('stay on this device');
+  });
+});
+
+describe('themeFamilies', () => {
+  const theme = (id: string, name: string, variant: 'light' | 'dark') =>
+    ({ metadata: { id, name, variant } }) as unknown as Theme;
+  const summary = (families: ThemeFamily[]) =>
+    families.map((family) => [family.name, family.light?.metadata.id ?? null, family.dark?.metadata.id ?? null]);
+
+  test('pairs light and dark themes of the same name, in first-seen order', () => {
+    const families = themeFamilies([
+      theme('pichamber-light', 'PiChamber', 'light'),
+      theme('pichamber-dark', 'PiChamber', 'dark'),
+      theme('flexoki-dark', 'Flexoki', 'dark'),
+      theme('flexoki-light', 'Flexoki', 'light'),
+    ]);
+    expect(summary(families)).toEqual([
+      ['PiChamber', 'pichamber-light', 'pichamber-dark'],
+      ['Flexoki', 'flexoki-light', 'flexoki-dark'],
+    ]);
+  });
+
+  test('pairs names that end in their variant (Vitesse Dark and Vitesse Light)', () => {
+    const families = themeFamilies([
+      theme('vitesse-dark-dark', 'Vitesse Dark', 'dark'),
+      theme('vitesse-light-light', 'Vitesse Light', 'light'),
+      theme('onedarkpro-dark', 'One Dark Pro', 'dark'),
+    ]);
+    expect(summary(families)).toEqual([
+      ['Vitesse', 'vitesse-light-light', 'vitesse-dark-dark'],
+      ['One Dark Pro', null, 'onedarkpro-dark'],
+    ]);
+  });
+
+  test('keeps a second theme of the same name and variant as its own family', () => {
+    const families = themeFamilies([theme('a', 'Ocean', 'dark'), theme('b', 'Ocean', 'dark')]);
+    expect(summary(families)).toEqual([
+      ['Ocean', null, 'a'],
+      ['Ocean', null, 'b'],
+    ]);
+    expect(new Set(families.map((family) => family.key)).size).toBe(2);
+    expect(familyOf(families, 'b')).toBe(families[1]);
+  });
+});
+
+describe('collapsedFamilies', () => {
+  const families = Array.from({ length: 8 }, (_, i) => ({ key: `f${i}`, name: `F${i}` }) as ThemeFamily);
+  const keys = (list: ThemeFamily[]) => list.map((family) => family.key);
+
+  test('shows the first five when the current family is among them', () => {
+    expect(keys(collapsedFamilies(families, 'f2'))).toEqual(['f0', 'f1', 'f2', 'f3', 'f4']);
+  });
+
+  test('swaps the current family in for the last one when it is further down', () => {
+    expect(keys(collapsedFamilies(families, 'f7'))).toEqual(['f0', 'f1', 'f2', 'f3', 'f7']);
+  });
+
+  test('an unknown current family leaves the first five', () => {
+    expect(keys(collapsedFamilies(families, undefined))).toEqual(['f0', 'f1', 'f2', 'f3', 'f4']);
+    expect(keys(collapsedFamilies(families.slice(0, 3), 'f7'))).toEqual(['f0', 'f1', 'f2']);
   });
 });

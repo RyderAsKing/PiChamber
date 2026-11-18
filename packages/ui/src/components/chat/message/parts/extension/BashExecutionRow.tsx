@@ -139,22 +139,25 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
                 >
                     {view.command}
                 </span>
+                {/* Marks read as quiet text; only a failure takes the error colour. */}
                 {view.status ? (
-                    view.status.tone === 'error' ? (
-                        <span className="shrink-0 rounded border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-1.5 typography-micro font-medium text-[var(--status-error)]">
-                            {view.status.text}
-                        </span>
-                    ) : (
-                        <span className="shrink-0 typography-micro" style={{ color: 'var(--tools-description)' }}>
-                            {view.status.text}
-                        </span>
-                    )
+                    <span
+                        className="shrink-0 typography-micro"
+                        style={{ color: view.status.tone === 'error' ? 'var(--status-error)' : 'var(--tools-description)' }}
+                        data-bash-status={view.status.tone}
+                    >
+                        {view.status.text}
+                    </span>
                 ) : null}
                 {view.truncated ? (
-                    <span className="shrink-0 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-1.5 typography-micro font-medium text-[var(--status-warning)]">Output truncated</span>
+                    <span className="shrink-0 typography-micro text-subtle-foreground" data-bash-truncated="true">
+                        {view.status ? '· ' : null}Output truncated
+                    </span>
                 ) : null}
                 {view.excludeFromContext ? (
-                    <span className="shrink-0 rounded border border-[var(--status-info-border)] bg-[var(--status-info-background)] px-1.5 typography-micro font-medium text-[var(--status-info)]">Not sent to the model</span>
+                    <span className="shrink-0 typography-micro text-subtle-foreground" data-bash-excluded="true">
+                        {view.status || view.truncated ? '· ' : null}Not sent to the model
+                    </span>
                 ) : null}
                 {view.running && sessionId ? (
                     <Button
