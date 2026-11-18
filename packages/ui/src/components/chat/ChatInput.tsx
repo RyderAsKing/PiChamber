@@ -199,7 +199,7 @@ const MAX_VISIBLE_COMPOSER_LINES = 5;
 const MAX_MOBILE_COMPOSER_LINES = 16;
 /**
  * Breathing room between the fully grown composer and the top of its screen
- * container: without it the composer's border lands exactly on the header's
+ * container: without it the composer's edge lands exactly on the header's
  * bottom edge on the chat screen. A visual gap by design, not an estimate.
  */
 const MOBILE_COMPOSER_BOUND_GAP_PX = 4;
@@ -2707,8 +2707,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   isDesktopStackedComposer &&
                     !isComposerExpanded &&
                     "min-h-[6rem]",
-                  "border border-border/80",
-                  "shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]",
+                  // No border: the fill and shadow set it off from the page.
+                  "shadow-[0_0_0_1px_rgb(0_0_0_/_0.03),0_6px_20px_-6px_rgb(0_0_0_/_0.16)]",
                   "focus-within:ring-1",
                   inputMode === "shell"
                     ? "focus-within:ring-[color:color-mix(in_srgb,var(--status-info)_45%,transparent)]"

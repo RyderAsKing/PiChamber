@@ -56,9 +56,9 @@ const INK_ALPHA = {
   photo: { light: 0.3, dark: 0.26 },
   /** The picture under a pattern. */
   pictureBase: { light: 0.2, dark: 0.18 },
-  /** A pattern in the picture's colours. */
-  pictureEffect: { light: 0.6, dark: 0.55 },
-  pictureGrain: { light: 0.3, dark: 0.3 },
+  /** A pattern in the picture's colours: about half in light, where its dark dots weigh most. */
+  pictureEffect: { light: 0.3, dark: 0.38 },
+  pictureGrain: { light: 0.18, dark: 0.22 },
 } as const;
 
 /** Moving patterns draw this often; the drift is slow, so more buys nothing. */

@@ -840,8 +840,8 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
         tabIndex={-1}
         onKeyDown={handleKeyDown}
         // Same surface as the composer card below it (ChatInput's
-        // data-composer-card): radius, fill, border and shadow.
-        className="relative z-40 overflow-hidden rounded-[1.5rem] border border-border/80 bg-[var(--surface-elevated)] shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)] outline-none"
+        // data-composer-card): radius, fill and shadow, no border.
+        className="relative z-40 overflow-hidden rounded-[1.5rem] bg-[var(--surface-elevated)] shadow-[0_0_0_1px_rgb(0_0_0_/_0.03),0_6px_20px_-6px_rgb(0_0_0_/_0.16)] outline-none"
       >
         <div className="flex items-center gap-2 py-2.5 pl-4 pr-2.5">
           <button
