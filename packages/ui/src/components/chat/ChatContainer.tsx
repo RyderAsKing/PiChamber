@@ -3,7 +3,6 @@ import type { Message } from '@/lib/chat/types';
 
 import { ChatInput } from './ChatInput';
 import { ExtensionPromptDock } from './ExtensionPromptDock';
-import { ExtensionStatusStrip } from './ExtensionStatusWidgets';
 import { ComposerCommandTriggers } from './composer/ui/ComposerCommandTriggers';
 import { ExtensionSurfaceComposer, ExtensionSurfaceOverlays } from './extension/custom/ExtensionSurfaces';
 import { useExtensionOverlayDims } from './extension/custom/useOverlayDims';
@@ -616,9 +615,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 					transcript message exists. */}
 					<div className="flex w-full min-w-0 flex-col gap-2">
 						<ExtensionPromptDock sessionId={currentSessionId} />
-						<ExtensionStatusStrip sessionId={currentSessionId} />
 						<ExtensionSurfaceComposer sessionId={currentSessionId}>
-							<ChatInput scrollToBottom={scrollToBottomOnSend} />
+							<ChatInput scrollToBottom={scrollToBottomOnSend} showExtensionStatus />
 						</ExtensionSurfaceComposer>
 					</div>
 				</div>
@@ -677,10 +675,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 )}
                 <ComposerCommandTriggers sessionId={currentSessionId} />
                 <ExtensionPromptDock sessionId={currentSessionId} />
-                <ExtensionStatusStrip sessionId={currentSessionId} />
                 <SessionReadOnlyNote sessionId={currentSessionId} />
                 <ExtensionSurfaceComposer sessionId={currentSessionId}>
-                    <ChatInput scrollToBottom={scrollToBottomOnSend} />
+                    <ChatInput scrollToBottom={scrollToBottomOnSend} showExtensionStatus />
                 </ExtensionSurfaceComposer>
             </div>
             <ExtensionSurfaceOverlays key={currentSessionId} sessionId={currentSessionId} />
