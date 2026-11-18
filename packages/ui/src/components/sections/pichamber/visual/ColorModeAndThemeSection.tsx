@@ -24,8 +24,9 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
+import type { Wallpaper } from '@/lib/wallpaper';
 import type { Theme, ThemeMode } from '@/types/theme';
-import { MOBILE_LAYOUT_OPTIONS, THEME_MODE_OPTIONS } from './visualSettingsConstants';
+import { MOBILE_LAYOUT_OPTIONS, THEME_MODE_OPTIONS, WALLPAPER_OPTIONS } from './visualSettingsConstants';
 import { ColorModePreview, ThemeSwatch } from './ThemePreview';
 
 export interface ColorModeAndThemeSectionProps {
@@ -48,6 +49,8 @@ export interface ColorModeAndThemeSectionProps {
   dockBadgeSupported: boolean;
   dockBadgeEnabled: boolean;
   setDockBadgeEnabled: (enabled: boolean) => void;
+  wallpaper: Wallpaper;
+  onWallpaperChange: (value: Wallpaper) => void;
 }
 
 export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> = ({
@@ -70,6 +73,8 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
   dockBadgeSupported,
   dockBadgeEnabled,
   setDockBadgeEnabled,
+  wallpaper,
+  onWallpaperChange,
 }) => {
   return (
     <SettingsSection title={'Color mode & theme'} divider={false} contentClassName="space-y-4">
@@ -218,6 +223,19 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
           {'Import custom themes from ~/.config/pichamber/themes/'}
         </SettingsInfoHint>
       </div>
+
+      <SettingsStackedField
+        label={'Wallpaper'}
+        info={'A still pattern behind the new-session screen, drawn in the theme\'s text colour and faded toward the composer.'}
+        settingsItem="appearance.wallpaper"
+      >
+        <SettingsChipGroup
+          value={wallpaper}
+          options={WALLPAPER_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          onChange={onWallpaperChange}
+          aria-label={'Wallpaper'}
+        />
+      </SettingsStackedField>
 
       {dockBadgeSupported && (
         <SettingsInset settingsItem="appearance.dock-badge">

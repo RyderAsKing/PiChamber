@@ -61,6 +61,7 @@ import {
     hasBlockingChatOverlay,
 } from './chatContainerNavigation';
 import { DraftWelcome } from './DraftWelcome';
+import { DraftWallpaper } from './DraftWallpaper';
 import { ChatViewport } from './ChatViewport';
 import { sandboxReasonText } from '@/lib/pi/sandboxText';
 import { SessionReadOnlyNote } from './SessionReadOnlyNote';
@@ -492,8 +493,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 		return (
 			// No transform on this root: it would become the containing block for
 			// the fullscreen composer's position:fixed visual-viewport pinning in
-			// mobile browsers (see ChatInput's composerFormRef effect).
-			<div data-composer-bound className="relative flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+			// mobile browsers (see ChatInput's composerFormRef effect). `isolate`
+			// keeps the wallpaper under the title without moving that block.
+			<div data-composer-bound className="relative isolate flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+				{isDesktopExpandedInput ? null : <DraftWallpaper />}
 				{useCompactDraftLayout && !isDesktopExpandedInput ? <DraftWelcome /> : null}
 				<div
 					className={cn(
@@ -502,7 +505,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 							? 'flex-1 bg-background'
 							: useCompactDraftLayout
 								? 'shrink-0 bg-background px-0'
-								: 'flex-1 items-center justify-center bg-background px-0 pb-[6vh]'
+								// The root paints the page; this layer stays clear so
+								// the wallpaper shows around the composer.
+								: 'flex-1 items-center justify-center px-0 pb-[6vh]'
 					)}
 				>
 					<ChatInput scrollToBottom={scrollToBottomOnSend} />

@@ -3,6 +3,7 @@ import type { CommandTrigger } from '@/lib/pi/command-triggers';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { SidebarViewMode } from '@/lib/sidebarViewMode';
+import type { Wallpaper } from '@/lib/wallpaper';
 
 export type ManagedRemoteTunnelPreset = {
   id: string;
@@ -149,6 +150,8 @@ export type DesktopSettings = {
   responseStyleCustomInstructions?: string;
   draftStarters?: DraftStarterRef[];
   draftStartersVisible?: boolean;
+  /** Wallpaper behind the new-session screen. */
+  draftWallpaper?: Wallpaper;
   draftStartersScheduleTaskAdded?: boolean;
 };
 

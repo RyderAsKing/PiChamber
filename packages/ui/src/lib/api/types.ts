@@ -641,6 +641,7 @@ export interface SettingsPayload {
   mobileKeyboardMode?: 'native' | 'resize-content';
   draftStarters?: DraftStarterRef[];
   draftStartersVisible?: boolean;
+  draftWallpaper?: 'none' | 'dither' | 'ascii';
 
   [key: string]: unknown;
 }

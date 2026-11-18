@@ -5,6 +5,7 @@ import { isTerminalShell } from '@/lib/terminalShell';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { normalizePwaName } from '@/lib/pwaKeys';
 import { isSidebarViewMode } from '@/lib/sidebarViewMode';
+import { isWallpaper } from '@/lib/wallpaper';
 import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { sanitizeCommandTriggers } from '@/lib/pi/command-triggers';
 import {
@@ -147,6 +148,9 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   }
   if (typeof candidate.draftStartersVisible === 'boolean') {
     result.draftStartersVisible = candidate.draftStartersVisible;
+  }
+  if (isWallpaper(candidate.draftWallpaper)) {
+    result.draftWallpaper = candidate.draftWallpaper;
   }
   if (typeof candidate.draftStartersScheduleTaskAdded === 'boolean') {
     result.draftStartersScheduleTaskAdded =

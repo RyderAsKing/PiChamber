@@ -61,6 +61,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['theme', 'color', 'dark mode'],
   },
   {
+    id: 'appearance.wallpaper',
+    page: 'appearance',
+    title: "Wallpaper",
+    description: "A still pattern behind the new-session screen.",
+    keywords: ['background', 'dither', 'ascii', 'pattern', 'new session', 'texture'],
+  },
+  {
     id: 'appearance.dock-badge',
     page: 'appearance',
     title: "Dock badge",

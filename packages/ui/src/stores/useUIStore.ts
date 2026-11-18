@@ -12,6 +12,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import type { TerminalShell } from '@/lib/api/types';
 import { DEFAULT_SIDEBAR_VIEW_MODE, type SidebarViewMode } from '@/lib/sidebarViewMode';
+import { DEFAULT_WALLPAPER, isWallpaper, type Wallpaper } from '@/lib/wallpaper';
 import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 import {
@@ -163,6 +164,8 @@ interface UIStore {
   // Global draft welcome starters; null = unset (use the default built-in set).
   globalDraftStarters: DraftStarterRef[] | null;
   draftStartersVisible: boolean;
+  /** Wallpaper behind the new-session screen. */
+  draftWallpaper: Wallpaper;
   terminalFontSize: number;
   terminalShell: TerminalShell;
   terminalLoginShells: TerminalShell[];
@@ -308,6 +311,7 @@ interface UIStore {
   setFontSize: (size: number) => void;
   setGlobalDraftStarters: (refs: DraftStarterRef[]) => void;
   setDraftStartersVisible: (value: boolean) => void;
+  setDraftWallpaper: (value: Wallpaper) => void;
   setTerminalFontSize: (size: number) => void;
   setTerminalShell: (shell: TerminalShell) => void;
   setTerminalLoginShells: (shells: TerminalShell[]) => void;
@@ -495,6 +499,7 @@ export const useUIStore = create<UIStore>()(
         sessionAutoDeleteAfterDays: 0,
         expandedEditorToolbar: false,
         draftStartersVisible: true,
+        draftWallpaper: DEFAULT_WALLPAPER,
         isExpandedInput: false,
         shortcutOverrides: {},
         commandTriggers: [],
@@ -1198,6 +1203,11 @@ export const useUIStore = create<UIStore>()(
 
         setDraftStartersVisible: (value) => {
           set({ draftStartersVisible: value });
+        },
+
+        setDraftWallpaper: (value) => {
+          if (!isWallpaper(value)) return;
+          set({ draftWallpaper: value });
         },
 
         setTerminalFontSize: (size) => {
@@ -1955,6 +1965,7 @@ export const useUIStore = create<UIStore>()(
           sessionAutoDeleteAfterDays: state.sessionAutoDeleteAfterDays,
           expandedEditorToolbar: state.expandedEditorToolbar,
           draftStartersVisible: state.draftStartersVisible,
+          draftWallpaper: state.draftWallpaper,
           shortcutOverrides: state.shortcutOverrides,
           fileEditorKeymap: state.fileEditorKeymap,
         })

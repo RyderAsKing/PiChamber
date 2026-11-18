@@ -20,6 +20,7 @@ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { TerminalShellOption } from '@/lib/api/types';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import type { SidebarViewMode } from '@/lib/sidebarViewMode';
+import type { Wallpaper } from '@/lib/wallpaper';
 
 import {
   DEFAULT_PWA_INSTALL_NAME,
@@ -90,6 +91,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const sidebarViewMode = useUIStore(state => state.sidebarViewMode);
     const setSidebarViewMode = useUIStore(state => state.setSidebarViewMode);
     const draftStartersVisible = useUIStore(state => state.draftStartersVisible);
+    const draftWallpaper = useUIStore(state => state.draftWallpaper);
+    const setDraftWallpaper = useUIStore(state => state.setDraftWallpaper);
     const setDraftStartersVisible = useUIStore(state => state.setDraftStartersVisible);
     const {
         themeMode,
@@ -152,6 +155,11 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         setSidebarViewMode(value);
         void updateDesktopSettings({ sidebarViewMode: value });
     }, [setSidebarViewMode]);
+
+    const handleDraftWallpaperChange = React.useCallback((value: Wallpaper) => {
+        setDraftWallpaper(value);
+        void updateDesktopSettings({ draftWallpaper: value });
+    }, [setDraftWallpaper]);
 
 
     const lightThemes = React.useMemo(
@@ -465,6 +473,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                     dockBadgeSupported={dockBadgeSupported}
                     dockBadgeEnabled={dockBadgeEnabled}
                     setDockBadgeEnabled={setDockBadgeEnabled}
+                    wallpaper={draftWallpaper}
+                    onWallpaperChange={handleDraftWallpaperChange}
                 />
             )}
 
