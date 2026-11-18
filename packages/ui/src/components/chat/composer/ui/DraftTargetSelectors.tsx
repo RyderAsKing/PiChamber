@@ -177,7 +177,7 @@ function BranchCopyButton({ branchName }: { branchName: string | null }) {
     );
 }
 
-/** Desktop project selector and branch picker for a new session; an existing session's branch shows in the header. */
+/** Desktop project selector and branch picker under the composer card; an existing session's branch shows in the header. */
 export function DraftTargetSelectors(props: DraftTargetProps) {
     const {
         projects,
@@ -199,7 +199,7 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
     } = props;
 
     return (
-        <div className="mb-3 flex min-w-0 w-full items-center justify-between gap-2 pl-2 pr-1">
+        <div className="flex min-w-0 w-full items-center justify-between gap-2 pl-2 pr-1">
             <div className="flex min-w-0 items-center gap-1">
                 {showProjectSelector ? (
                     <Select value={selectedProject.id} onValueChange={onProjectChange}>

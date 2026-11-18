@@ -2629,40 +2629,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 : pendingChangesBar
             }
           />
-          {!isMobileForDraft &&
-          showDraftTargetSelectors &&
-          selectedDraftProject &&
-          (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
-            <div
-              inert={isComposerLocked || undefined}
-              className={cn(
-                isComposerLocked && "pointer-events-none opacity-60",
-              )}
-            >
-              <DraftTargetSelectors
-                projects={draftProjects}
-                selectedProject={selectedDraftProject}
-                selectedBranchName={selectedBranchName}
-                selectedBranchLabel={selectedDraftBranchLabel}
-                branchOptions={draftBranchItems}
-                branchInteractive={newSessionDraftOpen}
-                branchLoading={isDiscoveringDraftBranches}
-                // An existing session's branch is already in the header; the
-                // row keeps only the pending-changes summary.
-                showBranchSelector={shouldShowDraftBranchSelector && newSessionDraftOpen}
-                showProjectSelector={newSessionDraftOpen}
-                showWorktreeSelector={
-                  newSessionDraftOpen && shouldShowDraftBranchSelector
-                }
-                worktreeMode={worktreeMode}
-                endAccessory={pendingChangesBar}
-                onProjectChange={handleDraftProjectChange}
-                onBranchChange={handleDraftBranchChange}
-                onWorktreeModeChange={handleWorktreeModeChange}
-                theme={currentTheme}
-              />
-            </div>
-          ) : null}
           {isMobileForDraft &&
           showDraftTargetSelectors &&
           selectedDraftProject &&
@@ -2705,7 +2671,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   isComposerExpanded && "flex-1 min-h-0",
                   isDesktopStackedComposer &&
                     !isComposerExpanded &&
-                    "min-h-[7rem]",
+                    "min-h-[6rem]",
                   "border border-border/80",
                   "shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]",
                   "focus-within:ring-1",
@@ -2715,7 +2681,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 )}
                 style={{
                   borderRadius: chatInputRadius,
-                  backgroundColor: currentTheme?.colors?.surface?.subtle,
+                  // The input-area surface: lighter than the page in light
+                  // themes, a step up from it in dark ones.
+                  backgroundColor: "var(--surface-elevated)",
                 }}
                 ref={dropZoneRef}
                 data-composer-card="true"
@@ -3005,6 +2973,44 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               </div>
             </>
           </div>
+          {!isMobileForDraft &&
+          showDraftTargetSelectors &&
+          selectedDraftProject &&
+          (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
+            // Where the message goes reads as quiet text under the card, so
+            // the card itself holds only what shapes the message.
+            <div
+              inert={isComposerLocked || undefined}
+              className={cn(
+                "mt-1.5",
+                isComposerLocked && "pointer-events-none opacity-60",
+              )}
+              data-composer-target-row="true"
+            >
+              <DraftTargetSelectors
+                projects={draftProjects}
+                selectedProject={selectedDraftProject}
+                selectedBranchName={selectedBranchName}
+                selectedBranchLabel={selectedDraftBranchLabel}
+                branchOptions={draftBranchItems}
+                branchInteractive={newSessionDraftOpen}
+                branchLoading={isDiscoveringDraftBranches}
+                // An existing session's branch is already in the header; the
+                // row keeps only the pending-changes summary.
+                showBranchSelector={shouldShowDraftBranchSelector && newSessionDraftOpen}
+                showProjectSelector={newSessionDraftOpen}
+                showWorktreeSelector={
+                  newSessionDraftOpen && shouldShowDraftBranchSelector
+                }
+                worktreeMode={worktreeMode}
+                endAccessory={pendingChangesBar}
+                onProjectChange={handleDraftProjectChange}
+                onBranchChange={handleDraftBranchChange}
+                onWorktreeModeChange={handleWorktreeModeChange}
+                theme={currentTheme}
+              />
+            </div>
+          ) : null}
           {isDesktopStackedComposer || isMobile || inputMode === "shell" ? null : (
             <div
               className={cn(
