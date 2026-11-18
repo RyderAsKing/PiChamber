@@ -264,6 +264,12 @@ only); `composer-controls-sheet` (the same controls in the phone sheet,
 mobile only); `composer-controls-draft` (a new-session draft whose draft
 session reported those controls before any send, desktop only);
 `visuals-expanded` (the same page from its Expand action, desktop only);
+`turn-activity` (a seeded turn that read, searched, edited and ran two
+commands, one failing: its `Worked for` line with the counts and `1 failed`);
+`turn-activity-open` (the same line pressed, showing the activity rail);
+`draft-wallpaper-dither` and `draft-wallpaper-ascii` (the new-session screen
+with each wallpaper, set through the `draftWallpaper` UI setting, desktop
+only; pages without one reset it to None);
 `subagents-turn` (a finished scout-then-reviewer chain, a card per run);
 `subagents-run` (the reviewer's card pressed: the run on its own, in the
 Agents panel on desktop and a sheet on phones); and `subagents-panel` (the

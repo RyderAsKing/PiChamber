@@ -159,6 +159,11 @@ const VISUALS_REPLY = 'The pass rate climbed from 82% to 96% this week.';
 const AGENTS_SESSION_ID = '0193f6a0-5b1e-7c2d-9e3f-4a5b6c7d8ea2';
 const AGENTS_SESSION_PATH = `/?session=${AGENTS_SESSION_ID}`;
 const AGENTS_REPLY = 'The reviewer found one blocking issue in billing.ts.';
+// A finished turn that read, searched, edited, and ran a failing then a
+// passing command, for the turn's activity summary and its open rail.
+const TOOLS_SESSION_ID = '0193f6a0-5b1e-7c2d-9e3f-4a5b6c7d8eb7';
+const TOOLS_SESSION_PATH = `/?session=${TOOLS_SESSION_ID}`;
+const TOOLS_REPLY = 'Zero-amount invoices now skip the charge and are still marked paid.';
 const VISUALS_HTML = `<style>
 .wrap{display:grid;gap:14px}
 .head{display:flex;justify-content:space-between;align-items:baseline}
@@ -1306,6 +1311,23 @@ const PAGES = {
     settledScript: `Boolean(document.querySelector('[data-extension-control="mode"]'))`,
     viewports: ['desktop'],
   },
+  'draft-wallpaper-dither': {
+    // The new-session screen with the Dither wallpaper: a still ordered
+    // dither in the theme's ink, emptied around the title and composer.
+    path: '/',
+    readyText: ['Add folder'],
+    draftWallpaper: 'dither',
+    settledScript: `Boolean(document.querySelector('[data-draft-wallpaper="dither"]'))`,
+    viewports: ['desktop'],
+  },
+  'draft-wallpaper-ascii': {
+    // The same screen with the ASCII wallpaper.
+    path: '/',
+    readyText: ['Add folder'],
+    draftWallpaper: 'ascii',
+    settledScript: `Boolean(document.querySelector('[data-draft-wallpaper="ascii"]'))`,
+    viewports: ['desktop'],
+  },
   'composer-controls-sheet': {
     // Phones: the composer controls sheet from the button beside Send, with
     // a chip for every mode and a switch for Plan.
@@ -1330,6 +1352,20 @@ const PAGES = {
     path: AGENTS_SESSION_PATH,
     readyText: [AGENTS_REPLY, 'Sub-agent chain'],
     settledScript: `document.querySelectorAll('[data-plugin-artifact="subagents"] button[aria-label*=": Done"]').length === 2`,
+  },
+  'turn-activity': {
+    // A settled turn's one line: its duration and what its tools did, with
+    // the failed command counted.
+    path: TOOLS_SESSION_PATH,
+    readyText: [TOOLS_REPLY],
+    settledScript: `Boolean(document.querySelector('[data-turn-activity-summary]'))`,
+  },
+  'turn-activity-open': {
+    // The same line pressed: the turn's reads, edits and commands in order.
+    path: TOOLS_SESSION_PATH,
+    readyText: [TOOLS_REPLY],
+    expandSelector: '[data-turn-activity-toggle]',
+    settledScript: `document.querySelector('[data-turn-activity-toggle]')?.getAttribute('aria-expanded') === 'true'`,
   },
   'subagents-run': {
     // The reviewer's card pressed: the run on its own, in the Agents panel on
@@ -1612,11 +1648,15 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
       { name: 'prefers-reduced-motion', value: 'reduce' },
     ],
   });
-  // The sidebar view is a server setting; pages without one use Workspace.
+  // The sidebar view and the new-session wallpaper are server settings;
+  // pages without them use Workspace and no wallpaper.
   const settings = await fetch(new URL('/api/pi/ui-settings', baseUrl), {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sidebarViewMode: page.sidebarViewMode ?? 'workspace' }),
+    body: JSON.stringify({
+      sidebarViewMode: page.sidebarViewMode ?? 'workspace',
+      draftWallpaper: page.draftWallpaper ?? 'none',
+    }),
   });
   if (!settings.ok) throw new Error(`${pageName}: could not set the sidebar view (${settings.status})`);
   if (page.typeIntoComposer) {
@@ -2130,6 +2170,34 @@ const writePluginSessions = async (home, data, repo) => {
     assistant([{ type: 'toolCall', id: 'call_agents_1', name: 'subagent', arguments: { chain } }]),
     result('call_agents_1', 'subagent', details.results[1].output, details),
     assistant([{ type: 'text', text: `${AGENTS_REPLY} \`formatAmount\` changed its output format, which the invoice email depends on.` }]),
+  ]);
+
+  const failing = { ...result('call_tools_5', 'bash', 'billing.test.ts:\n✓ charges a positive invoice\n✗ skips zero-amount invoices\n  Error: amount must be positive\n\n1 pass\n1 fail\nExit code 1'), isError: true };
+  await writeSessionFile(home, repo, TOOLS_SESSION_ID, Date.parse('2026-10-20T11:00:00.000Z'), [
+    { role: 'user', content: 'Invoices with a zero total fail to charge. Find why and fix it.' },
+    assistant([
+      { type: 'toolCall', id: 'call_tools_1', name: 'grep', arguments: { pattern: 'charge(', path: 'src' } },
+      { type: 'toolCall', id: 'call_tools_2', name: 'read', arguments: { path: 'billing.ts' } },
+    ]),
+    result('call_tools_1', 'grep', 'billing.ts:12: export async function charge(customerId, cents) {'),
+    result('call_tools_2', 'read', 'export async function charge(customerId, cents) {\n  if (cents <= 0) throw new Error(\'amount must be positive\');\n}'),
+    assistant([
+      { type: 'text', text: 'charge() throws on a zero amount, and the invoice job calls it for every invoice. I will skip the charge when the total is zero.' },
+      { type: 'toolCall', id: 'call_tools_3', name: 'read', arguments: { path: 'billing.test.ts' } },
+      { type: 'toolCall', id: 'call_tools_4', name: 'edit', arguments: { path: 'billing.ts', oldText: '  await charge(invoice.customerId, total);', newText: '  if (total > 0) await charge(invoice.customerId, total);' } },
+    ]),
+    result('call_tools_3', 'read', 'test(\'skips zero-amount invoices\', ...)'),
+    result('call_tools_4', 'edit', 'Edited billing.ts', { diff: '-  await charge(invoice.customerId, total);\n+  if (total > 0) await charge(invoice.customerId, total);' }),
+    assistant([{ type: 'toolCall', id: 'call_tools_5', name: 'bash', arguments: { command: 'node --test billing.test.ts' } }]),
+    failing,
+    assistant([
+      { type: 'text', text: 'The test still imports the old helper. Updating the import and running it again.' },
+      { type: 'toolCall', id: 'call_tools_6', name: 'edit', arguments: { path: 'billing.test.ts', oldText: "import { chargeAll } from './billing';", newText: "import { chargeInvoices } from './billing';" } },
+      { type: 'toolCall', id: 'call_tools_7', name: 'bash', arguments: { command: 'node --test billing.test.ts' } },
+    ]),
+    result('call_tools_6', 'edit', 'Edited billing.test.ts', { diff: "-import { chargeAll } from './billing';\n+import { chargeInvoices } from './billing';" }),
+    result('call_tools_7', 'bash', 'billing.test.ts:\n✓ charges a positive invoice\n✓ skips zero-amount invoices\n\n2 pass\n0 fail'),
+    assistant([{ type: 'text', text: `${TOOLS_REPLY} The test for a zero invoice passes.` }]),
   ]);
 
   await mkdir(join(data, 'pi'), { recursive: true });
