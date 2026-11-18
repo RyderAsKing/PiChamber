@@ -43,12 +43,22 @@ interface ExtensionConfigStore {
   /** Remove a package; a project's package needs its `directory`. */
   removePackage: (id: string, directory?: string | null) => Promise<ExtensionConfigWriteResult>;
   /**
+   * Install an npm package for every project (`directory` null) or for one
+   * project. Pending under `installKey(name)` while npm runs.
+   */
+  installPackage: (name: string, directory?: string | null) => Promise<ExtensionConfigWriteResult>;
+  /** Update an installed package; a project's package needs its `directory`. */
+  updatePackage: (id: string, directory?: string | null) => Promise<ExtensionConfigWriteResult>;
+  /**
    * Age every view so the shown ones are read again. For a change made
    * elsewhere that moves what Pi loads, such as a plugin's switch.
    */
   invalidate: () => void;
   resetForRuntimeSwitch: () => void;
 }
+
+/** The `pending` key of an install in flight, by npm name. */
+export const installKey = (name: string): string => `install:${name}`;
 
 /** A read newer than this is reused instead of fetched again. */
 const FRESH_MS = 5_000;
@@ -184,6 +194,36 @@ export const useExtensionConfigStore = create<ExtensionConfigStore>()((set, get)
     }
   };
 
+  /**
+   * A package write (remove, install, update): no optimistic change, since
+   * the server decides what the list becomes. A failure reads the list again.
+   */
+  const writePackage = async (
+    pendingKey: string,
+    entryKey: string,
+    busyMessage: string,
+    send: (entryKey: string, runtimeKey: string) => Promise<PiExtensionConfigResponse>,
+  ): Promise<ExtensionConfigWriteResult> => {
+    if (get().pending[pendingKey]) return { ok: false, error: new Error(busyMessage) };
+    const runtimeKey = getRuntimeKey();
+    const writeGeneration = generation;
+    const seq = ++writeSeq;
+    lastWriteByEntry.set(entryKey, seq);
+    set((state) => ({ pending: { ...state.pending, [pendingKey]: true as const } }));
+    try {
+      const response = await send(entryKey, runtimeKey);
+      if (!isCurrent(writeGeneration, runtimeKey)) return { ok: true, deferred: response.deferred === true };
+      applyWriteAnswer(entryKey, seq, response);
+      clearPending(pendingKey);
+      return { ok: true, deferred: response.deferred === true };
+    } catch (error) {
+      if (!isCurrent(writeGeneration, runtimeKey)) return { ok: false, error };
+      clearPending(pendingKey);
+      void reloadAfterWrite(entryKey);
+      return { ok: false, error };
+    }
+  };
+
   return {
     entries: {},
     pending: {},
@@ -288,28 +328,31 @@ export const useExtensionConfigStore = create<ExtensionConfigStore>()((set, get)
       );
     },
 
-    removePackage: async (id, directory) => {
-      if (get().pending[id]) return { ok: false, error: new Error('This package is already being removed.') };
-      const entryKey = keyFor(directory);
-      const runtimeKey = getRuntimeKey();
-      const writeGeneration = generation;
-      const seq = ++writeSeq;
-      lastWriteByEntry.set(entryKey, seq);
-      set((state) => ({ pending: { ...state.pending, [id]: true as const } }));
-      try {
-        const response = await piClient.removeExtensionPackage(id, entryKey || undefined, { runtimeKey });
-        if (!isCurrent(writeGeneration, runtimeKey)) return { ok: true, deferred: response.deferred === true };
-        applyWriteAnswer(entryKey, seq, response);
-        clearPending(id);
-        return { ok: true, deferred: response.deferred === true };
-      } catch (error) {
-        if (!isCurrent(writeGeneration, runtimeKey)) return { ok: false, error };
-        clearPending(id);
-        // A removal can stop half way (files gone, settings entry kept).
-        void reloadAfterWrite(entryKey);
-        return { ok: false, error };
-      }
-    },
+    // A removal can stop half way (files gone, settings entry kept).
+    removePackage: (id, directory) => writePackage(
+      id,
+      keyFor(directory),
+      'This package is already being removed.',
+      (entryKey, runtimeKey) => piClient.removeExtensionPackage(id, entryKey || undefined, { runtimeKey }),
+    ),
+
+    // npm can fail after downloading; the list is read again either way.
+    installPackage: (name, directory) => writePackage(
+      installKey(name),
+      keyFor(directory),
+      'This package is already being installed.',
+      (entryKey, runtimeKey) => piClient.installExtensionPackage(
+        { name, scope: entryKey ? 'project' : 'user', ...(entryKey ? { directory: entryKey } : {}) },
+        { runtimeKey },
+      ),
+    ),
+
+    updatePackage: (id, directory) => writePackage(
+      id,
+      keyFor(directory),
+      'This package is already being updated.',
+      (entryKey, runtimeKey) => piClient.updateExtensionPackage(id, entryKey || undefined, { runtimeKey }),
+    ),
 
     invalidate: () => {
       set((state) => {

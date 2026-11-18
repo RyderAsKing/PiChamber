@@ -10,7 +10,8 @@ import {
   SettingsListRow,
   SettingsSection,
 } from '@/components/sections/shared/SettingsSection';
-import { reportExtensionWrite } from '@/components/sections/plugins/extensionWriteReport';
+import { reportExtensionWrite, reportPackageWrite } from '@/components/sections/plugins/extensionWriteReport';
+import { PiChamberTag } from '@/components/sections/plugins/tags';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
@@ -22,6 +23,8 @@ import type {
 } from '@/lib/pi/protocol';
 import { cn } from '@/lib/utils';
 import { useExtensionConfigStore } from '@/plugins/extensionConfigStore';
+import { availableUpdate, formatInstalledFacts, npmNameOf } from '@/plugins/marketplace';
+import { useMarketplaceStore } from '@/plugins/marketplaceStore';
 import { replacementNotes } from '@/plugins/replacements';
 import { useExtensionConfig } from '@/plugins/useExtensionConfig';
 
@@ -29,12 +32,6 @@ type ViewScope = 'global' | 'project';
 
 const SECTION_INFO = 'Extensions are code Pi loads into every session. This is the list the pi config command shows, and it writes the same settings, so a change here also applies in the terminal. It changes Pi on the machine that runs the PiChamber server.';
 const BUILTIN_INFO = 'These ship with Pi. Its llama.cpp provider is built in too, but PiChamber does not load it, so it is not listed.';
-
-const KIND_LABEL: Record<PiExtensionConfigPackage['kind'], string> = {
-  npm: 'npm package',
-  git: 'Git package',
-  local: 'Local folder',
-};
 
 /** What each of Pi's built-ins is for, by the name Pi lists it under. */
 const BUILTIN_DETAIL: Record<string, string> = {
@@ -150,39 +147,76 @@ function PackageBlock({
   pkg,
   items,
   onRemove,
+  onOpenPackage,
   ...context
 }: ListContext & {
   pkg: PiExtensionConfigPackage;
   items: PiExtensionConfigItem[];
   onRemove: (pkg: PiExtensionConfigPackage) => void;
+  onOpenPackage: (name: string) => void;
 }) {
-  const { view, readOnly } = context;
-  const removing = useExtensionConfigStore((state) => state.pending[pkg.id] === true);
-  // A package is removed from the scope that lists it, as `pi remove` and `pi remove -l` do.
-  const removable = !readOnly && pkg.scope === (view === 'project' ? 'project' : 'user');
+  const { view, readOnly, directory } = context;
+  const busy = useExtensionConfigStore((state) => state.pending[pkg.id] === true);
+  const updatePackage = useExtensionConfigStore((state) => state.updatePackage);
+  const latest = useMarketplaceStore((state) => state.latest);
+  // Remove and update act on the scope that lists the package, as `pi remove -l` does.
+  const ownScope = !readOnly && pkg.scope === (view === 'project' ? 'project' : 'user');
+  const update = ownScope ? availableUpdate(pkg, latest) : undefined;
+  const [action, setAction] = React.useState<'remove' | 'update' | null>(null);
   const where = pkg.scope === 'project' ? 'This project' : view === 'project' ? 'Global' : null;
-  const facts = [KIND_LABEL[pkg.kind], where, items.length > 0 ? countText(items, view) : null].filter(Boolean).join(' · ');
+  const facts = [formatInstalledFacts(pkg), where, items.length > 0 ? countText(items, view) : null].filter(Boolean).join(' · ');
+  const npmName = npmNameOf(pkg);
+
+  const runUpdate = () => {
+    setAction('update');
+    reportSettingsSaveState('saving');
+    void updatePackage(pkg.id, pkg.scope === 'project' ? directory : null).then((result) => {
+      setAction(null);
+      reportPackageWrite(result, npmName ?? pkg.source, 'update');
+    });
+  };
+
   return (
     <SettingsList>
       <SettingsListRow
         heading
-        title={pkg.source}
+        title={npmName ? (
+          <button
+            type="button"
+            onClick={() => onOpenPackage(npmName)}
+            aria-label={`${npmName} details`}
+            className="truncate typography-ui-label font-medium text-foreground underline-offset-4 outline-none hover:underline focus-visible:underline"
+          >
+            {npmName}
+          </button>
+        ) : pkg.source}
+        titleAccessory={pkg.pichamber ? <PiChamberTag /> : null}
         detail={(
           <p className={cn(SETTINGS_LIST_DETAIL_CLASS, 'line-clamp-2 text-pretty')}>
             {facts}
             {pkg.installed ? null : <span className="text-[var(--status-warning)]">{' · Not installed'}</span>}
           </p>
         )}
-        trailing={removable ? (
-          <Button
-            variant="outline"
-            size="xs"
-            disabled={removing}
-            aria-label={`Remove ${pkg.source}`}
-            onClick={() => onRemove(pkg)}
-          >
-            {removing ? 'Removing…' : 'Remove'}
-          </Button>
+        trailing={ownScope ? (
+          <>
+            {update ? (
+              <Button variant="outline" size="xs" disabled={busy} onClick={runUpdate} aria-label={`Update ${pkg.source} to ${update}`}>
+                {busy && action === 'update' ? 'Updating…' : `Update to ${update}`}
+              </Button>
+            ) : null}
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={busy}
+              aria-label={`Remove ${pkg.source}`}
+              onClick={() => {
+                setAction('remove');
+                onRemove(pkg);
+              }}
+            >
+              {busy && action !== 'update' ? 'Removing…' : 'Remove'}
+            </Button>
+          </>
         ) : undefined}
       />
       {items.length === 0 ? (
@@ -248,10 +282,14 @@ function RemovePackageDialog({
 function ExtensionGroups({
   config,
   onRemove,
+  onBrowse,
+  onOpenPackage,
   ...context
 }: ListContext & {
   config: PiExtensionConfigResponse;
   onRemove: (pkg: PiExtensionConfigPackage) => void;
+  onBrowse: () => void;
+  onOpenPackage: (name: string) => void;
 }) {
   const { view } = context;
   const byPackage = new Map<string, PiExtensionConfigItem[]>();
@@ -270,19 +308,23 @@ function ExtensionGroups({
 
   return (
     <div className="space-y-5">
-      {packages.length > 0 ? (
-        <SettingsControlGroup title="Packages" settingsItem="plugins.extensions.packages" contentClassName="space-y-2">
-          {packages.map((pkg) => (
-            <PackageBlock
-              key={pkg.id}
-              pkg={pkg}
-              items={byPackage.get(pkg.id) ?? []}
-              onRemove={onRemove}
-              {...context}
-            />
-          ))}
-        </SettingsControlGroup>
-      ) : null}
+      <SettingsControlGroup title="Packages" settingsItem="plugins.extensions.packages" contentClassName="space-y-2">
+        {packages.length > 0 ? packages.map((pkg) => (
+          <PackageBlock
+            key={pkg.id}
+            pkg={pkg}
+            items={byPackage.get(pkg.id) ?? []}
+            onRemove={onRemove}
+            onOpenPackage={onOpenPackage}
+            {...context}
+          />
+        )) : (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className={cn(SETTINGS_HELPER_CLASS, 'text-pretty')}>{'None installed yet.'}</p>
+            <Button variant="link" size="xs" className="h-auto px-0 underline underline-offset-4" onClick={onBrowse}>{'Browse Pi packages'}</Button>
+          </div>
+        )}
+      </SettingsControlGroup>
 
       <SettingsControlGroup
         title={<GroupTitle title={view === 'project' ? 'Global extensions' : 'Your extensions'} items={own} view={view} />}
@@ -294,7 +336,7 @@ function ExtensionGroups({
           <p className={cn(SETTINGS_HELPER_CLASS, 'text-pretty')}>
             {packages.length > 0
               ? 'None outside packages.'
-              : 'None yet. Pi loads the files in its extensions folder and the packages added with pi install.'}
+              : 'None yet. Pi loads the files in its extensions folder.'}
           </p>
         )}
       </SettingsControlGroup>
@@ -327,10 +369,15 @@ function ExtensionGroups({
 export function ExtensionsSection({
   directory,
   pluginNames,
+  onBrowse,
+  onOpenPackage,
 }: {
   directory: string | null;
   /** Plugin names by id, to name a plugin an extension took the place of. */
   pluginNames: Record<string, string>;
+  onBrowse: () => void;
+  /** Open an npm package's marketplace page. */
+  onOpenPackage: (name: string) => void;
 }) {
   const [scope, setScope] = React.useState<ViewScope>('global');
   // With no folder open there is only the global view.
@@ -342,6 +389,18 @@ export function ExtensionsSection({
 
   const config = entry?.config ?? null;
   const untrusted = view === 'project' && config !== null && !config.project.trusted;
+
+  // Ask npm which installed packages have a newer version, once per name.
+  const loadVersions = useMarketplaceStore((state) => state.loadVersions);
+  const updatable = (config?.packages ?? [])
+    .filter((pkg) => pkg.installed && !pkg.pinned && pkg.version)
+    .map(npmNameOf)
+    .filter((name): name is string => Boolean(name))
+    .sort()
+    .join(',');
+  React.useEffect(() => {
+    if (updatable) void loadVersions(updatable.split(','));
+  }, [updatable, loadVersions]);
 
   let body: React.ReactNode;
   if (!config && entry?.status === 'error') {
@@ -379,6 +438,8 @@ export function ExtensionsSection({
           directory={viewDirectory}
           notes={replacementNotes(config, pluginNames)}
           onRemove={setRemoveTarget}
+          onBrowse={onBrowse}
+          onOpenPackage={onOpenPackage}
         />
       </div>
     );
