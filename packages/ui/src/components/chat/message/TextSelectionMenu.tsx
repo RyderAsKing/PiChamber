@@ -4,6 +4,8 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { cn } from '@/lib/utils';
+import { toast } from '@/components/ui';
+import { describeSandboxSendError } from '@/lib/pi/sandboxText';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { Icon } from "@/components/icon/Icon";
 import { rangeToMarkdown, trimSelectionValue, wrapMarkdownSelectionForChat } from './selectionMarkdown';
@@ -292,9 +294,13 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
   const handleCreateNewSession = React.useCallback(async () => {
     if (!selectedText) return;
 
-    const session = await createSession(undefined, null, null);
-    if (session) {
-      setPendingInputText(selectedText, 'replace');
+    try {
+      const session = await createSession(undefined, null, null);
+      if (session) {
+        setPendingInputText(selectedText, 'replace');
+      }
+    } catch (error) {
+      toast.error('Session not created', { description: describeSandboxSendError(error) ?? undefined });
     }
 
     hideMenu();

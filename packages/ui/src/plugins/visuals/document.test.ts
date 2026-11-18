@@ -72,6 +72,27 @@ describe('buildVisualDocument', () => {
     expect(doc).toContain('--pc-bad:red');
     expect(doc).not.toContain('</style><script>x()');
   });
+
+  test('offers shades of the first series colour for ordered values, strongest first', () => {
+    const doc = buildVisualDocument({ html: '', theme, allowNetwork: false });
+    expect(doc).toContain('--pc-shade-1:var(--pc-c1)');
+    expect(doc).toContain('--pc-shade-2:color-mix(in oklab, var(--pc-c1) 72%, var(--pc-bg))');
+    expect(doc).toContain('--pc-shade-4:color-mix(in oklab, var(--pc-c1) 28%, var(--pc-bg))');
+    expect(doc).toContain('--pc-radius:10px');
+  });
+
+  test('sits on the chat background with a gutter and small muted SVG labels the page can override', () => {
+    const doc = buildVisualDocument({ html: '', theme, allowNetwork: false });
+    expect(doc).toContain(':where(html){background:var(--pc-bg);padding:8px;');
+    // On the svg itself, so text inherits it and any fill on the text or a
+    // group (attribute, style, or page rule) wins.
+    // An svg's own fill or font-size attribute (an icon's fill="none") is
+    // left alone: a page rule would beat it.
+    expect(doc).toContain(':where(svg:not([fill])){fill:var(--pc-muted)}');
+    expect(doc).toContain(':where(svg:not([font-size])){font-size:12px}');
+    expect(/:where\(svg\)\{[^}]*(fill|font-size)/.test(doc)).toBe(false);
+    expect(/svg text[^{]*\{fill/.test(doc)).toBe(false);
+  });
 });
 
 describe('canOpenLink', () => {

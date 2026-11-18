@@ -7,6 +7,7 @@ import { projectSession, type PiReducerMessage, type PiReducerMessagePart, type 
 import type { PiExtensionNotice } from '@/lib/pi/reducers/reducerTypes';
 import type { PiBashExecution, PiErrorCode, PiPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiCompactionInfo, PiRetryInfo } from '@/lib/pi/types';
+import { sessionSandboxLabel, type SessionSandboxLabel } from '@/lib/pi/sandboxText';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
 import {
   listUiSessionsFromCatalog,
@@ -32,6 +33,8 @@ const READY_LOAD_STATE = {
   cursor: undefined,
   error: null as string | null,
   errorCode: null as PiErrorCode | null,
+  /** Server reason code with `SANDBOX_UNAVAILABLE`. */
+  errorReason: null as string | null,
 };
 const EMPTY_PARTS: Part[] = [];
 const liveMappedParts = new WeakMap<PiReducerMessagePart, Part>();
@@ -79,6 +82,21 @@ export function useSessionPendingInput(sessionID: string): PiPendingInputSummary
   const byId = usePiSessionSnapshot((state) => state.catalog.byId, undefined, TOPIC_CATALOG);
   if (!sessionID) return undefined;
   return byId.get(sessionID)?.pendingInput;
+}
+/**
+ * Sandbox label for one session (#242): whether a sandbox daemon runs it
+ * now, and any switch waiting for its turn to end. From the server's
+ * session rows; a session the catalog does not know reads as unsandboxed.
+ */
+export function useSessionSandboxLabel(sessionID: string): SessionSandboxLabel | null {
+  const byId = usePiSessionSnapshot((state) => state.catalog.byId, undefined, TOPIC_CATALOG);
+  const record = sessionID ? byId.get(sessionID) : undefined;
+  const sandboxed = record?.sandboxed === true;
+  const pendingTo = record?.pendingSwitch?.to;
+  return useMemo(
+    () => sessionSandboxLabel({ sandboxed, pendingSwitch: pendingTo ? { to: pendingTo } : undefined }),
+    [sandboxed, pendingTo],
+  );
 }
 /**
  * Every session waiting for the user, oldest waiter first. Subscribes on
@@ -339,6 +357,7 @@ export function useSessionMessageLoadState(sessionID: string, _directory?: strin
         cursor: undefined,
         error: sessionError.message ?? 'Session load failed',
         errorCode: sessionError.code as PiErrorCode,
+        errorReason: sessionError.reason ?? null,
       };
     }
     const isLoading = selectedSessionId === sessionID || connection === 'loading';
@@ -349,6 +368,7 @@ export function useSessionMessageLoadState(sessionID: string, _directory?: strin
       cursor: undefined,
       error: null,
       errorCode: null,
+      errorReason: null,
     };
   }, [connection, error, hydratedSessionIds, selectedSessionId, sessionID, sessionLoadErrorById]);
 }

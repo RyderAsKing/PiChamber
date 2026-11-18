@@ -120,6 +120,11 @@ export interface PiReducerSessionState {
   /** While busy: the extension command (`/name`) running without an agent
    *  turn. Messages queue instead of steering; Stop has nothing to stop. */
   runningCommand?: string;
+  /** Set while this transcript was read from disk because the session's
+   *  sandbox cannot start (`PiSessionDetailResponse.readOnly`): history
+   *  only. `reason` is the server's reason code. A live detail replaces the
+   *  whole session state, which clears it. */
+  readOnly?: { reason?: string };
   /** Latest authoritative compaction progress or outcome. */
   compaction?: PiCompactionInfo;
   /** Active model/thinking the session is using. */

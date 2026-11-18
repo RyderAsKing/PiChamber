@@ -427,7 +427,7 @@ export async function materializeOpenDraftSession(
     // not adopted (gone, or none), every value chosen in the draft does.
     try {
       const { applyDraftControlPicks } = await import('@/plugins/draftRuntime');
-      await applyDraftControlPicks(draft.id, created.id, draftSessionId);
+      await applyDraftControlPicks(draft.id, created.id, draftSessionId, createdDirectory || undefined);
     } catch (error) {
       console.warn('Failed to apply draft composer controls to new session:', error);
     }

@@ -170,7 +170,7 @@ const VISUALS_HTML = `<style>
 .bar b{font-size:11px;font-weight:500;color:var(--pc-muted);font-variant-numeric:tabular-nums}
 .days{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;text-align:center;font-size:11px;color:var(--pc-muted)}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.stat{border:1px solid var(--pc-border);border-radius:10px;padding:10px 12px}
+.stat{border:1px solid var(--pc-border);border-radius:var(--pc-radius);padding:12px}
 .stat div{font-size:11px;color:var(--pc-muted)}
 .stat strong{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
 </style>
@@ -833,6 +833,77 @@ const PAGES = {
     })()`,
     idleRequestPrefix: '/api/fs/project-icon',
   },
+  'settings-sandboxing': {
+    // Projects settings scrolled to Sandboxing: whether nono can run on the
+    // server machine (a reason when it cannot) and Check again; the seeded
+    // Night Shift card is labelled as sandboxed or unavailable.
+    path: '/?settings=projects',
+    readyText: ['Acme Web', 'Night Shift'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="projects.sandboxing"]');
+      if (!section || !section.innerText.includes('Check again')) return false;
+      const grid = document.querySelector('[data-settings-item="projects.browse"]');
+      if (!grid || !/Sandbox/.test(grid.innerText)) return false;
+      section.scrollIntoView({ block: 'end' });
+      return true;
+    })()`,
+  },
+  'settings-project': {
+    // The seeded Night Shift project's settings page from the top: name,
+    // default model, actions and the start of its Sandbox section.
+    path: '/?settings=projects',
+    readyText: ['Night Shift'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="projects.sandbox"]');
+      if (!section) {
+        document.querySelector('button[aria-label^="Night Shift project"]')?.click();
+        return false;
+      }
+      return section.innerText.includes('Default');
+    })()`,
+  },
+  'settings-project-sandbox': {
+    // The seeded Night Shift project's Sandbox section: nono with an allowed
+    // host, a local port and an extra folder, or why it cannot run.
+    path: '/?settings=projects',
+    readyText: ['Night Shift'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="projects.sandbox"]');
+      if (!section) {
+        document.querySelector('button[aria-label^="Night Shift project"]')?.click();
+        return false;
+      }
+      if (!section.innerText.includes('Allowed hosts')) return false;
+      section.scrollIntoView({ block: 'start' });
+      return true;
+    })()`,
+  },
+  'session-sandboxed': {
+    // A session in the sandboxed Night Shift project: the chat header and its
+    // sidebar row show a lock named Sandboxed. Its transcript shows even when the sandbox
+    // cannot run (read from disk), so wait for the message bubble too.
+    path: `/?session=${SHELF_SESSIONS[1].id}`,
+    readyText: [SHELF_SESSIONS[1].title],
+    settledScript: `(() => {
+      const text = document.body.innerText;
+      return document.querySelector('[role="img"][aria-label="Sandboxed"]') && text.split(${JSON.stringify(SHELF_SESSIONS[1].title)}).length > 3;
+    })()`,
+  },
+  'terminal-sandboxed': {
+    // The terminal beside a sandboxed session says it runs outside the sandbox.
+    path: `/?session=${SHELF_SESSIONS[1].id}`,
+    readyText: [SHELF_SESSIONS[1].title],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      if (document.body.innerText.includes('runs outside the sandbox')) return true;
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label^="Terminal"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') control?.click();
+      return false;
+    })()`,
+  },
   'settings-archive': {
     // Sessions settings scrolled to Archive and delete: the two day settings
     // and the suggestion that shows while auto-archive is off.
@@ -1056,7 +1127,7 @@ const PAGES = {
     // Pi extensions on a phone, This project: reached from the composer
     // sheet's Plugin settings, since a phone has no settings link to open.
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     viewports: ['mobile'],
     settledScript: `(() => {
       const section = document.querySelector('[data-settings-item="plugins.extensions"]');
@@ -1113,15 +1184,32 @@ const PAGES = {
     viewports: ['desktop'],
   },
   'visuals-page': {
-    // A render_html page drawn in its frame under the turn's activity, with
-    // the Sub-agents composer toggle below (Visuals has none).
+    // A render_html page drawn in the reply column under the turn's
+    // activity, with no frame of its own, and the Sub-agents composer toggle
+    // below (Visuals has none).
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     // The page has drawn and the frame has fitted to it.
     settledScript: `(() => {
       const frame = document.querySelector('[data-plugin-artifact="visuals"] iframe');
       return Boolean(frame) && frame.getBoundingClientRect().height > 0 && frame.getBoundingClientRect().height !== 240;
     })()`,
+  },
+  'visuals-page-hover': {
+    // The same page with the pointer on it: its More and Expand buttons show
+    // at its top right (on touch screens they sit under the page). Desktop only.
+    path: VISUALS_SESSION_PATH,
+    readyText: [VISUALS_REPLY],
+    settledScript: `(() => {
+      const frame = document.querySelector('[data-plugin-artifact="visuals"] iframe');
+      return Boolean(frame) && frame.getBoundingClientRect().height > 0 && frame.getBoundingClientRect().height !== 240;
+    })()`,
+    hoverScript: `(() => {
+      // Rest on the buttons' corner of the page.
+      const rect = document.querySelector('[data-plugin-artifact="visuals"] [aria-label="Expand page"]')?.getBoundingClientRect();
+      return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+    })()`,
+    viewports: ['desktop'],
   },
   'visuals-choices': {
     // An answered render_choices call: one variant at a time at full width,
@@ -1196,7 +1284,7 @@ const PAGES = {
     // Phones: the plugin button beside Send pressed, opening the sheet with a
     // switch per composer toggle (only Sub-agents declares one).
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     expandSelector: 'button[aria-label^="Composer controls"]',
     settledScript: `document.body.innerText.includes('Plugin settings')`,
     viewports: ['mobile'],
@@ -1230,8 +1318,9 @@ const PAGES = {
   'visuals-expanded': {
     // The same page opened full window from its Expand action.
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
-    expandSelector: '[data-plugin-artifact="visuals"] [aria-label="Expand page"]',
+    readyText: [VISUALS_REPLY],
+    // Pressed until it exists: the reply can show before the page does.
+    openSelector: '[data-plugin-artifact="visuals"] [aria-label="Expand page"]',
     settledScript: `Boolean(document.querySelector('[role="dialog"] iframe'))`,
     viewports: ['desktop'],
   },
@@ -2194,7 +2283,12 @@ const seed = async (dir) => {
       { id, path: repo, label: 'demo-repo' },
       ...extraFolders.map((folder) => {
         const path = join(folders, folder.name);
-        return { id: projectId(path), path, label: folder.label };
+        // Night Shift is sandboxed with nono (settings-sandboxing,
+        // settings-project-sandbox, session-sandboxed, terminal-sandboxed).
+        const sandbox = folder.name === 'night-shift'
+          ? { mode: 'nono', allowHosts: ['registry.npmjs.org'], allowLocalPorts: [8080], extraFolders: [{ path: join(home, 'code', 'design-notes'), access: 'read' }] }
+          : undefined;
+        return { id: projectId(path), path, label: folder.label, ...(sandbox ? { sandbox } : {}) };
       }),
     ],
     activeProjectId: id,

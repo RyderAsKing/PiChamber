@@ -90,12 +90,20 @@ export type PiErrorCode =
   | 'ENGINE_UNSUPPORTED_OPERATION'
   | 'RUNTIME_DISPOSAL_FAILED'
   | 'ARCHIVE_METADATA_INVALID'
-  | 'ASSISTANT_ERROR';
+  | 'ASSISTANT_ERROR'
+  | 'SANDBOX_UNAVAILABLE'
+  | 'INVALID_SANDBOX_SETTING'
+  | 'PROJECT_NOT_FOUND';
 
 /** A stable error object returned in response and event payloads. */
 export interface PiError {
   code: PiErrorCode;
   message?: string;
+  /** Why, for `SANDBOX_UNAVAILABLE`: a launcher reason code such as
+   *  `NOT_INSTALLED` or `NO_LANDLOCK`. */
+  reason?: string;
+  /** For `INVALID_SANDBOX_PROFILE`: what is wrong with the profile text. */
+  messages?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +175,12 @@ export interface PiSessionListItem {
   /** Pending-input state sampled with the same daemon sequence as `live`.
    *  Absent means unknown (older server), never authoritatively empty. */
   inputState?: PiSessionListInputState;
+  /** Set when `live`/`inputState` came from a daemon other than the one that
+   *  produced the list (a draining daemon, or a project daemon's residents
+   *  in the all-sessions list): that daemon's stream (`'main'` for the main
+   *  daemon) and stream epoch, whose sequence space the values belong to. */
+  stream?: string;
+  streamEpoch?: string;
 }
 
 export interface PiSessionListResponse {
@@ -180,6 +194,9 @@ export interface PiSessionListResponse {
    *  A value different from the client's established epoch means the
    *  response predates a daemon restart and must not be committed. */
   streamEpoch?: string;
+  /** Opaque id of the project daemon stream `streamEpoch` belongs to. Absent
+   *  for the main daemon. See `PiEventEnvelope.stream`. */
+  stream?: string;
 }
 
 export interface PiSessionCreateInput {
@@ -232,6 +249,9 @@ export interface PiSessionDetailResponse extends Pick<
 > {
   session: PiSession;
   messages: PiMessageView[];
+  /** Opaque id of the project daemon stream this detail's `streamEpoch` and
+   *  `lastSequence` belong to. Absent for the main daemon. */
+  stream?: string;
   /** True when older projected messages remain before this response page. */
   hasMoreBefore?: boolean;
   /** Opaque cursor accepted by the older-message endpoint. */
@@ -242,6 +262,14 @@ export interface PiSessionDetailResponse extends Pick<
   isStreaming: boolean;
   /** Authoritative lifecycle at getSession time. Idle is not proof the stream is dead. */
   lifecycle: PiSessionLifecycleState;
+  /** Set when the server read this detail from the transcript on disk
+   *  because the session's sandboxed project cannot run its daemon: history
+   *  only, with `stream` but no `streamEpoch`, `lastSequence` -1, and no
+   *  live or input state. Sends still fail with `SANDBOX_UNAVAILABLE`. */
+  readOnly?: true;
+  /** With `readOnly`: why the sandbox cannot run, as a stable reason code
+   *  (see `sandboxReasonText`). */
+  readOnlyReason?: string;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */
@@ -372,11 +400,22 @@ export interface PiPendingInputListResponse {
     sessionId: PiSessionId;
     directory: string;
     pending: PiPendingInputSummary;
+    /** Project daemon stream that numbers this entry; absent for the main
+     *  daemon. Its position is `streams[stream]`. */
+    stream?: string;
   }>;
-  /** Daemon event sequence at sampling time; gates per-session adoption. */
-  sequence: number;
-  /** Opaque stream-lifetime id of the daemon that produced this response. */
+  /** Main daemon event sequence at sampling time; gates per-session adoption
+   *  of entries without `stream`. Absent only when the main daemon failed to
+   *  answer (then `incomplete` is set). */
+  sequence?: number;
+  /** Opaque stream-lifetime id of the main daemon. */
   streamEpoch?: string;
+  /** Sampling cursor of each project daemon that answered, keyed by the
+   *  `stream` its entries carry. */
+  streams?: Record<string, { sequence: number; streamEpoch?: string }>;
+  /** Set when some session daemon failed to answer: the listed entries are
+   *  real, but a session missing from the list may still be pending. */
+  incomplete?: true;
 }
 
 /** Validate a pending-input summary. Malformed values are unknown (never
@@ -571,6 +610,116 @@ export interface PiSessionShelfEntry {
 
 export interface PiSessionShelfResponse {
   sessions: Record<PiSessionId, PiSessionShelfEntry>;
+}
+
+// ---------------------------------------------------------------------------
+// Project sandboxes (`/api/pi/sandbox/*`). Host-local: the setting lives in
+// this server's runtime state and never travels with portable settings.
+// ---------------------------------------------------------------------------
+
+export type PiSandboxMode = 'off' | 'nono';
+/** A project's own choice: `default` follows the server's sandbox default. */
+export type PiProjectSandboxChoice = 'default' | PiSandboxMode;
+
+/** Something a sandbox cannot enforce on the server machine.
+ *  `UNIX_SOCKETS`: Unix sockets are not mediated (nono on WSL2).
+ *  `PROXY_PORT`: the proxy's port is open to every host (nono on WSL2). */
+export type PiSandboxLimit = string;
+
+/** The server's sandbox default (`GET`/`PUT /api/pi/sandbox/defaults`):
+ *  whether projects that follow it are sandboxed, and hosts every sandboxed
+ *  project may reach on top of its own. `invalid` means the stored default
+ *  is unreadable, so projects that follow it fail closed. `acceptedLimits`
+ *  are the host limits the owner accepted. */
+export interface PiSandboxDefaults {
+  mode: PiSandboxMode;
+  allowHosts: string[];
+  /** Host limits the owner accepted; absent from older servers. */
+  acceptedLimits?: PiSandboxLimit[];
+  invalid?: boolean;
+}
+
+/** Body of `PUT /api/pi/sandbox/defaults`: at least one field; an omitted
+ *  field keeps the stored value, so a stale page cannot overwrite it. */
+export interface PiSandboxDefaultsUpdate {
+  mode?: PiSandboxMode;
+  allowHosts?: string[];
+  acceptedLimits?: PiSandboxLimit[];
+}
+
+/** A sandbox launcher on this server. Unavailable launchers carry a reason
+ *  code (`NOT_INSTALLED`, `NO_LANDLOCK`, `TOO_OLD`, `VERSION_UNKNOWN`,
+ *  `SETUP_CHECK_FAILED`, `UNSUPPORTED_PLATFORM`, `WSL_KERNEL_TOO_OLD`). An
+ *  available one may name `limits` it cannot enforce on this host; sandboxed
+ *  projects run only once the owner accepted all of them (`limitsAccepted`). */
+export interface PiSandboxLauncherStatus {
+  id: string;
+  available: boolean;
+  version?: string;
+  reason?: string;
+  limits?: PiSandboxLimit[];
+  limitsAccepted?: boolean;
+}
+
+/** `GET /api/pi/sandbox` and `POST /api/pi/sandbox/recheck`. */
+export interface PiSandboxStatusResponse {
+  launchers: PiSandboxLauncherStatus[];
+}
+
+export interface PiSandboxExtraFolder {
+  path: string;
+  access: 'read' | 'readWrite';
+}
+
+/** What a client sends to `PUT /api/pi/sandbox/projects/:projectId`. */
+export interface PiProjectSandboxSetting {
+  mode: PiProjectSandboxChoice;
+  allowHosts?: string[];
+  allowLocalPorts?: number[];
+  extraFolders?: PiSandboxExtraFolder[];
+}
+
+/** A change to a project's sandbox setting: the fields that changed. The
+ *  server keeps its stored value for every field left out, so a copy that
+ *  went stale on this device cannot undo what another device saved. */
+export type PiProjectSandboxUpdate = Partial<PiProjectSandboxSetting>;
+
+/** One project's sandbox setting and whether it can run now. `off` means no
+ *  sandbox; `unavailable` means its Pi requests fail closed with
+ *  `SANDBOX_UNAVAILABLE` and the same reason. */
+export interface PiProjectSandboxState {
+  projectId: string;
+  /** What the project runs with now, after the default is applied. */
+  mode: PiSandboxMode;
+  launcher?: string;
+  availability: { state: 'off' | 'available' | 'unavailable'; reason?: string };
+  /** The project's own choice. Older servers omit it (read as its `mode`). */
+  choice?: PiProjectSandboxChoice;
+  /** The project's own hosts; the default's hosts apply on top. */
+  allowHosts: string[];
+  allowLocalPorts: number[];
+  extraFolders: PiSandboxExtraFolder[];
+}
+
+export interface PiProjectSandboxListResponse {
+  projects: PiProjectSandboxState[];
+}
+
+/** The launcher profile sandboxes run under on this server
+ *  (`/api/pi/sandbox/profile`): PiChamber's built-in one, or the owner's
+ *  custom copy while that file exists. Paths are on the server machine.
+ *  `unreadable` means the custom file is there but cannot be read, so no
+ *  sandbox starts until it is fixed or reset. */
+export interface PiSandboxProfile {
+  launcher: string;
+  custom: boolean;
+  /** The file in use. */
+  path: string;
+  builtInPath: string;
+  customPath: string | null;
+  /** The text of the file in use. */
+  content: string;
+  unreadable?: boolean;
 }
 
 /** Omitted fields are left alone; `null` clears them. */
@@ -916,6 +1065,7 @@ export type PiEventName =
   | 'session.interrupted'
   | 'session.openUrl'
   | 'session.archive'
+  | 'session.moved'
   | 'extension.entry'
   | 'extension.message'
   | 'extension.notify'
@@ -950,6 +1100,14 @@ export interface PiEventEnvelope<TName extends PiEventName, TPayload> {
    *  different from the client's established epoch means the daemon
    *  restarted: only a snapshot may establish the new baseline. */
   streamEpoch?: string;
+  /** Opaque id of the project daemon (sandboxed project) that emitted the
+   *  event. Absent for the main daemon. `streamEpoch` and `sequence` belong
+   *  to that daemon's own stream. */
+  stream?: string;
+  /** Opaque resume position of every project daemon after this event. The
+   *  client sends the newest one back as the `cursor` subscribe parameter
+   *  next to its main `fromSequence`/`streamEpoch`. */
+  cursor?: string;
   /** Set on a draft session's events (see `PiSessionCreateInput.draft`):
    *  only the drafting client uses them; nothing is listed for them. */
   draft?: true;
@@ -1192,6 +1350,15 @@ export type PiSessionOpenUrlEvent = PiEventEnvelope<
     serverNow: number;
   }
 >;
+
+/**
+ * The session's live owner changed: it moved to another session daemon (a
+ * project switched sandboxing), or the daemon that ran it restarted or
+ * stopped. Its sequences and live state from the old daemon no longer
+ * apply: drop them and refetch the session. Server-made, so `sequence` is
+ * 0 and it carries no `streamEpoch` or `stream`.
+ */
+export type PiSessionMovedEvent = PiEventEnvelope<'session.moved', Record<string, never>>;
 
 /**
  * A session's archive mark changed on the server (archive, unarchive, or
@@ -1760,6 +1927,7 @@ export type PiSessionEvent =
   | PiSessionInterruptedEvent
   | PiSessionOpenUrlEvent
   | PiSessionArchiveEvent
+  | PiSessionMovedEvent
   | PiExtensionEntryEvent
   | PiExtensionMessageEvent
   | PiExtensionNotifyEvent
@@ -1810,6 +1978,7 @@ export const PI_EVENT_KINDS = [
   'session.interrupted',
   'session.openUrl',
   'session.archive',
+  'session.moved',
   'extension.entry',
   'extension.message',
   'extension.notify',

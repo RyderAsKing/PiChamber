@@ -57,6 +57,56 @@ fails, and `phase: 'unavailable'` would have been a misnomer — the probe
 path returns `phase: 'failed'` with an explicit `errors[]` entry so the
 caller can render the correct message.
 
+A sandboxed project whose sandbox cannot start fails its Pi requests with
+HTTP 503 `SANDBOX_UNAVAILABLE`. `PiRequestError.reason` carries the server's
+reason code (`NOT_INSTALLED`, `NO_LANDLOCK`, `PROVIDER_HOSTS_UNAVAILABLE`, ...).
+It is not a transient daemon error, so the client does not retry it; the
+next request tries to start the sandbox again on the server. Reading a
+transcript is the exception: `getSession` and `getSessionMessages` still
+answer, read from the transcript on disk, with `readOnly: true`, the
+project's `stream`, no `streamEpoch`, `lastSequence: -1`, an idle lifecycle,
+and no live or input state. Sending to that session still fails with
+`SANDBOX_UNAVAILABLE`, which is a definite rejection (the send never ran):
+it stays a `PiRequestError` and is not turned into `PiSendUnconfirmedError`.
+On reconnect the open session's read-only answer is accepted as
+`readOnlyDetail`: the transcript is committed without moving the main cursor,
+and only when no project stream owns the session. `PiSendUnconfirmedError.reason`
+carries the server's reason code when the original failure had one.
+
+A read-only answer also carries `readOnlyReason`, the reason its sandbox
+cannot start. `hydrateSessionFromDetail` keeps both as `session.readOnly`
+(`{ reason? }`) on the reducer session and a live detail clears it.
+`SessionReadOnlyNote` shows that state above the composer with a Try again
+button. `PiSessionStore` reads such a session again (`reloadSession`, a
+forced hydrate) when the user returns to it, before a send to it, and, through
+`useReloadWhenSandboxChanges`, when the sandbox status or a project's sandbox
+setting changes on this client. The same hook reloads a session whose load
+failed with `SANDBOX_UNAVAILABLE`.
+
+A session finishing its turn in the daemon it is leaving refuses new work with
+HTTP 409 `SESSION_IN_USE` and `reason: 'SESSION_SWITCHING'`
+(`isSessionSwitchingError` in `sandboxText.ts`). The command never ran. The
+store does not treat it as a session held by another instance (no load
+failure, no composer lock), and `describeSandboxSendError` gives its text.
+
+## Project sandboxes
+
+`piClient.getSandboxProfile()`, `saveSandboxProfile(content)` and `resetSandboxProfile()`
+wrap `GET` / `PUT` / `DELETE /api/pi/sandbox/profile`: the launcher profile in use on the
+server (`PiSandboxProfile`, null on a platform without one). A refused save is
+`PiRequestError` `INVALID_SANDBOX_PROFILE` with `messages`.
+
+`piClient.getSandboxStatus()`, `recheckSandbox()`, `listProjectSandboxes()`,
+and `setProjectSandbox(projectId, setting)` wrap `/api/pi/sandbox/*` (types in
+`protocol.ts`). The setting is host-local to the connected server. `piClient.getSandboxDefaults()`
+and `setSandboxDefaults()` call `GET` / `PUT /api/pi/sandbox/defaults`; the default is
+`{ mode: 'off' | 'nono', allowHosts, invalid? }`. A project's own choice is `default | off |
+nono` (`choice` on its state, while `mode` is what it runs with after the default). The PUT
+accepts a partial body (`mode` and/or `allowHosts`; an omitted field keeps the stored value)
+and answers `{ defaults, projects }`, since every project that follows the default may have changed. Listed and
+opened sessions in a sandboxed project carry `session.sandboxed: true`, which
+the catalog keeps as `LiveSessionRecord.sandboxed`; it names the daemon that runs the session: the one running it now, or, when none does, its project's sandbox daemon, which opening starts (while it cannot start, opening shows the transcript read-only and sending fails with `SANDBOX_UNAVAILABLE`). It never means the main daemon, even when the main daemon answered the list because the sandbox daemon is stopped or unavailable. While a switch waits for a running turn, the session also carries `session.pendingSwitch: { to: 'nono' | 'off' }` (`LiveSessionRecord.pendingSwitch`), and new work on it (prompt, follow-up, model change, fork) fails with HTTP 409 `SESSION_IN_USE`; abort, steer, and reads still work. When the session moves, the event stream sends `session.moved` and the refetched row drops `pendingSwitch`. `sandboxText.ts` turns these into user text: `sandboxReasonText` for reason codes, `sessionSandboxLabel` for the row and header labels ("Sandboxed", or "Switching" with "Moves into / Leaves the sandbox after this turn"), and `describeSandboxSendError` for a refused send. It explains `SESSION_IN_USE` only when the session has a pending switch, since the same code also means another PiChamber instance holds the session. `useSessionSandboxLabel` (`sync/sync-context.tsx`) reads the label from the catalog.
+
 ## Pending input ("sessions needing input")
 
 A session needs input while the daemon holds an open blocking request for

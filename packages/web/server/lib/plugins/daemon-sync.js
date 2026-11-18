@@ -10,6 +10,10 @@
 // - again on a later request when a push failed (at most every `retryDelayMs`).
 // A failed push only logs. The request it precedes still runs; a daemon that
 // was never configured runs with every plugin off.
+//
+// A sandboxed project's daemon gets its own hook from `onDaemonReadyFor`,
+// whose scope (`{ roots }`) reaches `buildConfig`, so the config it receives
+// can leave out other projects.
 
 const MAX_TRACKED_DAEMONS = 32;
 
@@ -32,7 +36,7 @@ export const createPluginDaemonSync = ({
     while (configured.size > MAX_TRACKED_DAEMONS) configured.delete(configured.keys().next().value);
   };
 
-  const push = (epoch, target, request) => {
+  const push = (epoch, target, request, scope) => {
     const key = `${epoch}:${target}`;
     const existing = inflight.get(key);
     if (existing) return existing;
@@ -42,7 +46,7 @@ export const createPluginDaemonSync = ({
       if (configured.get(epoch) === revision) return;
       const pushing = revision;
       try {
-        await request('plugins.configure', await buildConfig());
+        await request('plugins.configure', await buildConfig(scope));
         remember(epoch, pushing);
         lastFailure = null;
       } catch (error) {
@@ -55,15 +59,21 @@ export const createPluginDaemonSync = ({
     return task;
   };
 
-  /** Supervisor hook: runs after every successful health probe. Never throws. */
-  const onDaemonReady = async ({ health, request }) => {
+  /**
+   * Supervisor hook for a daemon whose config is built with `scope`: runs
+   * after every successful health probe. Never throws.
+   */
+  const onDaemonReadyFor = (scope) => async ({ health, request }) => {
     const epoch = health?.streamEpoch;
     if (typeof epoch !== 'string' || epoch.length === 0 || typeof request !== 'function') return;
     if (configured.get(epoch) === revision) return;
     if (lastFailure && lastFailure.epoch === epoch && lastFailure.revision === revision
       && now() - lastFailure.at < retryDelayMs) return;
-    await push(epoch, revision, request);
+    await push(epoch, revision, request, scope);
   };
+
+  /** The main daemon's hook: its config covers every project. */
+  const onDaemonReady = onDaemonReadyFor(undefined);
 
   /** Call after a committed change; pushes in the background. */
   const changed = () => {
@@ -74,5 +84,5 @@ export const createPluginDaemonSync = ({
     });
   };
 
-  return { onDaemonReady, changed };
+  return { onDaemonReady, onDaemonReadyFor, changed };
 };

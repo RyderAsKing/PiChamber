@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { createImpactCache } from './impact.js';
 import { loadBundledPlugins } from './registry.js';
 import {
@@ -9,6 +11,11 @@ import {
   resolvePluginState,
   resolveSessionOverrides,
 } from './store.js';
+
+const isAtOrBelow = (directory, root) => {
+  const relative = path.relative(root, directory);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+};
 
 const pluginNotFound = () => new PluginStoreError('PLUGIN_NOT_FOUND', 'No plugin has that id.');
 
@@ -128,8 +135,16 @@ export const createPluginService = ({
    * filled in), `projects[dir]` only the project-scoped values that differ,
    * `sessions[sessionId]` a session's own values. The daemon resolves
    * `{ ...global, ...projects[dir], ...sessions[sessionId] }`.
+   *
+   * With `roots` (a sandboxed project's daemon), `projects` keeps only the
+   * folders at or below one of them, so that daemon never learns where other
+   * projects live. `sessions` holds opaque ids and values only and is sent
+   * whole.
    */
-  const daemonConfig = async () => {
+  const daemonConfig = async ({ roots } = {}) => {
+    const keep = Array.isArray(roots)
+      ? (directory) => roots.some((root) => isAtOrBelow(path.resolve(directory), path.resolve(root)))
+      : () => true;
     const [manifests, snapshot] = await Promise.all([plugins(), store.read()]);
     const configured = [];
     for (const manifest of manifests.values()) {
@@ -137,6 +152,7 @@ export const createPluginService = ({
       const global = resolvePluginState(manifest, snapshot, null);
       const projects = {};
       for (const directory of Object.keys(snapshot.state[manifest.id]?.projects ?? {})) {
+        if (!keep(directory)) continue;
         const resolved = resolvePluginState(manifest, snapshot, directory);
         const projectValues = Object.fromEntries(Object.entries(manifest.stateSchema)
           .filter(([key, field]) => field.scope === 'project' && resolved[key] !== global[key])

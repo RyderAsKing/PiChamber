@@ -319,6 +319,19 @@ describe('applyPendingInputListToCatalog (pure)', () => {
     expect(covered.byId.get('b')?.pendingInput).toEqual(pending(60));
   });
 
+  test('an incomplete list sets its entries but clears no absent rows', () => {
+    // A server with several session daemons marks the list incomplete when
+    // one daemon failed to answer: absence then proves nothing.
+    let state = upsertRecord(initialCatalog(), recordWithPending('a', pending(50)));
+    state = applyPendingInputListToCatalog(
+      state,
+      { ...response([{ sessionId: 'b', directory: '/repo', pending: pending(60) }], 10, EPOCH), incomplete: true },
+      { acceptPendingInputObservation: () => true, streamEpoch: EPOCH },
+    );
+    expect(state.byId.get('a')?.pendingInput).toEqual(pending(50));
+    expect(state.byId.get('b')?.pendingInput).toEqual(pending(60));
+  });
+
   test('unknown rows stay unknown when absent from the response', () => {
     let state = upsertRecord(initialCatalog(), recordWithPending('a', undefined));
     state = applyPendingInputListToCatalog(

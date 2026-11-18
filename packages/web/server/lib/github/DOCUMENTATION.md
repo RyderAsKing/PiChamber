@@ -7,6 +7,8 @@ server runtime. Every GitHub call runs here; the shared UI talks to
 `/api/github/*` through `RuntimeAPIs.github`, so web, desktop, hosted
 mobile, and Capacitor share one code path. Tokens never reach a client.
 
+Sandboxing: Only Pi session daemons (the agent) run in the sandbox. PiChamber's own Git panel, terminal, browser and GitHub features, and worktree hooks and start commands, run outside it with the user's access, so git config, hooks or filters an agent writes into the repo can run when the user or the Git panel runs git. This is a known, accepted trade-off. The GitHub module's git calls run unsandboxed for every folder.
+
 ## Entrypoints and structure
 
 - `packages/web/server/lib/github/`: module directory.

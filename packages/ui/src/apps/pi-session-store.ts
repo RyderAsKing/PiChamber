@@ -16,10 +16,11 @@ import { recordMobileDiagnostic, recordMobileDiagnosticError } from '@/lib/mobil
 import { createBrowserUuid } from '@/lib/uuid';
 import { getTabClientId } from '@/lib/pi/tab-client-id';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
+import { isSessionSwitchingError } from '@/lib/pi/sandboxText';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { invalidateCommandCatalogCache } from '@/lib/pi/commandCatalog';
-import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
+import { createPiEventStream, setPiSessionStreamEpochResolver, type PiStreamHandle } from '@/lib/pi/transport';
 import type { PiExtensionSurfaceDismissEvent, PiSessionEvent, PiSessionListItem, PiSessionOpenUrlEvent, PiPendingInputListResponse, PiPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiExtensionSurfaceState } from '@/lib/pi/reducers/customSurfaceReducers';
 import { isValidPendingInputSummary } from '@/lib/pi/protocol';
@@ -87,6 +88,7 @@ import {
   isInvalidSessionError,
   isSessionInUseError,
   isSessionRuntimeConflictError,
+  isSessionScopedRefusal,
   delayBeforeRetry,
   initialSessionStoreState,
   applyDetailMessageCount,
@@ -234,6 +236,27 @@ const isDefiniteRequestRejection = (error: unknown): boolean => error instanceof
   && error.status >= 400
   && error.status < 500
   && error.status !== 408;
+
+/** Row-level `stream` naming the main daemon, used when a project daemon's
+ *  response carries a main-daemon row. Never a top-level or frame value. */
+const MAIN_STREAM_ID = 'main';
+
+/** The project-daemon stream id a frame or response is numbered by, or
+ *  undefined for the main daemon. */
+const projectStreamOf = (value: unknown): string | undefined => {
+  const stream = (value as { stream?: unknown } | null | undefined)?.stream;
+  return typeof stream === 'string' && stream.length > 0 && stream !== MAIN_STREAM_ID ? stream : undefined;
+};
+
+/** Reducer state without one session's transcript or sequence marker. */
+const withoutReducerSession = (reducer: PiReducerState, sessionId: PiSessionId): PiReducerState => {
+  if (!reducer.bySession.has(sessionId) && !reducer.lastSequence.has(sessionId)) return reducer;
+  const bySession = new Map(reducer.bySession);
+  bySession.delete(sessionId);
+  const lastSequence = new Map(reducer.lastSequence);
+  lastSequence.delete(sessionId);
+  return { ...reducer, bySession, lastSequence };
+};
 
 export class PiSessionStore {
   private state: PiSessionStoreState;
@@ -386,6 +409,36 @@ export class PiSessionStore {
    *  retirement (not ordering) is what prevents a stale frame from
    *  downgrading an established baseline. */
   private retiredStreamEpochs = new Set<string>();
+  /** Epoch of each project daemon stream (sandboxed projects), keyed by its
+   *  opaque `stream` id. A project daemon numbers its own stream, so its
+   *  frames, details, and lists are checked here, never against the main
+   *  `streamEpoch`. A changed epoch (the daemon restarted) retires the old
+   *  one into `retiredStreamEpochs` (epochs are unique per daemon process)
+   *  and resets only that stream's sessions. */
+  private projectStreamEpochs = new Map<string, string>();
+  /** Project stream each session's live state is numbered by. Absent means
+   *  the main daemon. */
+  private projectStreamBySession = new Map<PiSessionId, string>();
+  /**
+   * When each session last changed daemons, on a clock that ticks once per
+   * change. A detail asked for before a session's last change may come from
+   * the daemon it left: it is committed only if it names the daemon that
+   * owns the session now (`isResponseEpochCurrent` with `asked`). After a
+   * `session.moved` notice the new owner is not known until the next
+   * observation, so every earlier answer is refused.
+   */
+  private ownershipClock = 0;
+  private sessionOwnerChangedAt = new Map<PiSessionId, number>();
+  private sessionOwnerUnknown = new Set<PiSessionId>();
+  private noteSessionOwnerChange(sessionId: PiSessionId, unknown = false): void {
+    this.ownershipClock += 1;
+    this.sessionOwnerChangedAt.set(sessionId, this.ownershipClock);
+    if (unknown) this.sessionOwnerUnknown.add(sessionId);
+    else this.sessionOwnerUnknown.delete(sessionId);
+  }
+  /** Newest opaque project-daemon resume cursor seen on the event stream,
+   *  sent back on the next stream so project daemons resume too. */
+  private projectEventCursor: string | undefined;
   /** Reconnect-recovery obligations (replay miss / epoch change): known
    *  directory catalogs to re-list and affected residents to re-hydrate.
    *  Mirrored into `state.syncRecovery`; a failed scope stays listed so
@@ -417,8 +470,34 @@ export class PiSessionStore {
    *  history-page payloads without a stamped epoch still type-check
    *  (unstamped responses are accepted only until an epoch-capable daemon
    *  establishes the first epoch). */
-  private isResponseEpochCurrent(response: unknown): boolean {
+  private isResponseEpochCurrent(response: unknown, asked?: number): boolean {
     const epoch = typeof (response as { streamEpoch?: unknown } | null | undefined)?.streamEpoch === 'string' && ((response as { streamEpoch: string }).streamEpoch.length > 0) ? (response as { streamEpoch: string }).streamEpoch : undefined;
+    const stream = projectStreamOf(response);
+    const sessionId = (response as { session?: { id?: unknown } } | null | undefined)?.session?.id;
+    // Asked before the session last changed daemons, and not answered by
+    // its current owner: the daemon it left answered late. Committing it
+    // would hand the session back to that daemon.
+    if (asked !== undefined && typeof sessionId === 'string' && (this.sessionOwnerChangedAt.get(sessionId) ?? 0) > asked
+      && (this.sessionOwnerUnknown.has(sessionId) || this.projectStreamBySession.get(sessionId) !== stream)) {
+      return false;
+    }
+    // A read-only detail (`readOnly`, a project stream, no epoch) was read
+    // from the transcript on disk while that project's daemon cannot run.
+    // It is history with no sequence space: committed only while no project
+    // stream numbers the session's live state, and never bound to one, so
+    // the daemon's first epoch is adopted as usual once it starts.
+    if (!epoch && stream !== undefined && (response as { readOnly?: unknown } | null | undefined)?.readOnly === true) {
+      return typeof sessionId === 'string' && !this.projectStreamBySession.has(sessionId);
+    }
+    if (stream !== undefined || (typeof sessionId === 'string' && this.projectStreamBySession.has(sessionId))) {
+      // A project daemon's response, or a main response for a session last
+      // seen on a project daemon: checked against that stream's epoch, and a
+      // session that changed daemons is reset before the response commits.
+      if (stream !== undefined && (!epoch || !this.acceptProjectStreamEpoch(stream, epoch))) return false;
+      if (stream === undefined && (!epoch || epoch !== this.streamEpoch)) return false;
+      if (typeof sessionId === 'string') this.moveSessionToStream(sessionId, stream);
+      return true;
+    }
     if (!epoch) return this.streamEpoch === null;
     if (this.retiredStreamEpochs.has(epoch)) return false;
     if (this.streamEpoch === null) {
@@ -426,6 +505,170 @@ export class PiSessionStore {
       return true;
     }
     return epoch === this.streamEpoch;
+  }
+  /**
+   * `isResponseEpochCurrent` for session lists. A list row's metadata comes
+   * from JSONL, which no daemon lifetime makes stale; its `live` and
+   * `inputState` are gated per stream by `createDirectoryListGates`. A list
+   * naming a project stream without an epoch was read by the main daemon
+   * while that project's daemon is not running (stopped, or its sandbox is
+   * unavailable): its rows commit as metadata only, no live state is
+   * accepted, and nothing is bound to the stream. Any other list is checked
+   * like every stamped response.
+   */
+  private isListResponseCurrent(response: unknown): boolean {
+    const epoch = (response as { streamEpoch?: unknown } | null | undefined)?.streamEpoch;
+    if (projectStreamOf(response) !== undefined && (typeof epoch !== 'string' || epoch.length === 0)) return true;
+    return this.isResponseEpochCurrent(response);
+  }
+  /**
+   * Check a project daemon stream's epoch from a frame or stamped response.
+   * A retired epoch is rejected; the stream's first epoch is adopted. A
+   * different epoch is only established by that stream's snapshot frame
+   * (`onRestart` given): the project daemon restarted, so its old epoch is
+   * retired and `onRestart` resets only that stream's sessions. Anything
+   * else stamped with an unestablished epoch is rejected, like the main
+   * stream's non-snapshot frames after a restart.
+   */
+  private acceptProjectStreamEpoch(stream: string, epoch: string, onRestart?: (sessionIds: PiSessionId[]) => void): boolean {
+    if (this.retiredStreamEpochs.has(epoch)) return false;
+    const known = this.projectStreamEpochs.get(stream);
+    if (known === epoch) return true;
+    if (known !== undefined && !onRestart) return false;
+    this.projectStreamEpochs.set(stream, epoch);
+    if (known !== undefined) {
+      this.retiredStreamEpochs.add(known);
+      const affected: PiSessionId[] = [];
+      for (const [sessionId, sessionStream] of this.projectStreamBySession) {
+        if (sessionStream === stream) affected.push(sessionId);
+      }
+      onRestart?.(affected);
+    }
+    return true;
+  }
+  /** True when the session has live state numbered by some stream. */
+  private hasSessionLiveState(sessionId: PiSessionId, reducer = this.state.reducer): boolean {
+    return reducer.lastSequence.has(sessionId)
+      || reducer.bySession.has(sessionId)
+      || this.lifecycleSequenceById.has(sessionId)
+      || this.pendingInputSequenceById.has(sessionId)
+      || this.hydratedSessionIds.has(sessionId);
+  }
+  /**
+   * Record that the session's live state is now numbered by `stream`
+   * (undefined: the main daemon). State numbered by another stream is
+   * reset and re-fetched first. Returns true when a reset happened.
+   */
+  private moveSessionToStream(sessionId: PiSessionId, stream: string | undefined): boolean {
+    const current = this.projectStreamBySession.get(sessionId);
+    if (current === stream) return false;
+    const reset = this.hasSessionLiveState(sessionId);
+    if (reset) this.finishMovedSessions(this.resetMovedSessionState([sessionId]));
+    if (stream === undefined) this.projectStreamBySession.delete(sessionId);
+    else this.projectStreamBySession.set(sessionId, stream);
+    this.noteSessionOwnerChange(sessionId);
+    return reset;
+  }
+  /**
+   * For list and pending-input observations: true when the observation's
+   * stream is the one the session's live state is numbered by, binding a
+   * session that has no live state yet. A mismatch is rejected (unknown);
+   * the live event path or a `session.moved` notice resets it.
+   */
+  private bindObservationStream(sessionId: PiSessionId, stream: string | undefined): boolean {
+    const current = this.projectStreamBySession.get(sessionId);
+    if (current === stream) return true;
+    if (this.hasSessionLiveState(sessionId)) return false;
+    if (stream === undefined) this.projectStreamBySession.delete(sessionId);
+    else this.projectStreamBySession.set(sessionId, stream);
+    this.noteSessionOwnerChange(sessionId);
+    return true;
+  }
+  /**
+   * A list row's `live`/`inputState` is numbered by the list's daemon, or,
+   * when the row names its own `stream` (`'main'` for the main daemon) and
+   * `streamEpoch`, by that daemon. Accepted only when that stream's epoch is
+   * current and the session's live state is numbered by the same stream.
+   */
+  private isListRowStreamCurrent(sessionId: PiSessionId, listStream: string | undefined, item: PiSessionListItem | undefined): boolean {
+    let stream = listStream;
+    if (typeof item?.stream === 'string' && item.stream.length > 0) {
+      stream = item.stream === MAIN_STREAM_ID ? undefined : item.stream;
+      if (!this.isStreamEpochCurrent(stream, item.streamEpoch)) return false;
+    }
+    return this.bindObservationStream(sessionId, stream);
+  }
+  /** Established epoch for a stream: the main epoch, or a project stream's
+   *  (adopting a first or newer one through `acceptProjectStreamEpoch`). */
+  private isStreamEpochCurrent(stream: string | undefined, epoch: string | null | undefined): boolean {
+    if (!epoch) return false;
+    if (stream === undefined) return epoch === this.streamEpoch;
+    return this.acceptProjectStreamEpoch(stream, epoch);
+  }
+  /**
+   * Drop the live state of sessions whose owning daemon changed (a
+   * `session.moved` notice, frames from another daemon, or a restarted
+   * project daemon): their sequence markers, transcripts, and hydration
+   * claims belong to the old daemon's stream. Busy rows settle quietly
+   * (unless this client is still sending), pending input returns to unknown
+   * with a `cleared` transition, and catalog metadata stays. The result is
+   * passed to `finishMovedSessions` once state is committed.
+   */
+  private resetMovedSessionState(ids: Iterable<PiSessionId>): {
+    residents: PiSessionId[];
+    directories: string[];
+    cleared: PendingInputTransition[];
+    touched: PiSessionId[];
+  } {
+    const residents: PiSessionId[] = [];
+    const directories = new Set<string>();
+    const cleared: PendingInputTransition[] = [];
+    const touched: PiSessionId[] = [];
+    let catalog = this.state.catalog;
+    let reducer = this.state.reducer;
+    for (const sessionId of new Set(ids)) {
+      touched.push(sessionId);
+      const record = catalog.byId.get(sessionId);
+      if (record) directories.add(record.directory);
+      if (record?.pendingInput != null || (!record && this.openedPendingInputById.has(sessionId))) {
+        const directory = record?.directory ?? this.openedPendingInputById.get(sessionId) ?? '';
+        cleared.push({ type: 'cleared', sessionId, directory, pending: null });
+      }
+      if (record && record.pendingInput !== undefined) {
+        const byId = new Map(catalog.byId);
+        byId.set(sessionId, { ...record, pendingInput: undefined });
+        catalog = { ...catalog, byId };
+      }
+      const current = catalog.byId.get(sessionId);
+      if ((current?.lifecycle === 'busy' || current?.lifecycle === 'retry') && !this.pendingPromptById.has(sessionId)) {
+        catalog = applyLifecycleChange(catalog, sessionId, 'idle');
+        removeSessionActivityTiming(sessionId);
+      }
+      this.lifecycleSequenceById.delete(sessionId);
+      this.pendingInputSequenceById.delete(sessionId);
+      this.pendingMetadataBackfillAttempted.delete(sessionId);
+      if (this.hydratedSessionIds.delete(sessionId)) residents.push(sessionId);
+      this.restoringTranscriptById.delete(sessionId);
+      this.hydrateInflightById.delete(sessionId);
+      this.historyInflightById.delete(sessionId);
+      const generation = this.navigationGenerationById.get(sessionId);
+      if (generation !== undefined) this.navigationGenerationById.set(sessionId, generation + 1);
+      reducer = withoutReducerSession(reducer, sessionId);
+    }
+    if (touched.length > 0) {
+      this.state = { ...this.state, catalog, reducer, hydratedSessionIds: new Set(this.hydratedSessionIds) };
+    }
+    return { residents, directories: [...directories], cleared, touched };
+  }
+  /** Publish a `resetMovedSessionState` result and re-fetch the sessions
+   *  (residents) and their folders from their current owners. */
+  private finishMovedSessions(result: ReturnType<PiSessionStore['resetMovedSessionState']>): void {
+    if (result.touched.length === 0) return;
+    this.emitPendingInputTransitions(result.cleared);
+    this.emit([TOPIC_CHROME, TOPIC_CATALOG, ...result.touched.map((id) => `session:${id}`)]);
+    if (result.residents.length > 0 || result.directories.length > 0) {
+      this.queueSyncRecovery({ directories: result.directories, residents: result.residents });
+    }
   }
   /**
    * Ordering gate for the `live` lifecycle a listing samples from resident
@@ -445,7 +688,8 @@ export class PiSessionStore {
     commit: (items: readonly PiSessionListItem[]) => void;
   } {
     const epoch = typeof response.streamEpoch === 'string' && response.streamEpoch.length > 0 ? response.streamEpoch : null;
-    if (!epoch || epoch !== this.streamEpoch) return { options: undefined, commit: () => undefined };
+    const listStream = projectStreamOf(response);
+    if (!this.isStreamEpochCurrent(listStream, epoch)) return { options: undefined, commit: () => undefined };
     // A list-asserted busy row is kept current only by live events. Without
     // an attached stream (for example no folder focused) nothing could ever
     // settle it, so the observation stays unknown. First attach (`open`)
@@ -454,8 +698,9 @@ export class PiSessionStore {
     const accepted = new Set<PiSessionId>();
     const acceptedSends = new Set<PiSessionId>();
     const options: DirectoryListLiveOptions = {
-      acceptLiveObservation: (sessionId, sequence) => {
+      acceptLiveObservation: (sessionId, sequence, item) => {
         if (!Number.isSafeInteger(sequence) || sequence < 0) return false;
+        if (!this.isListRowStreamCurrent(sessionId, listStream, item)) return false;
         // A hydrated transcript's cursor is authoritative lifecycle state (its
         // row mirrors the reducer); a cold session's reducer cursor only
         // reflects content events, which cannot change lifecycle.
@@ -480,7 +725,7 @@ export class PiSessionStore {
       },
     };
     const commit = (items: readonly PiSessionListItem[]) => {
-      if (epoch !== this.streamEpoch) return;
+      if (!this.isStreamEpochCurrent(listStream, epoch)) return;
       for (const item of items) {
         if (item.live?.lifecycle === 'idle' && acceptedSends.has(item.session.id)) {
           this.reconcileAcceptedPromptFromList(item.session.id);
@@ -518,12 +763,14 @@ export class PiSessionStore {
     commit: (items: readonly PiSessionListItem[]) => void;
   } {
     const epoch = typeof response.streamEpoch === 'string' && response.streamEpoch.length > 0 ? response.streamEpoch : null;
-    if (!epoch || epoch !== this.streamEpoch) return { options: undefined, commit: () => undefined };
+    const listStream = projectStreamOf(response);
+    if (!this.isStreamEpochCurrent(listStream, epoch)) return { options: undefined, commit: () => undefined };
     if (!this.stream && !streamAttaching) return { options: undefined, commit: () => undefined };
     const accepted = new Map<PiSessionId, number>();
     const options: DirectoryListLiveOptions = {
-      acceptPendingInputObservation: (sessionId, sequence) => {
+      acceptPendingInputObservation: (sessionId, sequence, item) => {
         if (!Number.isSafeInteger(sequence) || sequence < 0) return false;
+        if (!this.isListRowStreamCurrent(sessionId, listStream, item)) return false;
         if (sequence < (this.pendingInputSequenceById.get(sessionId) ?? -1)) return false;
         const known = accepted.get(sessionId);
         if (known === undefined || sequence > known) accepted.set(sessionId, sequence);
@@ -531,7 +778,7 @@ export class PiSessionStore {
       },
     };
     const commit = (items: readonly PiSessionListItem[]) => {
-      if (epoch !== this.streamEpoch) return;
+      if (!this.isStreamEpochCurrent(listStream, epoch)) return;
       if (accepted.size === 0) return;
       const sequences = new Map<PiSessionId, number>();
       for (const item of items) {
@@ -813,6 +1060,7 @@ export class PiSessionStore {
         const directory = this.resolveSessionDirectory(sessionId) ?? this.state.directory ?? undefined;
         if (!directory) return; // obligation retained until the session's directory is known
         try {
+          const asked = this.ownershipClock;
           const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
           if (!passIsCurrent()) return;
           if (detail.session.id !== sessionId) return;
@@ -822,7 +1070,7 @@ export class PiSessionStore {
           }
           // A stale-epoch response predates the daemon restart; keep the
           // obligation so the next pass re-reads from the current daemon.
-          if (!this.isResponseEpochCurrent(detail) || !passIsCurrent()) return;
+          if (!this.isResponseEpochCurrent(detail, asked) || !passIsCurrent()) return;
           const current = this.state.reducer.bySession.get(sessionId);
           if (!current || current.lastSequence <= detail.lastSequence) {
             if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
@@ -1081,10 +1329,18 @@ export class PiSessionStore {
   private sendUnarchiveCounter = 0;
   private readonly catalogCache: PiSessionCatalogCache;
   private unsubscribeRuntime: () => void;
+  private uninstallSessionStreamEpochResolver: () => void;
 
   constructor(catalogCache: PiSessionCatalogCache = getPiSessionCatalogCache()) {
     this.catalogCache = catalogCache;
     this.state = initialSessionStoreState(this.readCachedCatalog(getRuntimeKey()));
+    // Sends to a session on a project daemon carry that daemon's epoch.
+    this.uninstallSessionStreamEpochResolver = setPiSessionStreamEpochResolver((runtimeKey, sessionId) => {
+      if (runtimeKey !== getRuntimeKey()) return undefined;
+      const stream = this.projectStreamBySession.get(sessionId);
+      if (stream === undefined) return undefined;
+      return this.projectStreamEpochs.get(stream) ?? null;
+    });
     this.unsubscribeRuntime = subscribeRuntimeEndpointChanged((detail) => {
       if (detail.runtimeKey === detail.previousRuntimeKey) {
         this.reconnectAfterTransportSwitch();
@@ -1253,6 +1509,11 @@ export class PiSessionStore {
     // applies; the incoming runtime establishes a fresh epoch.
     this.streamEpoch = null;
     this.retiredStreamEpochs.clear();
+    this.projectStreamEpochs.clear();
+    this.projectStreamBySession.clear();
+    this.sessionOwnerChangedAt.clear();
+    this.sessionOwnerUnknown.clear();
+    this.projectEventCursor = undefined;
     this.lifecycleSequenceById.clear();
     this.pendingInputSequenceById.clear();
     this.openedPendingInputById.clear();
@@ -1304,6 +1565,7 @@ export class PiSessionStore {
     this.catalogCache.flush();
     this.resetLiveRuntimeState();
     this.unsubscribeRuntime();
+    this.uninstallSessionStreamEpochResolver();
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
     this.navigationCounter = 0;
@@ -1448,10 +1710,15 @@ export class PiSessionStore {
   private applyPendingInputList(response: PiPendingInputListResponse): void {
     // A response from a previous daemon process predates the current stream
     // epoch; drop it like a stale list so prior rows survive with a retry path.
-    if (!this.isResponseEpochCurrent(response)) return;
+    // Main entries are checked against the main epoch inside the catalog
+    // commit; each project daemon's entries against that stream's epoch.
     const nextCatalog = applyPendingInputListToCatalog(this.state.catalog, response, {
-      acceptPendingInputObservation: (sessionId, sequence) => this.acceptPendingInputSequence(sessionId, sequence),
+      acceptPendingInputObservation: (sessionId, sequence, stream) => (
+        this.bindObservationStream(sessionId, stream) && this.acceptPendingInputSequence(sessionId, sequence)
+      ),
       streamEpoch: this.streamEpoch,
+      acceptProjectStreamEpoch: (stream, epoch) => this.isStreamEpochCurrent(stream, epoch),
+      streamOf: (sessionId) => this.projectStreamBySession.get(sessionId),
     });
     if (nextCatalog !== this.state.catalog) {
       this.state = { ...this.state, catalog: nextCatalog };
@@ -1601,7 +1868,7 @@ export class PiSessionStore {
       // A response generated by a previous daemon process predates the
       // current stream epoch; treat it like a transient list failure so
       // prior rows survive and the directory keeps its retry path.
-      if (!this.isResponseEpochCurrent(result)) {
+      if (!this.isListResponseCurrent(result)) {
         throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
       }
       const listedSessions = this.filterDeletedListItems(result.sessions);
@@ -1849,6 +2116,7 @@ export class PiSessionStore {
     }, {
       ...(this.streamEpoch ? { streamEpoch: this.streamEpoch } : {}),
       ...(fromSequence !== undefined ? { fromSequence } : {}),
+      ...(this.projectEventCursor ? { cursor: this.projectEventCursor } : {}),
       runtimeKey,
     });
   }
@@ -2104,7 +2372,7 @@ export class PiSessionStore {
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return { kind: 'stale' };
       // A stale-epoch list predates the daemon restart; retry once, then
       // surface a scoped failure rather than committing old membership.
-      if (!this.isResponseEpochCurrent(result)) {
+      if (!this.isListResponseCurrent(result)) {
         throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
       }
       return { kind: 'ok', payload: result };
@@ -2117,7 +2385,7 @@ export class PiSessionStore {
       try {
         const result = await piClient.listSessions({ directory: resolvedDirectory, runtimeKey });
         if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return { kind: 'stale' };
-        if (!this.isResponseEpochCurrent(result)) {
+        if (!this.isListResponseCurrent(result)) {
           throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
         }
         return { kind: 'ok', payload: result };
@@ -2306,7 +2574,7 @@ export class PiSessionStore {
       const result = await piClient.listSessions(scope);
       if (expected !== this.runtimeGeneration) return;
       // A stale-epoch first-attach list predates the daemon restart.
-      if (!this.isResponseEpochCurrent(result)) {
+      if (!this.isListResponseCurrent(result)) {
         throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
       }
       // Filter tombstones once, before matched-session lookup, so a deleted
@@ -2455,11 +2723,22 @@ export class PiSessionStore {
     this.emitChrome();
     this.touchLastAccess(sessionId);
     const resident = this.state.reducer.bySession.get(sessionId);
-    if (this.stream && this.hydratedSessionIds.has(sessionId) && resident) {
+    // A transcript read from disk while its sandbox could not start is read
+    // again on every visit: the sandbox may work by now.
+    if (this.stream && this.hydratedSessionIds.has(sessionId) && resident && !resident.readOnly) {
       this.scheduleIdleEviction();
       return;
     }
-    await this.hydrate(sessionId, this.runtimeGeneration);
+    await this.hydrate(sessionId, this.runtimeGeneration, undefined, resident?.readOnly ? { force: true } : undefined);
+  }
+
+  /** Read a session's detail again, whatever is resident. Used for a
+   *  transcript shown read-only because its sandbox could not start: the
+   *  answer is live once the sandbox works, and read-only again (or a load
+   *  error) while it does not. */
+  async reloadSession(sessionId: PiSessionId): Promise<void> {
+    if (!sessionId) return;
+    await this.hydrate(sessionId, this.runtimeGeneration, undefined, { force: true });
   }
 
   /** Last selection the cluster recorded for this directory. Returns
@@ -2793,6 +3072,16 @@ export class PiSessionStore {
     // Existing sessions with a missing or blank resident row must restore the
     // append-only log before going busy. A just-created session is the narrow
     // exception: its creation detail authoritatively established an empty log.
+    // A read-only transcript (its sandbox could not start) is read again
+    // first: when the sandbox works now, the answer binds the session to its
+    // daemon, so the send carries that daemon's epoch.
+    if (existing?.readOnly) {
+      await this.hydrate(sessionId, expected, undefined, { force: true });
+      if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
+        throw new Error('Runtime changed before sending message.');
+      }
+      existing = this.state.reducer.bySession.get(sessionId);
+    }
     if ((!existing || existing.messages.size === 0) && !hasAuthoritativeCreatedEmptyTranscript) {
       await this.hydrate(sessionId, expected);
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
@@ -2902,10 +3191,12 @@ export class PiSessionStore {
       finishUnarchive(error);
       recordMobileDiagnosticError('prompt-send', error);
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) throw error;
-      if (isSessionInUseError(error)) {
+      if (isSessionInUseError(error) && !isSessionSwitchingError(error)) {
         // Another PiChamber instance owns this session. Record the chrome
         // signal so the composer locks for this session until a later
         // successful hydrate clears it; the transcript itself is preserved.
+        // A session only finishing its turn before it changes daemons is
+        // not locked: the same send works once it has moved.
         this.failSessionLoad(sessionId, error);
       }
       if (this.promptGenerationById.get(sessionId) === generation) {
@@ -2939,6 +3230,7 @@ export class PiSessionStore {
       || this.state.directory;
     if (!directory) return false;
     try {
+      const asked = this.ownershipClock;
       const detail = await piClient.getSession(sessionId, {
         directory,
         runtimeKey: getRuntimeKey(),
@@ -2952,7 +3244,7 @@ export class PiSessionStore {
       }
       // A daemon restart verified while the read was in flight makes it a
       // retired lifetime's state: never settle or commit it.
-      if (!this.isResponseEpochCurrent(detail)) return false;
+      if (!this.isResponseEpochCurrent(detail, asked)) return false;
       const currentSequence = this.state.reducer.lastSequence.get(sessionId)
         ?? this.state.reducer.bySession.get(sessionId)?.lastSequence
         ?? -1;
@@ -3464,12 +3756,15 @@ export class PiSessionStore {
     const attachedStream = this.stream;
     try {
       if (this.stream) {
+        // A detail handed in was fetched by the caller; only one asked for
+        // here is known to predate a later change of daemon.
+        const asked = known ? undefined : this.ownershipClock;
         const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
         if (expected !== this.runtimeGeneration) return;
         if (detail.session.id !== sessionId) return;
         // A detail generated by a previous daemon process predates the
         // current stream epoch; committing it would write a foreign cursor.
-        if (!this.isResponseEpochCurrent(detail)) return;
+        if (!this.isResponseEpochCurrent(detail, asked)) return;
         // A deletion committed while the detail request was in flight wins
         // over the response; committing here would resurrect the row.
         if (this.isDeleted(sessionId)) return;
@@ -3556,6 +3851,7 @@ export class PiSessionStore {
       }
       if (!hydratedSession) {
         try {
+          const asked = known ? undefined : this.ownershipClock;
           const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
           if (expected !== this.runtimeGeneration) {
             bootstrap.stream?.dispose();
@@ -3567,7 +3863,7 @@ export class PiSessionStore {
             return;
           }
           // The detail predates the current stream epoch.
-          if (!this.isResponseEpochCurrent(detail)) {
+          if (!this.isResponseEpochCurrent(detail, asked)) {
             bootstrap.stream?.dispose();
             return;
           }
@@ -3591,10 +3887,11 @@ export class PiSessionStore {
             this.handleInvalidSession(sessionId, directory, expected, buffered);
             return;
           }
-          if (expected === this.runtimeGeneration && isSessionInUseError(error)) {
-            // Another owner holds this session: keep the id selected so the
-            // chat surfaces its load error instead of navigating away.
-            // Buffered live events for unrelated sessions still apply.
+          if (expected === this.runtimeGeneration && isSessionScopedRefusal(error)) {
+            // Another owner holds this session, or its project's sandbox
+            // cannot start: keep the id selected so the chat surfaces its
+            // load error instead of navigating away, and keep the cluster
+            // stream. Buffered live events for unrelated sessions still apply.
             if (buffered.length > 0) this.commitEvents(buffered);
             this.failSessionLoad(sessionId, asError(error));
             return;
@@ -3617,7 +3914,13 @@ export class PiSessionStore {
         return;
       }
       this.stream = bootstrap.stream;
-      this.commitHydratedSession(hydratedSession, buffered, hydratedInput, detailSessionForCatalog);
+      // Events that arrived while the detail was loading go through the
+      // same path as live ones, after the detail: applied directly they
+      // would skip project-stream epoch checks, stream ownership and
+      // `session.moved`, and a project daemon's sequence would be taken for
+      // a main-daemon position.
+      this.commitHydratedSession(hydratedSession, [], hydratedInput, detailSessionForCatalog);
+      if (buffered.length > 0) this.commitEvents(buffered);
       ready = true;
     } catch (error) {
       if (expected !== this.runtimeGeneration) return;
@@ -3628,19 +3931,21 @@ export class PiSessionStore {
         this.handleInvalidSession(sessionId, directory, expected);
         return;
       }
-      if (isSessionInUseError(error)) {
-        // Another owner holds this session: keep the id selected so the chat
-        // surfaces its load error instead of navigating away.
+      if (isSessionScopedRefusal(error)) {
+        // Another owner holds this session, or its project's sandbox cannot
+        // start: keep the id selected so the chat surfaces its load error
+        // instead of navigating away. Neither is a connection failure.
         this.failSessionLoad(sessionId, asError(error));
         return;
       }
       if (isSessionRuntimeConflictError(error)) {
         try {
+          const asked = this.ownershipClock;
           const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
           if (expected !== this.runtimeGeneration) return;
           if (detail.session.id !== sessionId) return;
           if (this.isDeleted(sessionId)) return;
-          if (!this.isResponseEpochCurrent(detail)) return;
+          if (!this.isResponseEpochCurrent(detail, asked)) return;
           if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
           if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
             adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
@@ -3722,6 +4027,7 @@ export class PiSessionStore {
         runtimeKey,
         lastKnownSequence: cursorAtReconnect,
         streamEpoch: this.streamEpoch ?? undefined,
+        ...(this.projectEventCursor ? { cursor: this.projectEventCursor } : {}),
         onEvent: (event) => {
           if (!callbackIsCurrent()) return;
           if (
@@ -3784,6 +4090,23 @@ export class PiSessionStore {
         disconnectedStream?.dispose();
         this.streamGeneration = replacementStreamGeneration;
         this.stream = result.stream;
+        // A selected session on a project daemon was read under that
+        // daemon's epoch: merge it only when that epoch is current, after
+        // resetting state the session carried from another daemon.
+        // A read-only detail (disk history while the project's sandbox
+        // cannot run) is committed only while no project stream numbers the
+        // session, and binds it to none. A main-daemon detail means the
+        // session's live state is the main daemon's now: state a project
+        // daemon numbered is reset before the merge.
+        const sessionStream = result.sessionStream;
+        const rejectedStreamSession = (
+          result.readOnlyDetail
+            ? this.projectStreamBySession.has(sessionId)
+            : sessionStream !== undefined && !this.isStreamEpochCurrent(sessionStream.stream, sessionStream.epoch)
+        )
+          ? sessionId
+          : null;
+        if (!result.readOnlyDetail && rejectedStreamSession === null) this.moveSessionToStream(sessionId, sessionStream?.stream);
         const reducer: PiReducerState = {
           bySession: new Map(this.state.reducer.bySession),
           lastSequence: new Map(this.state.reducer.lastSequence),
@@ -3791,6 +4114,7 @@ export class PiSessionStore {
         const mergedSessionIds: PiSessionId[] = [];
         const settledSessionIds: PiSessionId[] = [];
         for (const [sId, sState] of result.reducerState.bySession.entries()) {
+          if (sId === rejectedStreamSession) continue;
           const previous = reducer.bySession.get(sId);
           const merged = this.mergeHydratedSession(sState, previous);
           reducer.bySession.set(sId, merged);
@@ -3805,7 +4129,7 @@ export class PiSessionStore {
             settledSessionIds.push(sId);
           }
         }
-        for (const sId of result.reducerState.bySession.keys()) this.hydratedSessionIds.add(sId);
+        for (const sId of mergedSessionIds) this.hydratedSessionIds.add(sId);
         // The resumed cursor can skip lifecycle events the snapshot already
         // covers, so the snapshot is the only settle signal: mirror each
         // merged session into its catalog row, as a hydrate commit does.
@@ -3860,6 +4184,7 @@ export class PiSessionStore {
     } finally { this.recovering = false; }
   }
   private apply(event: PiSessionEvent) {
+    if (typeof event.cursor === 'string' && event.cursor.length > 0) this.projectEventCursor = event.cursor;
     // A draft session's events stay out of the session list and transcripts.
     if (event.draft === true) {
       this.emitDraftEvent(event);
@@ -4077,6 +4402,14 @@ export class PiSessionStore {
 
   private commitEvents(events: readonly PiSessionEvent[]) {
     if (events.length === 0) return;
+    const moves: ReturnType<PiSessionStore['resetMovedSessionState']>[] = [];
+    this.commitEventBatch(events, moves);
+    // Sessions reset because their owning daemon changed publish and
+    // re-fetch once the batch has committed.
+    for (const move of moves) this.finishMovedSessions(move);
+  }
+
+  private commitEventBatch(events: readonly PiSessionEvent[], moves: ReturnType<PiSessionStore['resetMovedSessionState']>[]) {
     let working = this.state.reducer;
     let applied = false;
     let touched = false;
@@ -4099,44 +4432,87 @@ export class PiSessionStore {
       deletedInBatchByEpoch.set(epoch, ids);
     }
     let epochChangedResidents: Set<PiSessionId> | null = null;
+    // Drop sessions whose owning daemon changed, from both the committed
+    // state and this batch's work.
+    const resetInBatch = (ids: readonly PiSessionId[]) => {
+      if (ids.length === 0) return;
+      const idSet = new Set(ids);
+      moves.push(this.resetMovedSessionState(ids));
+      for (const id of ids) {
+        working = withoutReducerSession(working, id);
+        restoreIds.delete(id);
+        touchedSessionIds.delete(id);
+      }
+      for (let i = acceptedEvents.length - 1; i >= 0; i -= 1) {
+        if (idSet.has(acceptedEvents[i].sessionId)) acceptedEvents.splice(i, 1);
+      }
+    };
     for (const event of events) {
-      // Verified stream-epoch handling. Events stamped with a retired epoch
-      // were emitted by a displaced daemon lifetime — rejected wholesale,
-      // snapshots included, so a stale frame can never downgrade the
-      // baseline. Events stamped with a new unseen epoch are emitted by a
-      // restarted daemon: only a snapshot may establish the new epoch
-      // baseline; any other old/new-epoch event is rejected.
+      const eventStream = projectStreamOf(event);
+      if (event.name === 'session.moved') {
+        // A server notice that the session changed daemons: its live state
+        // is numbered by the old owner, so drop it and re-fetch.
+        resetInBatch([event.sessionId]);
+        this.projectStreamBySession.delete(event.sessionId);
+        this.noteSessionOwnerChange(event.sessionId, true);
+        continue;
+      }
       const eventEpoch = typeof event.streamEpoch === 'string' && event.streamEpoch.length > 0
         ? event.streamEpoch
         : undefined;
-      // Once an epoch-capable daemon establishes its lifetime, every live
-      // frame must identify that lifetime. Marker-less late frames cannot be
-      // proven current and are rejected rather than merged into the baseline.
-      if (!eventEpoch && this.streamEpoch !== null) continue;
-      if (eventEpoch && this.retiredStreamEpochs.has(eventEpoch)) continue;
-      if (eventEpoch && this.streamEpoch !== null && eventEpoch !== this.streamEpoch) {
-        if (event.name !== 'session.snapshot') continue;
-        this.adoptStreamEpoch(eventEpoch);
-        const previousResidents = this.resetForEpochChange();
-        // The reset discards the batch's old-epoch work: cursors and rows
-        // from the previous lifetime are incompatible with the new one.
-        working = createReducerState();
-        restoreIds.clear();
-        if (epochChangedResidents) {
-          for (const resident of previousResidents) epochChangedResidents.add(resident);
-        } else {
-          epochChangedResidents = previousResidents;
+      if (eventStream !== undefined) {
+        // A project daemon's frame: checked against that stream's epoch,
+        // never the main one. Its restart resets only its own sessions.
+        if (!eventEpoch) continue;
+        if (!this.acceptProjectStreamEpoch(eventStream, eventEpoch, event.name === 'session.snapshot' ? resetInBatch : undefined)) continue;
+        if (this.projectStreamBySession.get(event.sessionId) !== eventStream) {
+          if (this.hasSessionLiveState(event.sessionId, working)) resetInBatch([event.sessionId]);
+          this.projectStreamBySession.set(event.sessionId, eventStream);
+          this.noteSessionOwnerChange(event.sessionId);
         }
-        touchedSessionIds.clear();
-        extensionCatalogChanges.clear();
-        // Deletions accepted from the displaced epoch must not commit after
-        // the reducer baseline resets to the new daemon lifetime.
-        deletedIds.clear();
-        acceptedEvents.length = 0;
-        applied = false;
-        touched = false;
+      } else {
+        // Verified stream-epoch handling. Events stamped with a retired epoch
+        // were emitted by a displaced daemon lifetime — rejected wholesale,
+        // snapshots included, so a stale frame can never downgrade the
+        // baseline. Events stamped with a new unseen epoch are emitted by a
+        // restarted daemon: only a snapshot may establish the new epoch
+        // baseline; any other old/new-epoch event is rejected.
+        // Once an epoch-capable daemon establishes its lifetime, every live
+        // frame must identify that lifetime. Marker-less late frames cannot be
+        // proven current and are rejected rather than merged into the baseline.
+        if (!eventEpoch && this.streamEpoch !== null) continue;
+        if (eventEpoch && this.retiredStreamEpochs.has(eventEpoch)) continue;
+        if (eventEpoch && this.streamEpoch !== null && eventEpoch !== this.streamEpoch) {
+          if (event.name !== 'session.snapshot') continue;
+          this.adoptStreamEpoch(eventEpoch);
+          const previousResidents = this.resetForEpochChange();
+          // The reset discards the batch's old-epoch work: cursors and rows
+          // from the previous lifetime are incompatible with the new one.
+          working = createReducerState();
+          restoreIds.clear();
+          if (epochChangedResidents) {
+            for (const resident of previousResidents) epochChangedResidents.add(resident);
+          } else {
+            epochChangedResidents = previousResidents;
+          }
+          touchedSessionIds.clear();
+          extensionCatalogChanges.clear();
+          // Deletions accepted from the displaced epoch must not commit after
+          // the reducer baseline resets to the new daemon lifetime.
+          deletedIds.clear();
+          acceptedEvents.length = 0;
+          applied = false;
+          touched = false;
+        }
+        if (eventEpoch) this.adoptStreamEpoch(eventEpoch);
+        // A main frame for a session last numbered by a project daemon: the
+        // session came back to the main daemon without a notice.
+        if (this.projectStreamBySession.has(event.sessionId)) {
+          resetInBatch([event.sessionId]);
+          this.projectStreamBySession.delete(event.sessionId);
+          this.noteSessionOwnerChange(event.sessionId);
+        }
       }
-      if (eventEpoch) this.adoptStreamEpoch(eventEpoch);
       // Tombstone filter. Once a deletion is committed — by the local
       // initiator or an earlier echo — every later event for that session is
       // stale. Epoch handling runs first so an establishing snapshot still
@@ -4673,9 +5049,11 @@ export class PiSessionStore {
   }
   private directory() { if (!this.state.directory) throw new PiRequestError('DAEMON_UNAVAILABLE'); return this.state.directory; }
   private streamCursor(): number | undefined {
+    // The main daemon's resume position. Sessions on project daemons are
+    // numbered by their own streams and resume through the opaque cursor.
     let max = -1;
-    for (const sequence of this.state.reducer.lastSequence.values()) {
-      if (sequence > max) max = sequence;
+    for (const [sessionId, sequence] of this.state.reducer.lastSequence) {
+      if (sequence > max && !this.projectStreamBySession.has(sessionId)) max = sequence;
     }
     return max >= 0 ? max : undefined;
   }

@@ -61,6 +61,17 @@ export interface PiSession {
   timeArchived?: number;
   /** Total message count from the most recent authoritative snapshot. */
   messageCount?: number;
+  /** Set by the server when a sandbox daemon runs the session right now. */
+  sandboxed?: boolean;
+  /** Set by the server while the session finishes a turn in its old daemon
+   *  after its project switched sandbox mode; it moves at its next idle
+   *  edge. `to` is the project's new mode. */
+  pendingSwitch?: PiSessionPendingSwitch;
+}
+
+/** Sandbox mode a busy session switches to after its turn. */
+export interface PiSessionPendingSwitch {
+  to: 'nono' | 'off';
 }
 
 /** A reference to a model the user can pick in PiChamber. */

@@ -407,4 +407,122 @@ describe('Pi UI settings store', () => {
     expect(await readlink(file)).toBe('../dotfiles/settings.json');
     expect(await readJson(target)).toMatchObject({ themeId: 'new' });
   });
+
+  describe('project sandbox setting', () => {
+    const nono = { mode: 'nono', allowHosts: ['registry.npmjs.org'], allowLocalPorts: [8080], extraFolders: [{ path: '/srv/docs', access: 'read' }] };
+
+    it('stores the setting with the project in host-local state and survives a restart', async () => {
+      const { file, runtimeFile, store } = await makeStore();
+      await store.write({ projects: [{ id: 'one', path: '/work/one' }, { id: 'two', path: '/work/two' }] });
+
+      await store.setProjectSandbox('one', nono);
+
+      const restarted = createPiUiSettingsStore({ file, runtimeFile });
+      await expect(restarted.read()).resolves.toMatchObject({
+        projects: [{ id: 'one', path: '/work/one', sandbox: nono }, { id: 'two', path: '/work/two' }],
+      });
+      expect((await readJson(runtimeFile)).projects[0].sandbox).toEqual(nono);
+      // The portable file, the one copied between machines, never holds it.
+      expect(JSON.stringify(await readJson(file))).not.toContain('sandbox');
+    });
+
+    it('keeps the setting when a client rewrites the project list without it, and ignores one a client sends', async () => {
+      const { store } = await makeStore();
+      await store.write({ projects: [{ id: 'one', path: '/work/one' }, { id: 'two', path: '/work/two' }] });
+      await store.setProjectSandbox('one', nono);
+
+      // Clients send the whole list back (for example after a reorder) and
+      // drop fields they do not know. Neither path may change the setting.
+      await store.write({
+        projects: [
+          { id: 'two', path: '/work/two', sandbox: { mode: 'nono', allowHosts: [], allowLocalPorts: [], extraFolders: [] } },
+          { id: 'one', path: '/work/one', label: 'One' },
+        ],
+      });
+
+      await expect(store.read()).resolves.toMatchObject({
+        projects: [{ id: 'two', path: '/work/two' }, { id: 'one', path: '/work/one', label: 'One', sandbox: nono }],
+      });
+      expect((await store.read()).projects[0].sandbox).toBeUndefined();
+    });
+
+    it('turns the setting off, and refuses an unknown project or an invalid setting', async () => {
+      const { store } = await makeStore();
+      await store.write({ projects: [{ id: 'one', path: '/work/one' }] });
+      await store.setProjectSandbox('one', nono);
+      await store.setProjectSandbox('one', { ...nono, mode: 'off' });
+      await expect(store.read()).resolves.toMatchObject({ projects: [{ id: 'one', sandbox: { ...nono, mode: 'off' } }] });
+
+      await expect(store.setProjectSandbox('missing', nono)).rejects.toMatchObject({ code: 'PROJECT_NOT_FOUND' });
+      for (const [invalid, reason] of [
+        [{ mode: 'docker' }, undefined],
+        [{ mode: 'nono', allowHosts: ['https://x'] }, 'HOSTS'],
+        [{ mode: 'nono', allowLocalPorts: [443] }, 'REFUSED_PORT'],
+        [{ mode: 'nono', allowLocalPorts: [70000] }, 'PORTS'],
+        [{ mode: 'nono', extraFolders: [{ path: 'relative', access: 'read' }] }, 'FOLDERS'],
+        [{ mode: 'nono', extraFolders: [{ path: '/srv', access: 'write' }] }, 'FOLDERS'],
+      ]) {
+        const refused = await store.setProjectSandbox('one', invalid).catch((error) => error);
+        expect(refused).toMatchObject({ code: 'INVALID_SANDBOX_SETTING' });
+        expect(refused.reason).toBe(reason);
+      }
+    });
+
+    it('merges the fields a project update names, so a stale copy cannot turn a sandbox off', async () => {
+      const { store, runtimeFile } = await makeStore();
+      await store.write({ projects: [{ id: 'one', path: '/work/one' }] });
+      // A project with no setting starts from the default with empty lists.
+      await store.setProjectSandbox('one', { allowHosts: ['github.com'] });
+      await expect(store.read()).resolves.toMatchObject({
+        projects: [{ id: 'one', sandbox: { mode: 'default', allowHosts: ['github.com'], allowLocalPorts: [], extraFolders: [] } }],
+      });
+      // One device turns it on; another, still showing Off, adds a port.
+      await store.setProjectSandbox('one', { mode: 'nono' });
+      await store.setProjectSandbox('one', { allowLocalPorts: [8080] });
+      await expect(store.read()).resolves.toMatchObject({
+        projects: [{ id: 'one', sandbox: { mode: 'nono', allowHosts: ['github.com'], allowLocalPorts: [8080], extraFolders: [] } }],
+      });
+      // No field at all is refused.
+      await expect(store.setProjectSandbox('one', {})).rejects.toMatchObject({ code: 'INVALID_SANDBOX_SETTING' });
+
+      // An unreadable stored setting runs sandboxed, so that is what a
+      // partial update starts from.
+      const state = JSON.parse(await readFile(runtimeFile, 'utf8'));
+      state.projects[0].sandbox = { mode: 'sometimes' };
+      await writeFile(runtimeFile, JSON.stringify(state));
+      await store.setProjectSandbox('one', { allowHosts: ['npmjs.org'] });
+      await expect(store.read()).resolves.toMatchObject({
+        projects: [{ id: 'one', sandbox: { mode: 'nono', allowHosts: ['npmjs.org'], allowLocalPorts: [], extraFolders: [] } }],
+      });
+    });
+
+    it('does not store the placeholder mode of an unreadable default: an update must name a mode', async () => {
+      const { store, runtimeFile } = await makeStore();
+      await store.write({ projects: [{ id: 'one', path: '/work/one' }] });
+      const state = JSON.parse(await readFile(runtimeFile, 'utf8'));
+      await writeFile(runtimeFile, JSON.stringify({ ...state, sandboxDefaults: { mode: 'sometimes' } }));
+      for (const patch of [{ acceptedLimits: [] }, { allowHosts: ['github.com'] }]) {
+        const refused = await store.setSandboxDefaults(patch).catch((error) => error);
+        expect(refused).toMatchObject({ code: 'INVALID_SANDBOX_SETTING', reason: 'MODE' });
+      }
+      expect(JSON.parse(await readFile(runtimeFile, 'utf8')).sandboxDefaults).toEqual({ mode: 'sometimes' });
+      await store.setSandboxDefaults({ mode: 'nono', allowHosts: ['github.com'] });
+      expect((await store.read()).sandboxDefaults).toEqual({ mode: 'nono', allowHosts: ['github.com'], acceptedLimits: [] });
+      // Readable again: a later update may leave the mode out.
+      await store.setSandboxDefaults({ allowHosts: [] });
+      expect((await store.read()).sandboxDefaults.mode).toBe('nono');
+    });
+
+    it('never takes a sandbox setting from a settings file copied from another machine', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'pichamber-ui-settings-'));
+      const file = join(root, 'settings.json');
+      const runtimeFile = join(root, 'runtime-state.json');
+      // A legacy flat file still carries projects; its local fields migrate,
+      // but a sandbox setting is only ever made on this host.
+      await writeFile(file, JSON.stringify({ projects: [{ id: 'one', path: '/work/one', sandbox: nono }] }));
+      const store = createPiUiSettingsStore({ file, runtimeFile });
+      const read = await store.read();
+      expect(read.projects).toEqual([{ id: 'one', path: '/work/one' }]);
+    });
+  });
 });

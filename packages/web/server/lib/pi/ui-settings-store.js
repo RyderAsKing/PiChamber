@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { writeFileAtomic } from '../fs/atomic-write.js';
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 import { withCrossProcessLock } from '../server/cross-process-lock.js';
+import { mergeProjectSandboxSetting, mergeSandboxDefaults, ProjectSandboxSettingError, readSandboxDefaults } from './sandbox/project-sandbox-setting.js';
 
 const MAX_SETTINGS_BYTES = 2 * 1024 * 1024;
 const PORTABLE_SETTINGS_MARKER = '__pichamberSettingsScope';
@@ -56,7 +57,7 @@ const PORTABLE_FIELDS = new Set([
 // still be consumed by the existing authenticated API without entering the
 // portable file.
 const LOCAL_FIELDS = new Set([
-  'lastDirectory', 'homeDirectory', 'projects', 'activeProjectId',
+  'lastDirectory', 'homeDirectory', 'projects', 'activeProjectId', 'sandboxDefaults',
   'securityScopedBookmarks', 'pinnedDirectories', 'openInAppId',
   'terminalShell', 'terminalLoginShells', 'desktopLanAccessEnabled',
   'desktopKeepAwakeEnabled', 'desktopProcessPerformanceRecordingEnabled',
@@ -156,6 +157,28 @@ export const createDockerInitialLocalSettings = () => {
   };
 };
 
+// A project's `sandbox` setting changes only through `setProjectSandbox`.
+// Clients write the whole project list back and drop fields they do not
+// know, so the stored setting is carried over by project id and any value a
+// client sends is ignored. Without this an older client could turn a
+// project's sandbox off just by reordering projects.
+const withoutSandbox = (project) => {
+  if (!isRecord(project) || !Object.hasOwn(project, 'sandbox')) return project;
+  const { sandbox: _ignored, ...rest } = project;
+  return rest;
+};
+
+const carrySandboxSettings = (incoming, current) => {
+  if (!Array.isArray(incoming)) return incoming;
+  const stored = new Map((Array.isArray(current) ? current : [])
+    .filter((project) => isRecord(project) && typeof project.id === 'string' && Object.hasOwn(project, 'sandbox'))
+    .map((project) => [project.id, project.sandbox]));
+  return incoming.map((project) => {
+    const next = withoutSandbox(project);
+    return isRecord(next) && stored.has(next.id) ? { ...next, sandbox: stored.get(next.id) } : next;
+  });
+};
+
 const writeRecord = async (file, value, fs) => {
   const serialized = `${JSON.stringify(value, null, 2)}\n`;
   if (Buffer.byteLength(serialized) > MAX_SETTINGS_BYTES) throw new Error('UI_SETTINGS_INVALID');
@@ -185,6 +208,13 @@ export const createPiUiSettingsStore = ({
         ...selectFields(runtimeRoot, LOCAL_FIELDS),
         ...selectFields(portableRoot, LOCAL_FIELDS),
       };
+      // A legacy flat settings.json may have come from another machine; a
+      // sandbox setting is only ever made on this host.
+      delete migratedRuntime.sandboxDefaults;
+      if (Object.hasOwn(runtimeRoot, 'sandboxDefaults')) migratedRuntime.sandboxDefaults = runtimeRoot.sandboxDefaults;
+      if (Object.hasOwn(selectFields(portableRoot, LOCAL_FIELDS), 'projects')) {
+        migratedRuntime.projects = carrySandboxSettings(portableRoot.projects, runtimeRoot.projects);
+      }
       const migratedPortable = {
         [PORTABLE_SETTINGS_MARKER]: PORTABLE_SETTINGS_VERSION,
         ...selectFields(portableRoot, PORTABLE_FIELDS),
@@ -239,6 +269,12 @@ export const createPiUiSettingsStore = ({
       const current = await readLocked();
       const portableChanges = selectFields(changes, PORTABLE_FIELDS);
       const localChanges = selectFields(changes, LOCAL_FIELDS);
+      if (Object.hasOwn(localChanges, 'projects')) {
+        localChanges.projects = carrySandboxSettings(localChanges.projects, current.projects);
+      }
+      // Like a project's setting, the sandbox default changes only through
+      // `setSandboxDefaults`.
+      delete localChanges.sandboxDefaults;
       const nextPortable = {
         [PORTABLE_SETTINGS_MARKER]: PORTABLE_SETTINGS_VERSION,
         ...selectFields(current, PORTABLE_FIELDS),
@@ -254,5 +290,55 @@ export const createPiUiSettingsStore = ({
     });
   };
 
-  return { file, runtimeFile, read, write };
+  /**
+   * Save one project's sandbox setting (host-local only). `patch` holds
+   * `mode`, `allowHosts`, `allowLocalPorts`, `extraFolders`, or several; a
+   * field it leaves out keeps the stored value. The merge happens under the
+   * store lock, so a device that only adds a host cannot turn off a sandbox
+   * another device just turned on.
+   */
+  const setProjectSandbox = async (projectId, patch) => {
+    // Refuse a malformed patch before taking the lock.
+    mergeProjectSandboxSetting(null, patch);
+    return runMutation(async () => {
+      const current = await readLocked();
+      const projects = Array.isArray(current.projects) ? current.projects : [];
+      const stored = typeof projectId === 'string'
+        ? projects.find((project) => isRecord(project) && project.id === projectId)
+        : undefined;
+      if (!stored) throw new ProjectSandboxSettingError(undefined, 'PROJECT_NOT_FOUND');
+      const sandbox = mergeProjectSandboxSetting(stored, patch);
+      const nextRuntime = {
+        ...selectFields(current, LOCAL_FIELDS),
+        projects: projects.map((project) => (isRecord(project) && project.id === projectId ? { ...project, sandbox } : project)),
+      };
+      await writeRecord(runtimeFile, nextRuntime, fs);
+      return { ...selectFields(current, PORTABLE_FIELDS), ...selectFields(nextRuntime, LOCAL_FIELDS) };
+    });
+  };
+
+  /**
+   * Save the host's sandbox default (host-local only). `patch` holds `mode`,
+   * `allowHosts`, or both; a field it leaves out keeps the stored value. The
+   * merge happens under the store lock, so a device that only adds a host
+   * cannot undo a mode another device just set.
+   */
+  const setSandboxDefaults = async (patch) => {
+    // Refuse a malformed patch before taking the lock.
+    mergeSandboxDefaults(readSandboxDefaults({}).defaults, patch);
+    return runMutation(async () => {
+      const current = await readLocked();
+      const stored = readSandboxDefaults(current);
+      // The mode of an unreadable stored default is a placeholder (off),
+      // while projects that follow it stay closed. A patch without a mode
+      // would store that placeholder and run them unsandboxed.
+      if (stored.invalid && patch.mode === undefined) throw new ProjectSandboxSettingError('MODE');
+      const sandboxDefaults = mergeSandboxDefaults(stored.defaults, patch);
+      const nextRuntime = { ...selectFields(current, LOCAL_FIELDS), sandboxDefaults };
+      await writeRecord(runtimeFile, nextRuntime, fs);
+      return { ...selectFields(current, PORTABLE_FIELDS), ...selectFields(nextRuntime, LOCAL_FIELDS) };
+    });
+  };
+
+  return { file, runtimeFile, read, write, setProjectSandbox, setSandboxDefaults };
 };

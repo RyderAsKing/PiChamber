@@ -56,6 +56,8 @@ const listItem = (id: string, directory: string, overrides?: {
   parentId?: string | null;
   preview?: string;
   messageCount?: number;
+  sandboxed?: boolean;
+  pendingSwitch?: { to: 'nono' | 'off' };
 }) => ({
   session: {
     id,
@@ -67,6 +69,8 @@ const listItem = (id: string, directory: string, overrides?: {
     ...(overrides?.archived !== undefined ? { archived: overrides.archived } : {}),
     ...(overrides?.timeArchived !== undefined ? { timeArchived: overrides.timeArchived } : {}),
     ...(overrides?.messageCount !== undefined ? { messageCount: overrides.messageCount } : {}),
+    ...(overrides?.sandboxed !== undefined ? { sandboxed: overrides.sandboxed } : {}),
+    ...(overrides?.pendingSwitch !== undefined ? { pendingSwitch: overrides.pendingSwitch } : {}),
   },
   updatedAt: overrides?.updatedAt ?? 1,
   ...(overrides?.preview !== undefined ? { preview: overrides.preview } : {}),
@@ -1852,6 +1856,46 @@ describe('catalog-owner list/mutation reconciliation', () => {
     expect(reconciled.byId.get('s-1')?.title).toBe('local-new');
     expect(reconciled.byId.get('s-1')?.archived).toBe(true);
     expect(reconciled.byId.get('s-1')?.archivedAt).toBe(99);
+  });
+
+  test('sandboxed: the listing marks a session run in a project sandbox, and a later listing without it clears it', () => {
+    let state = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('boxed', '/repo-a', { sandboxed: true }),
+      listItem('plain', '/repo-a'),
+    ], 10);
+    expect(state.byId.get('boxed')?.sandboxed).toBe(true);
+    expect(state.byId.get('plain')?.sandboxed).toBeUndefined();
+
+    state = applyDirectoryListToCatalog(state, '/repo-a', [
+      listItem('boxed', '/repo-a'),
+      listItem('plain', '/repo-a'),
+    ], 20);
+    expect(state.byId.get('boxed')?.sandboxed).toBeUndefined();
+  });
+
+  test('pending switch: the listing says a busy session switches sandbox mode after its turn, and a later listing without it clears it', () => {
+    let state = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('busy', '/repo-a', { pendingSwitch: { to: 'nono' } }),
+      listItem('idle', '/repo-a', { sandboxed: true }),
+      listItem('odd', '/repo-a', { pendingSwitch: { to: 'docker' } as unknown as { to: 'nono' } }),
+    ], 10);
+    expect(state.byId.get('busy')?.pendingSwitch).toEqual({ to: 'nono' });
+    expect(state.byId.get('busy')?.sandboxed).toBeUndefined();
+    expect(state.byId.get('idle')?.pendingSwitch).toBeUndefined();
+    expect(state.byId.get('odd')?.pendingSwitch).toBeUndefined();
+    const unchanged = applyDirectoryListToCatalog(state, '/repo-a', [
+      listItem('busy', '/repo-a', { pendingSwitch: { to: 'nono' } }),
+      listItem('idle', '/repo-a', { sandboxed: true }),
+      listItem('odd', '/repo-a'),
+    ], 15);
+    expect(unchanged.byId.get('busy')).toBe(state.byId.get('busy'));
+
+    state = applyDirectoryListToCatalog(state, '/repo-a', [
+      listItem('busy', '/repo-a', { sandboxed: true }),
+      listItem('idle', '/repo-a', { sandboxed: true }),
+    ], 20);
+    expect(state.byId.get('busy')?.pendingSwitch).toBeUndefined();
+    expect(state.byId.get('busy')?.sandboxed).toBe(true);
   });
 
   test('archive time: the listing carries it, a local archive stamps it, unarchive clears it', () => {

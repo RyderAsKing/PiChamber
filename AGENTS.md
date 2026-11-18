@@ -191,7 +191,17 @@ mobile with its key bar); `extension-surface-unfocused`
 (the same prompt with focus on another control, so its footer offers to type
 to it, desktop only); `extension-surface-keys` (the same prompt with its
 footer's Show key buttons pressed; its Esc button answers the prompt afterwards, so capture it
-last of the three, desktop only). The seed turns on the bundled Visuals and
+last of the three, desktop only); `settings-sandboxing` (Projects settings
+scrolled to Sandboxing: whether nono can run on the server machine, with Check
+again, and the seed's Night Shift card labelled sandboxed or unavailable,
+desktop only); `settings-project-sandbox` (Night Shift's Sandbox section: nono
+with an allowed host, a local port and an extra folder, or why it cannot run,
+desktop only); `session-sandboxed` (a Night Shift session: its header and row
+say Sandboxed, or the chat says the sandbox is unavailable);
+`terminal-sandboxed` (the terminal beside that session says it runs outside
+the sandbox, desktop only). The seed sandboxes Night Shift with nono; on a
+machine without Landlock those pages show the unavailable states.
+The seed turns on the bundled Visuals and
 Sub-agents plugins and adds two backdated sessions for them:
 `settings-plugins` (Settings → Extensions & Plugins with both on, desktop
 only);
@@ -223,8 +233,10 @@ mobile only);
 only); `settings-plugin-replaced` (Sub-agents' own page from the Night Shift
 session, whose folder has its own `subagent` extension: a warning callout
 names it and offers to turn it off in that project, desktop only);
-`visuals-page` (a `render_html` page in its frame between the turn's
-activity and its reply, with the Sub-agents toggle in the composer);
+`visuals-page` (a `render_html` page in the reply column, with no frame of
+its own, between the turn's activity and its reply, with the Sub-agents
+toggle in the composer); `visuals-page-hover` (the same page with the
+pointer on it, showing its More and Expand buttons, desktop only);
 `visuals-choices` (an answered `render_choices` call: three variants, one
 at a time at full width, opened on the chosen one with its switcher button
 marked and the note under the frame); `visuals-choices-pending` (a

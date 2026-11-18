@@ -261,6 +261,15 @@ export const bootstrapPiDirectory = async (
         directory: options.directory,
         ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
       }));
+      // A sandboxed project's session answers on its project's stream, not
+      // the main stream this bootstrap attaches; a read-only detail (read
+      // from disk while that sandbox cannot run) has no epoch at all. The
+      // store checks those against the right stream when it fetches the
+      // detail itself, so leave the session unhydrated here (non-fatal).
+      const detailStream = (detail as { stream?: unknown }).stream;
+      if (typeof detailStream === 'string' && detailStream.length > 0 && detailStream !== 'main') {
+        throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session detail belongs to a project stream');
+      }
       if (typeof detail.streamEpoch !== 'string' || detail.streamEpoch.length === 0) {
         throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Session detail omitted the current stream epoch');
       }

@@ -1,0 +1,167 @@
+---
+title: Sandboxing
+description: Run a project's Pi sessions inside nono so agents reach only that project.
+---
+
+Sandboxing is off by default. When you turn it on for a project, every Pi
+session in that project runs inside [nono](https://nono.sh), so its agents can
+reach only that project's folders and the hosts you allow. Projects you leave
+off keep running the way they always have.
+
+## Requirements
+
+- A server machine running one of:
+  - Linux with a kernel that supports Landlock;
+  - macOS, which nono sandboxes with Seatbelt;
+  - WSL2 with a recent kernel (Landlock V4 or newer). Run `wsl --update` in
+    Windows if Sandboxing says the kernel is too old. See WSL2 limits, below.
+- nono 0.82.0 or newer installed on the server machine, on the `PATH` of the
+  PiChamber server.
+
+PiChamber does not sandbox on Windows outside WSL2.
+
+Open **Settings → Projects**. The **Sandboxing** section shows whether nono can
+run on the server machine and, if not, why. After you install or update nono,
+choose **Check again**.
+
+### WSL2 limits
+
+WSL2 keeps nono from using a Linux feature it relies on, so two rules are not
+enforced there:
+
+- **Unix sockets stay open.** Code inside the sandbox can connect to local
+  services that listen on a Unix socket, such as the systemd user manager,
+  D-Bus, an SSH or GPG agent, or Docker, and ask them to run commands outside
+  the sandbox.
+- **Allowed hosts can be bypassed.** nono sends allowed traffic through a
+  proxy on a local port, and on WSL2 that port is open to every host, not only
+  the proxy. Code inside the sandbox can send data to any server that listens
+  on that port.
+
+File access is still limited. On WSL2 the sandbox stops an agent's mistakes,
+but not code that sets out to escape it.
+
+Sandboxing on WSL2 lists these limits and stays off until you check **Use
+sandboxing with these limits**. Until then, sandboxed projects do not run.
+Clear the box to stop sandboxed sessions again: running turns finish first. If
+you need the full sandbox, run PiChamber on Linux or macOS.
+
+## Turn it on for every project
+
+In **Settings → Projects → Sandboxing**, turn on **Sandbox projects by
+default**. Every project whose **Sandbox** is set to **Default** runs inside
+nono, including folders you add later. Projects set to **On** or **Off** keep
+their own choice.
+
+**Allowed hosts for all projects** lists hosts every sandboxed project's agent
+may reach, one per line. Nothing is allowed by default except the model
+providers you are signed in to, so `npm install` or `git clone` fail until you
+add their hosts. **Add GitHub** and **Add package registries** fill in the
+usual hosts for Git over HTTPS and the npm, PyPI, crates.io, Go, RubyGems,
+Maven and JSR registries. Each host lets the agent send data there, so add
+only what your projects need; `github.com` also accepts uploads, so an agent
+holding any GitHub token could send data there. Hosts must be public host names
+with a dot: `localhost`, IP addresses, single-word names, and wildcards wider
+than `*.example.com` are refused.
+
+## Turn it on for a project
+
+Open the project in **Settings → Projects** and set **Sandbox** to **On**, or
+leave it on **Default** to follow the setting above. The setting applies to
+every session in the project, including new ones.
+
+- **Allowed hosts.** Hosts this project's agent may reach on top of the hosts
+  for all projects, one per line. If the agent runs Git fetch or push itself,
+  add the Git host, such as `github.com`; the agent can use HTTPS remotes only,
+  not SSH.
+- **Local ports.** Ports on the server machine the agent may connect to, such
+  as a local llama.cpp server. On Linux and WSL2, a local port lets the agent
+  connect to that port on any host, not only the server machine. On macOS it
+  allows only the server machine, but any local port also lets the agent
+  listen on every port.
+- **Extra folders.** Folders outside the project the agent may use, read only
+  or read and write.
+
+Idle sessions switch right away. A session in the middle of a turn finishes
+that turn first and shows an open lock until it moves. Sandboxed sessions show
+a lock after their title in the session list and the chat header, on every
+device.
+
+Turning the sandbox off resets the project's trust, so Pi asks again before it
+loads project extensions that a sandboxed agent could have written.
+
+The setting stays on the server machine. It is not part of exported or synced
+settings.
+
+## What the sandbox covers
+
+Inside the sandbox, the agent, its tools, `!` shell commands, and Pi
+extensions can:
+
+- read and write the project folder and its worktrees;
+- read and write the extra folders you added;
+- use a private temporary folder;
+- read common language runtimes, Git configuration, and package caches;
+- load your Pi settings, models, and credentials, without changing them;
+- reach your model providers, your allowed hosts, and your allowed local ports.
+
+It cannot read other projects or their session transcripts, change Pi's global
+settings, extensions, or credentials, or reach the PiChamber server. On WSL2
+some of this can be bypassed (see WSL2 limits).
+
+## Change the sandbox profile
+
+Allowed hosts, local ports, and extra folders cover most needs, and they apply
+to one project at a time. What every sandbox may read besides that, such as
+language runtimes and system folders, comes from a nono profile that ships
+with PiChamber.
+
+Once a project is sandboxed, **Settings → Projects → Sandboxing → Sandbox
+profile** shows where that profile is on the server machine. To change it:
+
+1. Choose **Customise**. PiChamber copies the profile to its data folder,
+   where sandboxed code cannot write, and uses the copy from then on.
+2. Edit the copy in Settings, or in a text editor on the server machine at
+   the path shown.
+3. Choose **Save profile**. PiChamber checks it with nono and refuses a
+   profile nono does not accept, telling you what is wrong.
+
+Running sandboxes restart with the new profile after their current turn. A
+file you edit on the server machine is picked up the same way, within about a
+minute. If that file is not valid, sandboxed projects stop running until you
+fix it or choose **Reset to default**, which deletes your copy.
+
+The profile applies to every sandboxed project on that server, so anything
+you loosen is loosened for all of them. A custom profile also stops following
+the profile PiChamber ships: after an update, compare the two if you want the
+changes. See the [nono documentation](https://nono.sh) for what a profile can
+contain.
+
+## What stays outside
+
+Only the agent is sandboxed. What PiChamber does for you runs with your
+normal access:
+
+- **The built-in terminal** opens your normal shell. In a sandboxed project it
+  says so.
+- **The Git panel** and GitHub features run Git outside the sandbox, so they
+  keep working even when the sandbox cannot start, and SSH remotes work there.
+- **The browser panel** runs on the server machine outside the sandbox.
+- **Provider sign-in** always happens outside the sandbox.
+- **Sessions started with the `pi` command** are not sandboxed by PiChamber,
+  even in a sandboxed project.
+
+The agent can write anything inside the project, including the repository's
+Git configuration, hooks, and `.gitattributes` filters. Git runs the commands
+those name. When you or the Git panel run Git in that project outside the
+sandbox, those commands run with your access too. Check the repository's
+`.git/config` and hooks if you do not trust what the agent wrote.
+
+## When the sandbox cannot start
+
+If nono stops working, for example after it is uninstalled, a sandboxed
+project refuses to run sessions instead of running them unsandboxed. You can
+still list its sessions and read their transcripts, and the Git panel keeps
+working. Its project card in Settings shows its lock in red with **Unavailable**, its
+settings say why, and sending a message explains the reason. Fix nono and
+choose **Check again**, or turn the project's sandbox off.
