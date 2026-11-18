@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { getPiSessionDirectory } from './session-jsonl.js';
+import { requestSessionDaemon } from './ipc-client.js';
 import { createPiSessionDaemonSupervisor } from './supervisor.js';
 
 const waitForExit = async (pid) => {
@@ -111,6 +112,33 @@ describe('Pi session daemon supervisor', () => {
       state: 'unavailable',
       error: { code: 'DAEMON_UNAVAILABLE' },
     });
+  }, 20_000);
+
+  it('passes a per-request timeout to the IPC client and keeps the default otherwise', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-timeout-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+    const seen = [];
+    supervisor = createPiSessionDaemonSupervisor({
+      env,
+      cwd,
+      request: (options) => {
+        if (options.command === 'sessions.list') seen.push(options.timeoutMs);
+        return requestSessionDaemon(options);
+      },
+    });
+    await supervisor.start();
+    await supervisor.request('sessions.list', undefined, { timeoutMs: 600_000 });
+    await supervisor.request('sessions.list');
+    expect(seen).toEqual([600_000, undefined]);
   }, 20_000);
 
   it('replaces a healthy daemon that predates entrypoint identity', async () => {

@@ -616,3 +616,170 @@ describe('package removal with a stubbed package manager', () => {
     expect(partial.calls).toHaveLength(1);
   });
 });
+
+describe('package install and update with a stubbed package manager', () => {
+  const stubbed = ({ configured = [], install = async () => {}, update = async () => {}, drainAfterFlush = [] } = {}) => {
+    const calls = [];
+    const state = { configured: [...configured] };
+    let flushed = false;
+    const settingsManager = {
+      flush: async () => { flushed = true; calls.push({ op: 'flush' }); },
+      drainErrors: () => (flushed ? drainAfterFlush : []),
+      getGlobalSettings: () => ({}),
+      getProjectSettings: () => ({}),
+    };
+    const packageManager = {
+      resolve: async () => ({ extensions: [], skills: [], prompts: [], themes: [], installFailures: [] }),
+      listConfiguredPackages: () => state.configured,
+      install: async (source, options) => { calls.push({ op: 'install', source, options }); return install(source, options); },
+      update: async (source) => { calls.push({ op: 'update', source }); return update(source); },
+      addSourceToSettings: (source, options) => {
+        calls.push({ op: 'add', source, options });
+        state.configured.push({ source, scope: options.local ? 'project' : 'user', filtered: false });
+        return true;
+      },
+    };
+    const service = createExtensionConfig({
+      agentDir: '/agent',
+      createSettingsManager: () => { flushed = false; return settingsManager; },
+      createPackageManager: () => packageManager,
+      builtinExtensions: [],
+    });
+    return { service, calls, state };
+  };
+  const user = { cwd: '/work', trusted: false };
+  const project = { cwd: '/work', directory: '/work', trusted: true };
+
+  it('installs npm:<name> then writes settings under the write hook, and answers with its list id', async () => {
+    const { service, calls } = stubbed();
+    const order = [];
+    const { installedId } = await service.installPackage(project, { name: '@acme/pi-btw', scope: 'project' }, {
+      serializeInstall: async (operation) => { order.push('queue'); await operation(); order.push('queued-done'); },
+      withWriteLock: async (write) => { order.push('lock'); await write(project); order.push('unlock'); },
+    });
+    expect(order).toEqual(['queue', 'queued-done', 'lock', 'unlock']);
+    expect(calls).toEqual([
+      { op: 'install', source: 'npm:@acme/pi-btw', options: { local: true } },
+      { op: 'add', source: 'npm:@acme/pi-btw', options: { local: true } },
+      { op: 'flush' },
+    ]);
+    const listed = (await service.list(project)).packages.find((pkg) => pkg.source === 'npm:@acme/pi-btw');
+    expect(listed).toMatchObject({ id: installedId, scope: 'project', kind: 'npm' });
+  });
+
+  it.each([
+    ['npm:pi-btw'], ['https://github.com/acme/tool'], ['git:github.com/acme/tool'], ['../x'], ['pi-btw@1.0.0'],
+    ['Pi-Btw'], ['.hidden'], ['_private'], ['a'.repeat(215)], [''], [7],
+  ])('refuses %s as a package name', async (name) => {
+    const { service, calls } = stubbed();
+    await expect(service.installPackage(user, { name, scope: 'user' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses an untrusted or missing project, a bad scope, and an already configured package', async () => {
+    const { service, calls } = stubbed({ configured: [{ source: 'npm:pi-btw@0.8.1', scope: 'user' }] });
+    await expect(service.installPackage({ cwd: '/work', directory: '/work', trusted: false }, { name: 'x', scope: 'project' }))
+      .rejects.toMatchObject({ code: 'PROJECT_UNTRUSTED' });
+    await expect(service.installPackage(user, { name: 'x', scope: 'project' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await expect(service.installPackage(user, { name: 'x', scope: 'global' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await expect(service.installPackage(user, { name: 'pi-btw', scope: 'user' })).rejects.toMatchObject({ code: 'PACKAGE_ALREADY_INSTALLED' });
+    expect(calls).toEqual([]);
+    // The same name in the other scope is a separate package.
+    await service.installPackage(project, { name: 'pi-btw', scope: 'project' });
+    expect(calls.map((call) => call.op)).toEqual(['install', 'add', 'flush']);
+  });
+
+  it('checks again under the lock and writes nothing when another writer got there first', async () => {
+    const { service, calls, state } = stubbed();
+    await expect(service.installPackage(user, { name: 'pi-btw', scope: 'user' }, {
+      withWriteLock: async (write) => {
+        state.configured.push({ source: 'npm:pi-btw', scope: 'user' });
+        return write(user);
+      },
+    })).rejects.toMatchObject({ code: 'PACKAGE_ALREADY_INSTALLED' });
+    expect(calls.map((call) => call.op)).toEqual(['install']);
+  });
+
+  it('reports a failed npm run sanitized and a failed settings write after install', async () => {
+    const failing = stubbed({ install: async () => { throw new Error('npm install pi-btw --prefix /agent/npm failed: EACCES /agent/npm/x'); } });
+    const failure = await failing.service.installPackage(user, { name: 'pi-btw', scope: 'user' }).catch((error) => error);
+    expect(failure.code).toBe('PACKAGE_INSTALL_FAILED');
+    expect(failure.message).not.toContain('/agent');
+    expect(failing.calls.map((call) => call.op)).toEqual(['install']);
+
+    const partial = stubbed({ drainAfterFlush: [{ scope: 'global', error: new Error('EACCES') }] });
+    await expect(partial.service.installPackage(user, { name: 'pi-btw', scope: 'user' })).rejects.toMatchObject({ code: 'PI_SETTINGS_INVALID' });
+    expect(partial.calls.map((call) => call.op)).toEqual(['install', 'add', 'flush']);
+  });
+
+  const configured = [
+    { source: 'npm:pi-btw', scope: 'user', filtered: false },
+    { source: 'npm:pinned@1.2.3', scope: 'user', filtered: false },
+    { source: 'https://tok@github.com/acme/tool', scope: 'user', filtered: false },
+    { source: '../pkgs/local-one', scope: 'user', filtered: false },
+    { source: 'npm:proj-pkg', scope: 'project', filtered: false },
+  ];
+  const idOf = async (service, target, source) => (await service.list(target)).packages.find((pkg) => pkg.source === source).id;
+
+  it.each([
+    ['npm:pi-btw', 'npm:pi-btw'],
+    ['https://github.com/acme/tool', 'https://tok@github.com/acme/tool'],
+  ])('updates %s through the install queue', async (display, source) => {
+    const { service, calls } = stubbed({ configured });
+    const queued = [];
+    await service.updatePackage(user, { id: await idOf(service, user, display) }, {
+      serializeInstall: async (operation) => { queued.push(true); return operation(); },
+    });
+    expect(queued).toHaveLength(1);
+    expect(calls).toEqual([{ op: 'update', source }]);
+  });
+
+  it('refuses pinned, local, unknown, and untrusted project packages, and sanitizes failures', async () => {
+    const { service, calls } = stubbed({ configured });
+    const list = await service.list(user);
+    expect(list.packages.find((pkg) => pkg.source === 'npm:pinned@1.2.3').pinned).toBe(true);
+    expect(list.packages.find((pkg) => pkg.source === 'npm:pi-btw').pinned).toBeUndefined();
+    await expect(service.updatePackage(user, { id: await idOf(service, user, 'npm:pinned@1.2.3') })).rejects.toMatchObject({ code: 'PACKAGE_PINNED' });
+    await expect(service.updatePackage(user, { id: await idOf(service, user, 'local-one') })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await expect(service.updatePackage(user, { id: 'B'.repeat(43) })).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+    await expect(service.updatePackage(user, { id: 7 })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    const projectId = await idOf(service, project, 'npm:proj-pkg');
+    await expect(service.updatePackage({ cwd: '/work', directory: '/work', trusted: false }, { id: projectId })).rejects.toMatchObject({ code: 'PROJECT_UNTRUSTED' });
+    expect(calls).toEqual([]);
+
+    const failing = stubbed({ configured, update: async () => { throw new Error('git pull failed in /agent/git/github.com/acme/tool'); } });
+    const failure = await failing.service.updatePackage(user, { id: await idOf(failing.service, user, 'npm:pi-btw') }).catch((error) => error);
+    expect(failure.code).toBe('PACKAGE_UPDATE_FAILED');
+    expect(failure.message).not.toContain('/agent');
+  });
+
+  it('lists name, version, and the PiChamber marker from the installed package.json, ignoring a broken one', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-extension-config-pkg-'));
+    try {
+      const good = join(root, 'good');
+      const broken = join(root, 'broken');
+      const odd = join(root, 'odd');
+      await Promise.all([mkdir(good), mkdir(broken), mkdir(odd)]);
+      await writeFile(join(good, 'package.json'), JSON.stringify({ name: '@acme/pi-btw', version: '0.8.1', pichamber: { apiVersion: 1 } }));
+      await writeFile(join(broken, 'package.json'), '{ not json');
+      await writeFile(join(odd, 'package.json'), JSON.stringify({ name: 'Bad Name', version: 'x'.repeat(65), pichamber: { apiVersion: '1' } }));
+      const { service } = stubbed({
+        configured: [
+          { source: 'npm:pi-btw', scope: 'user', installedPath: good },
+          { source: 'npm:broken', scope: 'user', installedPath: broken },
+          { source: 'npm:odd', scope: 'user', installedPath: odd },
+          { source: 'npm:missing', scope: 'user', installedPath: join(root, 'nope') },
+        ],
+      });
+      const { packages } = await service.list(user);
+      const bySource = Object.fromEntries(packages.map((pkg) => [pkg.source, pkg]));
+      expect(bySource['npm:pi-btw']).toMatchObject({ name: '@acme/pi-btw', version: '0.8.1', pichamber: true, installed: true });
+      for (const source of ['npm:broken', 'npm:odd', 'npm:missing']) {
+        expect(Object.keys(bySource[source]).sort()).toEqual(['filtered', 'id', 'installed', 'kind', 'scope', 'source']);
+      }
+      expect(JSON.stringify(packages)).not.toContain(root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});

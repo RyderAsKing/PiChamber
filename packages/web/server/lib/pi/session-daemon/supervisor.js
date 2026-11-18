@@ -665,10 +665,18 @@ export const createPiSessionDaemonSupervisor = ({
     return ready;
   };
 
-  const requestDaemon = async (command, payload) => {
+  // `options.timeoutMs` overrides the IPC client's default for slow
+  // commands such as package installs.
+  const requestDaemon = async (command, payload, options = {}) => {
     try {
       const { credential } = await ensureReadyAndNotify();
-      return await request({ endpoint: paths.endpoint, credential, command, payload });
+      return await request({
+        endpoint: paths.endpoint,
+        credential,
+        command,
+        payload,
+        ...(Number.isFinite(options?.timeoutMs) && options.timeoutMs > 0 ? { timeoutMs: options.timeoutMs } : {}),
+      });
     } catch (error) {
       throw new PiSessionDaemonUnavailableError(
         error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'

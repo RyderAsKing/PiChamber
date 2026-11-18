@@ -73,16 +73,23 @@ const BAD_GATEWAY_CODES = new Set([
   'DAEMON_RESPONSE_TOO_LARGE',
 ]);
 
+// npm or git failed for a package install or update.
+const PACKAGE_UPSTREAM_FAILURE_CODES = new Set([
+  'PACKAGE_INSTALL_FAILED',
+  'PACKAGE_UPDATE_FAILED',
+]);
+
 const writeDaemonError = (res, error) => {
   const code = typeof error?.code === 'string' ? error.code : 'DAEMON_REQUEST_FAILED';
   const status = UNAVAILABLE_CODES.has(code)
     ? 503
-    : BAD_GATEWAY_CODES.has(code)
+    : BAD_GATEWAY_CODES.has(code) || PACKAGE_UPSTREAM_FAILURE_CODES.has(code)
       ? 502
     : code === 'INVALID_SESSION'
       ? 404
       : code === 'SESSION_IN_USE' || code === 'OPERATION_PAYLOAD_MISMATCH' || code === 'STALE_STREAM_EPOCH'
         || code === ENGINE_UNSUPPORTED_OPERATION || code === 'CONTROL_UNAVAILABLE'
+        || code === 'PACKAGE_ALREADY_INSTALLED' || code === 'PACKAGE_PINNED'
         ? 409
         : code === 'OPERATION_EXPIRED'
           ? 410
@@ -709,6 +716,13 @@ export const projectExtensionList = (result) => {
 // daemon already made path-free, re-checked here so nothing path-like or
 // unexpected crosses.
 const EXTENSION_CONFIG_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+// The same rules as the daemon's `isValidNpmPackageName` (extension-config.js).
+const NPM_PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[a-z0-9~-][a-z0-9._~-]*$/;
+const isNpmPackageName = (value) => typeof value === 'string' && value.length > 0 && value.length <= 214
+  && NPM_PACKAGE_NAME_PATTERN.test(value);
+const PACKAGE_VERSION_PATTERN = /^[0-9A-Za-z.+-]{1,64}$/;
+// npm install / update can take minutes.
+const PACKAGE_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
 const EXTENSION_CONFIG_OVERRIDE_STATES = new Set(['inherit', 'load', 'unload']);
 const EXTENSION_CONFIG_GROUPS = new Set(['package', 'auto', 'settings', 'builtin']);
 const EXTENSION_CONFIG_SCOPES = new Set(['user', 'project']);
@@ -758,7 +772,19 @@ const projectExtensionConfig = (result) => {
     if (!pkg || typeof pkg !== 'object' || typeof pkg.id !== 'string' || !EXTENSION_CONFIG_ID_PATTERN.test(pkg.id)
       || !EXTENSION_CONFIG_SCOPES.has(pkg.scope) || !EXTENSION_CONFIG_PACKAGE_KINDS.has(pkg.kind)
       || (pkg.kind === 'local' ? !isDisplayText(pkg.source) || pkg.source.includes('/') : !isDisplayText(pkg.source))) throw protocolMismatch();
-    return { id: pkg.id, source: pkg.source, scope: pkg.scope, kind: pkg.kind, installed: pkg.installed === true, filtered: pkg.filtered === true };
+    // Read from the package's own package.json; a bad value is dropped.
+    return {
+      id: pkg.id,
+      source: pkg.source,
+      scope: pkg.scope,
+      kind: pkg.kind,
+      installed: pkg.installed === true,
+      filtered: pkg.filtered === true,
+      ...(isNpmPackageName(pkg.name) ? { name: pkg.name } : {}),
+      ...(typeof pkg.version === 'string' && PACKAGE_VERSION_PATTERN.test(pkg.version) ? { version: pkg.version } : {}),
+      ...(pkg.pichamber === true ? { pichamber: true } : {}),
+      ...(pkg.pinned === true && pkg.kind === 'npm' ? { pinned: true } : {}),
+    };
   });
   const packageIds = new Set(packages.map((pkg) => pkg.id));
   const extensions = result.extensions.map((extension) => {
@@ -2401,6 +2427,54 @@ export const registerPiRuntimeRoutes = (app, {
     }
     try {
       res.json(projectExtensionConfig(await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.config.set', payload)));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  // `pi install npm:<name>`: a bare npm name only, in user or project scope.
+  app.post('/api/pi/extensions/packages', async (req, res) => {
+    const body = req.body;
+    let payload = null;
+    if (body && typeof body === 'object' && !Array.isArray(body)
+      && Object.keys(body).every((key) => ['name', 'scope', 'directory'].includes(key))
+      && isNpmPackageName(body.name) && (body.scope === 'user' || body.scope === 'project')) {
+      const target = extensionConfigDirectory(body.directory);
+      if (target.ok && (body.scope === 'user' || target.directory)) {
+        payload = { name: body.name, scope: body.scope, ...(target.directory ? { directory: target.directory } : {}) };
+      }
+    }
+    if (!payload) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime)
+        .request('extensions.packages.install', payload, { timeoutMs: PACKAGE_INSTALL_TIMEOUT_MS });
+      res.json({
+        ...projectExtensionConfig(result),
+        ...(typeof result?.installedId === 'string' && EXTENSION_CONFIG_ID_PATTERN.test(result.installedId)
+          ? { installedId: result.installedId }
+          : {}),
+      });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  // `pi update <source>` for one configured npm or git package.
+  app.post('/api/pi/extensions/packages/:id/update', async (req, res) => {
+    const id = req.params.id;
+    const target = extensionConfigDirectory(req.query?.directory);
+    if (typeof id !== 'string' || !EXTENSION_CONFIG_ID_PATTERN.test(id) || !target.ok) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      res.json(projectExtensionConfig(await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.packages.update', {
+        id,
+        ...(target.directory ? { directory: target.directory } : {}),
+      }, { timeoutMs: PACKAGE_INSTALL_TIMEOUT_MS })));
     } catch (error) {
       writeDaemonError(res, error);
     }
