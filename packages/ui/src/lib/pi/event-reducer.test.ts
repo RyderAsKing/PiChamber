@@ -439,6 +439,26 @@ describe("applyPiEvent", () => {
   })
 })
 
+describe("extension model choices", () => {
+  test("record the sequence of a model an extension command chose", () => {
+    let state = createReducerState()
+    state = applyPiEvent(state, baseEvent("session.model", 1, {
+      model: { providerId: "p", modelId: "m" },
+    })).state
+    expect(state.bySession.get("sess-1")?.extensionModelSequence).toBeUndefined()
+    state = applyPiEvent(state, baseEvent("session.model", 2, {
+      model: { providerId: "p", modelId: "m" },
+      source: "extension",
+    })).state
+    expect(state.bySession.get("sess-1")?.extensionModelSequence).toBe(2)
+    // A later ordinary model event keeps the last extension choice's sequence.
+    state = applyPiEvent(state, baseEvent("session.model", 3, {
+      model: { providerId: "p", modelId: "n" },
+    })).state
+    expect(state.bySession.get("sess-1")?.extensionModelSequence).toBe(2)
+  })
+})
+
 describe("applyPiEvents", () => {
   test("counts applied and skipped events separately", () => {
     const result = applyPiEvents(createReducerState(), [

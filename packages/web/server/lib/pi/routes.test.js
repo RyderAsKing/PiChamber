@@ -53,6 +53,19 @@ describe('Pi runtime route', () => {
     expect(projectEventFrame(frame({ archived: 'yes' }))).toBeNull();
   });
 
+  it('keeps only the extension source on a session model event', () => {
+    const model = (payload) => projectEventFrame({
+      protocolVersion: 1,
+      kind: 'event',
+      event: 'session.model',
+      sequence: 3,
+      payload: { sessionId: 'pi-session-mode', directory: '/workspace', model: { providerId: 'p', modelId: 'm' }, ...payload },
+    })?.payload;
+    expect(model({ source: 'extension' })).toEqual({ model: { providerId: 'p', modelId: 'm' }, source: 'extension' });
+    expect(model({ source: 'other' })).toEqual({ model: { providerId: 'p', modelId: 'm' } });
+    expect(model({})).toEqual({ model: { providerId: 'p', modelId: 'm' } });
+  });
+
   it('projects prompt-time files on a live user message start', () => {
     expect(projectEventFrame({
       protocolVersion: 1,

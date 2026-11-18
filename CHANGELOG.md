@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **The composer follows an extension's mode switch.** When an extension command changes the session's model or thinking (a mode command such as `/balance`, typed or from a composer control), the composer now shows that model and level, even if it was holding a model you had picked but not sent, and even when only the thinking level changed. Before, the composer kept your unsent pick, and the next message switched the session back to it (`session.model` `source: 'extension'`).
+
 - **A turn says what it did in one line.** The `Worked for` line above a finished reply now adds what the agent's tools did, such as `2 files read · 1 search · 2 files edited · 2 commands`, and `1 error` in red when calls failed. Files read or edited twice count once. The whole line opens the turn's activity. Shell rows mark `Exit code 1`, `Output truncated` and `Not sent to the model` in small text instead of coloured pills; only a failure is red.
 - **Opening a session fades its messages in.** Going from the new-session screen to a session used to blank the whole chat, composer included, for a moment and then show the messages at once. The composer now stays in place, and the messages fade in after they are drawn, so the fade is not cut short. The loading logo shows only when a session takes longer than 0.4 s.
 - **A lighter composer.** On desktop the composer card uses the input-area surface instead of the darker divider grey, and rests a little shorter. The folder, branch, New worktree and changed-files row stays above it. The extension prompt that takes its place matches it. Phones keep their layout and get the same fill.

@@ -353,6 +353,7 @@ export const applyPiEvent = (
       break;
     case 'session.model':
       session.model = event.payload.model;
+      if (event.payload.source === 'extension') session.extensionModelSequence = event.sequence;
       break;
     case 'session.thinking':
       session.thinking = event.payload.thinking;

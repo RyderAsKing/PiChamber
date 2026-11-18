@@ -822,6 +822,42 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('marks a model or thinking choice made by an extension command as the extension\'s', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-extension-mode-'));
+    const endpoint = testDaemonEndpoint(root);
+    const runtime = new FakeRuntime({ cwd: root, session: new FakeSession('pi-session-old') });
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => runtime });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+    const session = runtime.session;
+    session.extensionRunner = {
+      getRegisteredCommands: () => [{ invocationName: 'balance' }, { invocationName: 'plan' }],
+    };
+    const prompt = session.prompt.bind(session);
+    session.prompt = async (text, options) => {
+      await prompt(text, options);
+      // A mode command keeps the model and changes only the thinking level.
+      if (text === '/balance') session.setThinkingLevel('high');
+    };
+    const chosen = client.next((frame) => frame.event === 'session.model');
+    await client.request('sessions.prompt', { sessionId: 'pi-session-new', text: '/balance' });
+    await expect(chosen).resolves.toMatchObject({
+      payload: { model: { providerId: 'test', modelId: 'model' }, source: 'extension' },
+    });
+
+    // A command that changes neither publishes nothing, so it cannot replace
+    // an unsent composer pick. (\`next\` also sees earlier frames, hence the
+    // check for a second one.)
+    let seen = 0;
+    const second = client.next((frame) => frame.event === 'session.model' && ++seen === 2);
+    await client.request('sessions.prompt', { sessionId: 'pi-session-new', text: '/plan' });
+    await expect(second).rejects.toThrow('Timed out');
+    await client.close();
+  });
+
   it('creates a global session from the literal home-directory target', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);

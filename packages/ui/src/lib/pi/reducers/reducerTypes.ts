@@ -130,6 +130,9 @@ export interface PiReducerSessionState {
   /** Active model/thinking the session is using. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
+  /** Sequence of the last `session.model` an extension command published
+   *  (`source: 'extension'`): a newer choice than any unsent composer pick. */
+  extensionModelSequence?: number;
   /** Whether the server has older projected messages before this resident page. */
   hasMoreBefore?: boolean;
   /** Opaque cursor for the next older page. */

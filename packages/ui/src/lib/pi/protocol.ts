@@ -1298,6 +1298,10 @@ export type PiSessionModelEvent = PiEventEnvelope<
   'session.model',
   {
     model: PiModelRef;
+    /** `extension`: an extension command chose this model or a new thinking
+     *  level for it (a mode command). Clients replace an unsent composer
+     *  pick with it, even when the model itself is unchanged. */
+    source?: 'extension';
   }
 >;
 

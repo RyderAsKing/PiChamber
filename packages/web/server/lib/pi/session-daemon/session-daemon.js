@@ -4258,6 +4258,7 @@ export function createSessionDaemon({
     const prevModel = activeRuntime.session?.model
       ? { provider: activeRuntime.session.model.provider, id: activeRuntime.session.model.id }
       : null;
+    const prevThinking = activeRuntime.session?.thinkingLevel;
     let promptPromise;
     // A command's custom() surfaces are titled with its name (see
     // describeCustomOrigin). Cleared when the command settles.
@@ -4378,12 +4379,17 @@ export function createSessionDaemon({
       }
       if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       const curModel = activeRuntime.session?.model;
-      if (
-        curModel?.provider && curModel?.id
-        && (curModel.provider !== prevModel?.provider || curModel.id !== prevModel?.id)
-      ) {
+      const modelChanged = curModel?.provider !== prevModel?.provider || curModel?.id !== prevModel?.id;
+      // An extension command that switched the model or thinking (a mode
+      // command such as /balance) made a choice of its own: `source:
+      // 'extension'` tells clients to replace any unsent composer pick with
+      // it, also when only thinking changed and the model stayed the same.
+      const extensionChoice = isExtensionCommand
+        && (modelChanged || activeRuntime.session?.thinkingLevel !== prevThinking);
+      if (curModel?.provider && curModel?.id && (modelChanged || extensionChoice)) {
         publish('session.model', {
           model: { providerId: curModel.provider, modelId: curModel.id },
+          ...(extensionChoice ? { source: 'extension' } : {}),
         }, payload.sessionId, activeRuntime.cwd);
       }
       if (settledSendGenerationBySession.get(payload.sessionId) === generation) return;
@@ -4957,6 +4963,7 @@ export function createSessionDaemon({
         if (event.model?.provider && event.model?.id) {
           publish('session.model', {
             model: { providerId: event.model.provider, modelId: event.model.id },
+            ...(event.source === 'extension' ? { source: 'extension' } : {}),
           }, sessionId, directory);
         }
         break;

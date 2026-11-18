@@ -1106,7 +1106,13 @@ export const projectEventFrame = (frame) => {
       },
     };
     case 'session.queue': return { ...common, payload: { steering: frame.payload.steering, followUp: frame.payload.followUp } };
-    case 'session.model': return { ...common, payload: { model: frame.payload.model } };
+    case 'session.model': return {
+      ...common,
+      payload: {
+        model: frame.payload.model,
+        ...(frame.payload.source === 'extension' ? { source: 'extension' } : {}),
+      },
+    };
     case 'session.thinking': return { ...common, payload: { thinking: frame.payload.thinking } };
     case 'session.compaction': {
       const compaction = projectCompactionInfo(frame.payload);
