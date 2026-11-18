@@ -273,7 +273,8 @@ Desktop captures report a mouse, so `hover:` styles apply; a page's
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,
-`PICHAMBER_HMR_API_PORT`) and capture each with its own label.
+`PICHAMBER_HMR_API_PORT`) and its own `XDG_RUNTIME_DIR` (otherwise the two share a daemon
+socket and the second answers DAEMON_ENDPOINT_UNVERIFIED) and capture each with its own label.
 
 ## Pull Request Handoff
 

@@ -1032,7 +1032,7 @@ const PAGES = {
     // Browse on a phone, searching "subagent": reached from the composer
     // sheet's Plugin settings, since a phone has no settings link to open.
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     viewports: ['mobile'],
     demoNpm: true,
     settledScript: `(() => {
