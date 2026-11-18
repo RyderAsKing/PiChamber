@@ -1,4 +1,5 @@
 import React from 'react';
+import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { getDesktopBridge, invokeDesktop, isElectronShell } from '@/lib/desktopBridge';
 import { subscribeToDesktopMenuEvents } from '@/lib/desktopMenuEvents';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -33,6 +34,8 @@ const cycleSession = (direction: 1 | -1) => {
 };
 
 export function useDesktopMenuActions(): void {
+  const { setThemeMode } = useThemeSystem();
+
   const handleAction = React.useCallback((action: string) => {
     const ui = useUIStore.getState();
 
@@ -72,6 +75,15 @@ export function useDesktopMenuActions(): void {
         if (directory) ui.openContextSurface(normalizeContextPanelDirectoryKey(directory), 'terminal');
         return;
       }
+      case 'theme-light':
+        setThemeMode('light');
+        return;
+      case 'theme-dark':
+        setThemeMode('dark');
+        return;
+      case 'theme-system':
+        setThemeMode('system');
+        return;
       case 'toggle-sidebar':
         if (ui.isMobile) ui.setSessionSwitcherOpen(!ui.isSessionSwitcherOpen);
         else ui.toggleSidebar();
@@ -110,7 +122,7 @@ export function useDesktopMenuActions(): void {
       default:
         return;
     }
-  }, []);
+  }, [setThemeMode]);
 
   const handleCheckForUpdates = React.useCallback(() => {
     openSettings('about');

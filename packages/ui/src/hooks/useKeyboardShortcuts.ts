@@ -4,6 +4,7 @@ import { isTerminalEventTarget } from '@/lib/terminalFocus';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import * as sessionActions from '@/sync/session-actions';
 import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
+import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
@@ -70,12 +71,18 @@ export const useKeyboardShortcuts = () => {
   const shortcutOverrides = useUIStore((s) => s.shortcutOverrides);
   const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
   const activeProject = useProjectsStore((s) => s.getActiveProject());
+  const { themeMode, setThemeMode } = useThemeSystem();
   const { phase: sessionPhase } = useCurrentSessionActivity();
   const abortPrimedUntilRef = React.useRef<number | null>(null);
   const abortPrimedTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const themeModeRef = React.useRef(themeMode);
   // Currently held physical keys (lowercased), used to match chord prefixes
   // whose primary key must be held while the activating key is pressed.
   const heldKeysRef = React.useRef<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    themeModeRef.current = themeMode;
+  }, [themeMode]);
 
   const resetAbortPriming = React.useCallback(() => {
     if (abortPrimedTimeoutRef.current) {
@@ -260,6 +267,27 @@ export const useKeyboardShortcuts = () => {
         setActiveMainTab('chat');
         setSessionSwitcherOpen(false);
         openNewSessionDraft();
+        return;
+      }
+
+      if (eventMatchesShortcut(e, combo('cycle_theme'))) {
+        e.preventDefault();
+        const modes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
+        const activeElement = document.activeElement as HTMLElement | null;
+        const currentIndex = modes.indexOf(themeModeRef.current);
+        const nextIndex = (currentIndex + 1) % modes.length;
+        setThemeMode(modes[nextIndex]);
+        requestAnimationFrame(() => {
+          if (typeof document === 'undefined' || typeof window === 'undefined') {
+            return;
+          }
+          if (!document.hasFocus()) {
+            window.focus();
+          }
+          if (activeElement && document.contains(activeElement)) {
+            activeElement.focus({ preventScroll: true });
+          }
+        });
         return;
       }
 
@@ -553,6 +581,7 @@ export const useKeyboardShortcuts = () => {
     setModelSelectorOpen,
     setTimelineDialogOpen,
     setPromptNavigatorPanelOpen,
+    setThemeMode,
     sessionPhase,
     armAbortPrompt,
     resetAbortPriming,

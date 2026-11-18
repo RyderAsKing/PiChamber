@@ -94,7 +94,9 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const {
         currentTheme,
         availableThemes,
-        setTheme,
+        themeMode,
+        setThemeMode,
+        setThemeFamily,
         customThemesLoading,
         reloadCustomThemes,
     } = useThemeSystem();
@@ -415,8 +417,10 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
             {hasAppearanceSettings && hasThemeSettings && (
                 <ThemeSection
                     themes={availableThemes}
-                    currentThemeId={currentTheme.metadata.id}
-                    onSelectTheme={setTheme}
+                    currentTheme={currentTheme}
+                    themeMode={themeMode}
+                    onThemeModeChange={setThemeMode}
+                    onSelectFamily={(family) => setThemeFamily(family.light?.metadata.id, family.dark?.metadata.id)}
                     showMobileLayoutSetting={showMobileLayoutSetting}
                     mobileLayoutPreference={mobileLayoutPreference}
                     onMobileLayoutPreferenceChange={handleMobileLayoutPreferenceChange}

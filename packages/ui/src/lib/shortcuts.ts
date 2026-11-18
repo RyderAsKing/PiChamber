@@ -236,6 +236,13 @@ const SHORTCUT_ACTIONS: ReadonlyArray<ShortcutAction> = [
     customizable: true,
   },
   {
+    id: 'cycle_theme',
+    defaultCombo: 'mod+/',
+    label: 'Cycle theme',
+    description: 'Cycle between light, dark, and system theme',
+    customizable: true,
+  },
+  {
     id: 'open_model_selector',
     defaultCombo: 'mod+shift+m',
     label: 'Open model selector',

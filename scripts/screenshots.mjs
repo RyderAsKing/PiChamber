@@ -1347,8 +1347,8 @@ const PAGES = {
     viewports: ['desktop'],
   },
   'settings-themes-all': {
-    // Appearance with the theme list opened by Show all: every built-in
-    // theme, light and dark in one list, the one in use marked.
+    // Appearance with the theme list opened by Show all: one tile per
+    // built-in theme family, in the mode's half, the one in use marked.
     path: '/?settings=appearance',
     readyText: ['Show all'],
     expandSelector: '[data-settings-item="appearance.theme"] button[aria-expanded]',

@@ -14,15 +14,26 @@ import {
 import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
 import { cn } from '@/lib/utils';
 import type { MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
-import type { Theme } from '@/types/theme';
-import { COLLAPSED_THEME_COUNT, MOBILE_LAYOUT_OPTIONS, collapsedThemes, themeLabel } from './visualSettingsConstants';
+import type { Theme, ThemeMode } from '@/types/theme';
+import {
+  COLLAPSED_THEME_COUNT,
+  MOBILE_LAYOUT_OPTIONS,
+  THEME_MODE_OPTIONS,
+  type ThemeFamily,
+  collapsedFamilies,
+  familyOf,
+  themeFamilies,
+} from './visualSettingsConstants';
 import { WallpaperSettings } from './WallpaperSettings';
 import { ThemePreview } from './ThemePreview';
 
 export interface ThemeSectionProps {
   themes: Theme[];
-  currentThemeId: string;
-  onSelectTheme: (id: string) => void;
+  /** The theme on screen, which picks the selected family and the half each tile shows. */
+  currentTheme: Theme;
+  themeMode: ThemeMode;
+  onThemeModeChange: (mode: ThemeMode) => void;
+  onSelectFamily: (family: ThemeFamily) => void;
   showMobileLayoutSetting: boolean;
   mobileLayoutPreference: MobileLayoutPreference;
   onMobileLayoutPreferenceChange: (pref: MobileLayoutPreference) => void;
@@ -35,11 +46,17 @@ export interface ThemeSectionProps {
   setDockBadgeEnabled: (enabled: boolean) => void;
 }
 
-/** Settings → Appearance: the theme, picked from tiles, then the wallpaper. */
+/**
+ * Settings → Appearance: System, Light or Dark, then the theme, picked from
+ * one tile per family (PiChamber covers PiChamber Light and Dark), then the
+ * wallpaper. Each tile shows the half the current mode uses.
+ */
 export const ThemeSection: React.FC<ThemeSectionProps> = ({
   themes,
-  currentThemeId,
-  onSelectTheme,
+  currentTheme,
+  themeMode,
+  onThemeModeChange,
+  onSelectFamily,
   showMobileLayoutSetting,
   mobileLayoutPreference,
   onMobileLayoutPreferenceChange,
@@ -52,7 +69,10 @@ export const ThemeSection: React.FC<ThemeSectionProps> = ({
   setDockBadgeEnabled,
 }) => {
   const [showAll, setShowAll] = React.useState(false);
-  const shown = showAll ? themes : collapsedThemes(themes, currentThemeId);
+  const families = React.useMemo(() => themeFamilies(themes), [themes]);
+  const currentFamily = familyOf(families, currentTheme.metadata.id);
+  const shown = showAll ? families : collapsedFamilies(families, currentFamily?.key);
+  const variant = currentTheme.metadata.variant;
 
   const reload = () => {
     const startedAt = Date.now();
@@ -66,32 +86,46 @@ export const ThemeSection: React.FC<ThemeSectionProps> = ({
 
   return (
     <SettingsSection title={'Theme & wallpaper'} divider={false} contentClassName="space-y-6">
+      <SettingsStackedField label={'Mode'} settingsItem="appearance.color-mode">
+        <SettingsChipGroup
+          value={themeMode}
+          options={THEME_MODE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          onChange={onThemeModeChange}
+          aria-label={'Mode'}
+        />
+      </SettingsStackedField>
+
       <SettingsControlGroup title={'Theme'} settingsItem="appearance.theme">
         <SettingsRadioGroup
           aria-label={'Theme'}
           className="grid max-w-[48rem] grid-cols-2 gap-2 space-y-0 @xl:grid-cols-3 @xl:gap-3 @3xl:grid-cols-5"
         >
-          {shown.map((theme) => (
-            <SettingsPreviewOption
-              key={theme.metadata.id}
-              selected={theme.metadata.id === currentThemeId}
-              onSelect={() => onSelectTheme(theme.metadata.id)}
-              label={themeLabel(theme)}
-              ariaLabel={themeLabel(theme)}
-              previewClassName="aspect-[16/10]"
-              preview={<ThemePreview theme={theme} />}
-            />
-          ))}
+          {shown.map((family) => {
+            const preview = family[variant] ?? family.light ?? family.dark;
+            const only = !family.light ? 'Dark only' : !family.dark ? 'Light only' : undefined;
+            return (
+              <SettingsPreviewOption
+                key={family.key}
+                selected={family.key === currentFamily?.key}
+                onSelect={() => onSelectFamily(family)}
+                label={family.name}
+                ariaLabel={only ? `${family.name}, ${only.toLowerCase()}` : family.name}
+                description={only}
+                previewClassName="aspect-[16/10]"
+                preview={preview ? <ThemePreview theme={preview} /> : null}
+              />
+            );
+          })}
         </SettingsRadioGroup>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1">
-          {themes.length > COLLAPSED_THEME_COUNT ? (
+          {families.length > COLLAPSED_THEME_COUNT ? (
             <button
               type="button"
               aria-expanded={showAll}
               onClick={() => setShowAll((value) => !value)}
               className="typography-settings-link"
             >
-              {showAll ? 'Show fewer' : `Show all ${themes.length} themes`}
+              {showAll ? 'Show fewer' : `Show all ${families.length} themes`}
             </button>
           ) : null}
           <div className="flex items-center gap-1.5">
