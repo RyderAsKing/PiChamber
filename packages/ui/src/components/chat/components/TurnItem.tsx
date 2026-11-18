@@ -9,6 +9,7 @@ import TurnPluginArtifacts from './TurnPluginArtifacts';
 import TurnWorkingHeader from './TurnWorkingHeader';
 import { partitionTurnNotices } from '../lib/turns/placeTurnNotices';
 import { resolveTurnActivityDisclosure } from './turnActivityDisclosure';
+import { summarizeTurnActivity } from '../lib/turns/summarizeTurnActivity';
 
 interface TurnItemProps {
     turn: TurnRecord;
@@ -69,6 +70,11 @@ const TurnItem: React.FC<TurnItemProps> = ({
         [turn.activityParts],
     );
     const hasFinalText = React.useMemo(() => hasFinalAnswerText(turn), [turn]);
+    // Only a settled turn shows the counts; the live one shows its phase.
+    const activitySummary = React.useMemo(
+        () => (showWorkingStatus || !hasActivity ? undefined : summarizeTurnActivity(turn.activityParts)),
+        [hasActivity, showWorkingStatus, turn.activityParts],
+    );
     const [isActivityExpanded, setIsActivityExpanded] = React.useState(
         () => showWorkingStatus && hasActivity && !hasFinalText,
     );
@@ -163,6 +169,7 @@ const TurnItem: React.FC<TurnItemProps> = ({
                     durationMs={turn.durationMs}
                     liveStatusText={turn.isSteering ? 'Steering agent' : undefined}
                     wasSteered={turn.stream.settledReason === 'steered'}
+                    activitySummary={activitySummary}
                 />
             ) : null}
 

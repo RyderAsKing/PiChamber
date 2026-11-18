@@ -79,7 +79,7 @@ describe('TurnWorkingHeader', () => {
         );
 
         expect(markup).toContain('data-turn-activity-toggle="true"');
-        expect(markup).toContain('aria-label="Collapse activity"');
+        expect(markup).toContain('aria-expanded="true"');
         expect(markup).toContain('aria-controls="turn-turn-1-activity"');
         expect(markup).toContain('class="chat-message-column mb-1"');
         expect(markup).not.toContain('flex-1 items-center overflow-hidden');
@@ -100,9 +100,9 @@ describe('TurnWorkingHeader', () => {
 
         expect(markup).toContain('Worked for 14.0s');
         expect(markup).toContain('aria-expanded="false"');
-        expect(markup).toContain('aria-label="Expand activity"');
-        expect(markup.indexOf('data-agent-worked-row="true"')).toBeLessThan(
-            markup.indexOf('data-turn-activity-toggle="true"'),
+        // The duration is inside the toggle, so the whole line opens the rail.
+        expect(markup.indexOf('data-turn-activity-toggle="true"')).toBeLessThan(
+            markup.indexOf('data-agent-worked-row="true"'),
         );
     });
     test('a latest turn last seen working while reconnecting is labelled, not a bare chevron', () => {
@@ -123,9 +123,7 @@ describe('TurnWorkingHeader', () => {
         expect(markup).toContain('data-turn-reconnecting="true"');
         expect(markup).toContain('data-turn-working="false"');
         expect(markup).not.toContain('Worked for');
-        expect(markup.indexOf('data-turn-reconnecting="true"')).toBeLessThan(
-            markup.indexOf('data-turn-activity-toggle="true"'),
-        );
+        expect(markup).toContain('data-turn-activity-toggle="true"');
     });
 
     test('reconnecting does not claim a finished duration for the latest turn', () => {
@@ -162,5 +160,61 @@ describe('TurnWorkingHeader', () => {
         expect(markup).toContain('Agent activity');
         expect(markup).not.toContain('Worked for');
         expect(markup).toContain('data-turn-activity-toggle="true"');
+    });
+
+    test('a settled turn says what its tools did, with failures marked', () => {
+        const markup = renderToStaticMarkup(
+            <TurnWorkingHeader
+                turnId="turn-1"
+                isLiveTurn={false}
+                isWorking={false}
+                hasActivity
+                isActivityExpanded={false}
+                onToggleActivity={() => {}}
+                durationMs={48_000}
+                activitySummary={{
+                    filesRead: 1,
+                    filesEdited: 1,
+                    commands: 2,
+                    searches: 0,
+                    fetches: 0,
+                    subagents: 0,
+                    otherTools: 0,
+                    failed: 1,
+                }}
+            />,
+        );
+
+        expect(markup).toContain('Worked for 48.0s');
+        expect(markup).toContain(' · Read 1 file · Edited 1 file · Ran 2 commands');
+        expect(markup).toContain('data-turn-activity-failed="true"');
+        expect(markup).toContain(' · 1 failed');
+    });
+
+    test('a reconnecting turn shows no counts', () => {
+        const markup = renderToStaticMarkup(
+            <TurnWorkingHeader
+                turnId="turn-1"
+                isLiveTurn={false}
+                isWorking={false}
+                isAwaitingRecovery
+                hasActivity
+                isActivityExpanded={false}
+                onToggleActivity={() => {}}
+                activitySummary={{
+                    filesRead: 3,
+                    filesEdited: 0,
+                    commands: 0,
+                    searches: 0,
+                    fetches: 0,
+                    subagents: 0,
+                    otherTools: 0,
+                    failed: 1,
+                }}
+            />,
+        );
+
+        expect(markup).not.toContain('Read 3 files');
+        expect(markup).not.toContain('failed');
     });
 });
