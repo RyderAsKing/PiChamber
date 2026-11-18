@@ -2629,6 +2629,41 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 : pendingChangesBar
             }
           />
+          {!isMobileForDraft &&
+          showDraftTargetSelectors &&
+          selectedDraftProject &&
+          (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
+            <div
+              inert={isComposerLocked || undefined}
+              className={cn(
+                isComposerLocked && "pointer-events-none opacity-60",
+              )}
+              data-composer-target-row="true"
+            >
+              <DraftTargetSelectors
+                projects={draftProjects}
+                selectedProject={selectedDraftProject}
+                selectedBranchName={selectedBranchName}
+                selectedBranchLabel={selectedDraftBranchLabel}
+                branchOptions={draftBranchItems}
+                branchInteractive={newSessionDraftOpen}
+                branchLoading={isDiscoveringDraftBranches}
+                // An existing session's branch is already in the header; the
+                // row keeps only the pending-changes summary.
+                showBranchSelector={shouldShowDraftBranchSelector && newSessionDraftOpen}
+                showProjectSelector={newSessionDraftOpen}
+                showWorktreeSelector={
+                  newSessionDraftOpen && shouldShowDraftBranchSelector
+                }
+                worktreeMode={worktreeMode}
+                endAccessory={pendingChangesBar}
+                onProjectChange={handleDraftProjectChange}
+                onBranchChange={handleDraftBranchChange}
+                onWorktreeModeChange={handleWorktreeModeChange}
+                theme={currentTheme}
+              />
+            </div>
+          ) : null}
           {isMobileForDraft &&
           showDraftTargetSelectors &&
           selectedDraftProject &&
@@ -2973,44 +3008,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               </div>
             </>
           </div>
-          {!isMobileForDraft &&
-          showDraftTargetSelectors &&
-          selectedDraftProject &&
-          (newSessionDraftOpen || shouldShowDraftBranchSelector) ? (
-            // Where the message goes reads as quiet text under the card, so
-            // the card itself holds only what shapes the message.
-            <div
-              inert={isComposerLocked || undefined}
-              className={cn(
-                "mt-1.5",
-                isComposerLocked && "pointer-events-none opacity-60",
-              )}
-              data-composer-target-row="true"
-            >
-              <DraftTargetSelectors
-                projects={draftProjects}
-                selectedProject={selectedDraftProject}
-                selectedBranchName={selectedBranchName}
-                selectedBranchLabel={selectedDraftBranchLabel}
-                branchOptions={draftBranchItems}
-                branchInteractive={newSessionDraftOpen}
-                branchLoading={isDiscoveringDraftBranches}
-                // An existing session's branch is already in the header; the
-                // row keeps only the pending-changes summary.
-                showBranchSelector={shouldShowDraftBranchSelector && newSessionDraftOpen}
-                showProjectSelector={newSessionDraftOpen}
-                showWorktreeSelector={
-                  newSessionDraftOpen && shouldShowDraftBranchSelector
-                }
-                worktreeMode={worktreeMode}
-                endAccessory={pendingChangesBar}
-                onProjectChange={handleDraftProjectChange}
-                onBranchChange={handleDraftBranchChange}
-                onWorktreeModeChange={handleWorktreeModeChange}
-                theme={currentTheme}
-              />
-            </div>
-          ) : null}
           {isDesktopStackedComposer || isMobile || inputMode === "shell" ? null : (
             <div
               className={cn(
