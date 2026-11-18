@@ -148,6 +148,7 @@ const projectSession = (value) => {
     ...(Number.isSafeInteger(value.messageCount) && value.messageCount >= 0 ? { messageCount: value.messageCount } : {}),
     ...(value.model && typeof value.model.providerId === 'string' && typeof value.model.modelId === 'string' ? { model: { providerId: value.model.providerId, modelId: value.model.modelId } } : {}),
     ...(typeof value.thinking === 'string' ? { thinking: value.thinking } : {}),
+    ...(Number.isSafeInteger(value.extensionModelSequence) ? { extensionModelSequence: value.extensionModelSequence } : {}),
     ...(value.archived === true ? { archived: true } : {}),
     ...(Number.isFinite(value.timeArchived) ? { timeArchived: value.timeArchived } : {}),
   };
@@ -1006,6 +1007,7 @@ export const projectEventFrame = (frame) => {
         queue: { steering: Number.isSafeInteger(snapshot.queue?.steering) ? snapshot.queue.steering : 0, followUp: Number.isSafeInteger(snapshot.queue?.followUp) ? snapshot.queue.followUp : 0 },
         ...(snapshot.model && typeof snapshot.model.providerId === 'string' && typeof snapshot.model.modelId === 'string' ? { model: { providerId: snapshot.model.providerId, modelId: snapshot.model.modelId } } : {}),
         ...(typeof snapshot.thinking === 'string' ? { thinking: snapshot.thinking } : {}),
+        ...(Number.isSafeInteger(snapshot.extensionModelSequence) ? { extensionModelSequence: snapshot.extensionModelSequence } : {}),
         ...(typeof snapshot.lastText === 'string' ? { lastText: snapshot.lastText } : {}),
         ...(typeof snapshot.lastThinking === 'string' ? { lastThinking: snapshot.lastThinking } : {}),
         ...(Number.isFinite(snapshot.runStartedAt) ? { runStartedAt: Math.floor(snapshot.runStartedAt) } : {}),

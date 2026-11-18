@@ -66,6 +66,25 @@ describe('Pi runtime route', () => {
     expect(model({})).toEqual({ model: { providerId: 'p', modelId: 'm' } });
   });
 
+  it('keeps the last extension model choice on a session snapshot', () => {
+    const snapshot = (extensionModelSequence) => projectEventFrame({
+      protocolVersion: 1,
+      kind: 'event',
+      event: 'session.snapshot',
+      sequence: 8,
+      payload: {
+        sessionId: 'pi-session-mode',
+        directory: '/workspace',
+        isStreaming: false,
+        lifecycle: 'idle',
+        lastSequence: 8,
+        extensionModelSequence,
+      },
+    })?.payload.snapshot;
+    expect(snapshot(5)).toMatchObject({ extensionModelSequence: 5 });
+    expect(snapshot('5')).not.toHaveProperty('extensionModelSequence');
+  });
+
   it('projects prompt-time files on a live user message start', () => {
     expect(projectEventFrame({
       protocolVersion: 1,

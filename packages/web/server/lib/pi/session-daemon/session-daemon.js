@@ -453,6 +453,17 @@ export function createSessionDaemon({
   const retryStateBySession = new Map();
   const compactionStateBySession = new Map();
   const activeRunStartedAt = new Map();
+  // Model and thinking changes clients asked for (sessions.setModel /
+  // setThinking), counted per session, so a command's before/after
+  // comparison never credits another client's change to the extension.
+  const clientModelChangesBySession = new Map();
+  // Sequence of the last `session.model` an extension command chose; sent
+  // with session details and snapshots so a reconnecting composer still
+  // sees a choice it missed live.
+  const extensionModelSequenceBySession = new Map();
+  const noteClientModelChange = (sessionId) => {
+    clientModelChangesBySession.set(sessionId, (clientModelChangesBySession.get(sessionId) ?? 0) + 1);
+  };
   const sendGenerationBySession = new Map();
   const settledSendGenerationBySession = new Map();
   // Pi's reload() is identity-preserving but is not safe during a turn,
@@ -1045,6 +1056,7 @@ export function createSessionDaemon({
         } : { steering: 0, followUp: 0 },
         ...(model?.provider && model?.id ? { model: { providerId: model.provider, modelId: model.id } } : {}),
         ...(activeSession?.thinkingLevel ? { thinking: activeSession.thinkingLevel } : {}),
+        ...(session.sessionId && extensionModelSequenceBySession.has(session.sessionId) ? { extensionModelSequence: extensionModelSequenceBySession.get(session.sessionId) } : {}),
         ...(typeof lastAssistant?.text === 'string' ? { lastText: lastAssistant.text } : {}),
         ...(typeof lastAssistant?.thinking === 'string' ? { lastThinking: lastAssistant.thinking } : {}),
         ...(session.sessionId && activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
@@ -1532,6 +1544,8 @@ export function createSessionDaemon({
         const released = releaseResult?.released === true;
         shutdownRequestedBySession.delete(sessionId);
         compactionStateBySession.delete(sessionId);
+        clientModelChangesBySession.delete(sessionId);
+        extensionModelSequenceBySession.delete(sessionId);
         userBash.clearSession(sessionId);
         if (targetRuntime === runtime) runtime = undefined;
         // Publish only after a successful lease release so a
@@ -2420,6 +2434,7 @@ export function createSessionDaemon({
         ...(session.sessionName ? { title: session.sessionName } : {}),
         ...(sessionModel ? { model: sessionModel } : {}),
         ...(sessionThinking ? { thinking: sessionThinking } : {}),
+        ...(extensionModelSequenceBySession.has(session.sessionId) ? { extensionModelSequence: extensionModelSequenceBySession.get(session.sessionId) } : {}),
         messageCount: allMessages.length,
       },
       messages: page.messages,
@@ -4259,6 +4274,7 @@ export function createSessionDaemon({
       ? { provider: activeRuntime.session.model.provider, id: activeRuntime.session.model.id }
       : null;
     const prevThinking = activeRuntime.session?.thinkingLevel;
+    const prevClientModelChanges = clientModelChangesBySession.get(payload.sessionId) ?? 0;
     let promptPromise;
     // A command's custom() surfaces are titled with its name (see
     // describeCustomOrigin). Cleared when the command settles.
@@ -4377,19 +4393,29 @@ export function createSessionDaemon({
       if (!shouldRetain) {
         removeUserStart(payload.sessionId, generation);
       }
-      if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       const curModel = activeRuntime.session?.model;
       const modelChanged = curModel?.provider !== prevModel?.provider || curModel?.id !== prevModel?.id;
       // An extension command that switched the model or thinking (a mode
       // command such as /balance) made a choice of its own: `source:
       // 'extension'` tells clients to replace any unsent composer pick with
       // it, also when only thinking changed and the model stayed the same.
+      // A change a client asked for while the command ran is that client's,
+      // so it is not credited to the extension. This belongs to the command,
+      // not the send generation: a steer sent while it ran must not skip it.
       const extensionChoice = isExtensionCommand
+        && (clientModelChangesBySession.get(payload.sessionId) ?? 0) === prevClientModelChanges
         && (modelChanged || activeRuntime.session?.thinkingLevel !== prevThinking);
-      if (curModel?.provider && curModel?.id && (modelChanged || extensionChoice)) {
+      if (extensionChoice && curModel?.provider && curModel?.id) {
         publish('session.model', {
           model: { providerId: curModel.provider, modelId: curModel.id },
-          ...(extensionChoice ? { source: 'extension' } : {}),
+          source: 'extension',
+        }, payload.sessionId, activeRuntime.cwd);
+        extensionModelSequenceBySession.set(payload.sessionId, sequence);
+      }
+      if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
+      if (modelChanged && !extensionChoice && curModel?.provider && curModel?.id) {
+        publish('session.model', {
+          model: { providerId: curModel.provider, modelId: curModel.id },
         }, payload.sessionId, activeRuntime.cwd);
       }
       if (settledSendGenerationBySession.get(payload.sessionId) === generation) return;
@@ -4965,6 +4991,7 @@ export function createSessionDaemon({
             model: { providerId: event.model.provider, modelId: event.model.id },
             ...(event.source === 'extension' ? { source: 'extension' } : {}),
           }, sessionId, directory);
+          if (event.source === 'extension') extensionModelSequenceBySession.set(sessionId, sequence);
         }
         break;
       case 'thinking_level_changed':
@@ -5700,6 +5727,7 @@ export function createSessionDaemon({
       }
       case 'sessions.setModel': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        noteClientModelChange(message.payload.sessionId);
         await setSessionModel(activeRuntime, message.payload?.model);
         publishSessionModel(activeRuntime.session, message.payload.sessionId, activeRuntime.cwd);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
@@ -5707,6 +5735,7 @@ export function createSessionDaemon({
       }
       case 'sessions.setThinking': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        noteClientModelChange(message.payload.sessionId);
         applyThinking(activeRuntime, message.payload?.thinking, message.payload.sessionId, activeRuntime.cwd);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;

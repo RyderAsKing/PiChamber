@@ -847,6 +847,10 @@ describe('Pi session daemon spike', () => {
     await expect(chosen).resolves.toMatchObject({
       payload: { model: { providerId: 'test', modelId: 'model' }, source: 'extension' },
     });
+    // Session details carry the choice's sequence for a client that missed it.
+    const { sequence: choiceSequence } = await chosen;
+    const detail = await client.request('sessions.open', { sessionId: 'pi-session-new', directory: root });
+    expect(detail.result.session.extensionModelSequence).toBe(choiceSequence);
 
     // A command that changes neither publishes nothing, so it cannot replace
     // an unsent composer pick. (\`next\` also sees earlier frames, hence the
@@ -855,6 +859,34 @@ describe('Pi session daemon spike', () => {
     const second = client.next((frame) => frame.event === 'session.model' && ++seen === 2);
     await client.request('sessions.prompt', { sessionId: 'pi-session-new', text: '/plan' });
     await expect(second).rejects.toThrow('Timed out');
+    await client.close();
+  });
+
+  it('does not credit a client\'s change during a command to the extension', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-extension-mode-'));
+    const endpoint = testDaemonEndpoint(root);
+    const runtime = new FakeRuntime({ cwd: root, session: new FakeSession('pi-session-old') });
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => runtime });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+    const session = runtime.session;
+    session.extensionRunner = { getRegisteredCommands: () => [{ invocationName: 'plan' }] };
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const prompt = session.prompt.bind(session);
+    // /plan waits (on a dialog, say) and changes nothing itself.
+    session.prompt = async (text, options) => {
+      await prompt(text, options);
+      if (text === '/plan') await gate;
+    };
+    const credited = client.next((frame) => frame.event === 'session.model' && frame.payload.source === 'extension');
+    await client.request('sessions.prompt', { sessionId: 'pi-session-new', text: '/plan' });
+    await client.request('sessions.setThinking', { sessionId: 'pi-session-new', thinking: 'high' });
+    release();
+    await expect(credited).rejects.toThrow('Timed out');
     await client.close();
   });
 

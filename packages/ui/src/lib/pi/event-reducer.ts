@@ -214,6 +214,10 @@ export const applyPiEvent = (
         session.compaction = event.payload.snapshot.compaction;
         if (event.payload.snapshot.model) session.model = event.payload.snapshot.model;
         if (event.payload.snapshot.thinking) session.thinking = event.payload.snapshot.thinking;
+        // A choice an extension made while this client was away (reconnect).
+        if (Number.isSafeInteger(event.payload.snapshot.extensionModelSequence)) {
+          session.extensionModelSequence = event.payload.snapshot.extensionModelSequence;
+        }
         if (event.payload.snapshot.queue) session.queue = { ...event.payload.snapshot.queue };
         // Snapshot may carry current extension live state for reconnect after
         // the replay window. Replace the session's extension maps so a phone

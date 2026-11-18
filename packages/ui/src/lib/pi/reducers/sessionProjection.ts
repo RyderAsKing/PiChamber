@@ -280,6 +280,7 @@ export const hydrateSessionFromDetail = (
       directory: string;
       model?: PiModelRef;
       thinking?: PiThinkingLevel;
+      extensionModelSequence?: number;
     };
     lastSequence: number;
     hasMoreBefore?: boolean;
@@ -478,6 +479,7 @@ export const hydrateSessionFromDetail = (
   });
   if (resolved.model) session.model = resolved.model;
   if (resolved.thinking) session.thinking = resolved.thinking;
+  if (Number.isSafeInteger(detail.session.extensionModelSequence)) session.extensionModelSequence = detail.session.extensionModelSequence;
   session.compaction = detail.compaction;
   markHydratedLiveActivity(session, {
     ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),

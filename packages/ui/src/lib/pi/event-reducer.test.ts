@@ -457,6 +457,23 @@ describe("extension model choices", () => {
     })).state
     expect(state.bySession.get("sess-1")?.extensionModelSequence).toBe(2)
   })
+
+  test("carry a choice made while the client was away through detail and snapshot", () => {
+    const hydrated = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work", extensionModelSequence: 7 },
+      lastSequence: 9,
+      messages: [],
+    }).state
+    expect(hydrated.bySession.get("sess-1")?.extensionModelSequence).toBe(7)
+
+    const state = applyPiEvent(createReducerState(), baseEvent("session.snapshot", 4, {
+      snapshot: {
+        sessionId: "sess-1", directory: "/work", lastSequence: 4, isStreaming: false,
+        lifecycle: "idle", extensionModelSequence: 3,
+      },
+    })).state
+    expect(state.bySession.get("sess-1")?.extensionModelSequence).toBe(3)
+  })
 })
 
 describe("applyPiEvents", () => {
