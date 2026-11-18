@@ -1,6 +1,7 @@
 import type { Theme } from '@/types/theme';
 import { SEMANTIC_TYPOGRAPHY } from '@/lib/typography';
 import { deriveSubtle, ensureContrast } from './contrast';
+import { withInkStates } from './inkStates';
 
 const hexToRgb = (value: string | undefined | null): string | null => {
   if (!value || typeof value !== 'string') {
@@ -58,7 +59,7 @@ export class CSSVariableGenerator {
 
   generate(sourceTheme: Theme): string {
     const cssVars: string[] = [];
-    const theme = withReadableSecondaryText(sourceTheme);
+    const theme = withReadableSecondaryText(withInkStates(sourceTheme));
     const { surface } = theme.colors;
     const textSurfaces = [surface.background, surface.muted, surface.elevated];
 
@@ -123,7 +124,6 @@ export class CSSVariableGenerator {
 
 const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
     const sidebarAccentRgb = hexToRgb(theme.colors.surface.subtle);
-    const sidebarBorderRgb = hexToRgb(theme.colors.interactive.border);
 
     vars.push(`  --sidebar-base: ${theme.colors.surface.muted} !important;`);
     if (sidebarBaseRgb) {
@@ -140,9 +140,6 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
     vars.push(`  --sidebar-accent: var(--sidebar-accent-base) !important;`);
     vars.push(`  --sidebar-accent-foreground: ${theme.colors.surface.foreground} !important;`);
     vars.push(`  --sidebar-border: ${theme.colors.interactive.border} !important;`);
-    if (sidebarBorderRgb) {
-      vars.push(`  --sidebar-border-rgb: ${sidebarBorderRgb} !important;`);
-    }
     vars.push(`  --sidebar-ring: ${theme.colors.interactive.focusRing} !important;`);
 
     const isDark = theme.metadata.variant === 'dark';
@@ -691,6 +688,11 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
 
   private opacity(color: string, alpha: number): string {
     if (color.startsWith('#')) {
+      // A colour that already has alpha (derived borders do) keeps its share of it.
+      if (color.length === 9) {
+        const own = Number.parseInt(color.slice(7), 16) / 255;
+        return `${color.slice(0, 7)}${Math.round(own * alpha * 255).toString(16).padStart(2, '0')}`;
+      }
       return `${color}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`;
     }
     if (color.startsWith('rgb')) {

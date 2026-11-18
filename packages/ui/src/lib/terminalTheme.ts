@@ -26,6 +26,14 @@ export interface TerminalTheme {
   brightWhite: string;
 }
 
+/** The selection at a third of its strength, for an unfocused terminal. */
+function inactiveSelection(color: string): string {
+  const hex = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(color);
+  if (!hex) return color;
+  const alpha = hex[2] ? Number.parseInt(hex[2], 16) : 255;
+  return `#${hex[1]}${Math.round(alpha * 0.31).toString(16).padStart(2, '0')}`;
+}
+
 export function convertThemeToXterm(theme: Theme): TerminalTheme {
   const { colors } = theme;
   const syntax = colors.syntax.base;
@@ -39,7 +47,7 @@ export function convertThemeToXterm(theme: Theme): TerminalTheme {
 
     selectionBackground: colors.interactive.selection,
     selectionForeground: colors.interactive.selectionForeground,
-    selectionInactiveBackground: colors.interactive.selection + '50',
+    selectionInactiveBackground: inactiveSelection(colors.interactive.selection),
 
     black: colors.surface.muted,
     red: colors.status.error,

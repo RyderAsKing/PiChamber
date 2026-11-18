@@ -10,6 +10,7 @@ import type { DesktopSettings } from '@/lib/desktop';
 import { isDesktopLocalOriginActive, isDesktopShell as detectDesktopShell } from '@/lib/desktop';
 import { setDesktopWindowTheme } from '@/lib/desktopNative';
 import { CSSVariableGenerator } from '@/lib/theme/cssGenerator';
+import { withInkStates } from '@/lib/theme/inkStates';
 import { updateDesktopSettings } from '@/lib/persistence';
 import {
   themes,
@@ -193,16 +194,18 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     [availableThemes, getThemeByIdFromAvailable],
   );
 
+  // Hover, pressed, border and selection come from the theme's ink, so the
+  // editor, terminal and diagrams read the same states the CSS does.
   const currentTheme = useMemo(() => {
     if (preferences.themeMode === 'light') {
-      return ensureThemeById(preferences.lightThemeId, 'light');
+      return withInkStates(ensureThemeById(preferences.lightThemeId, 'light'));
     }
     if (preferences.themeMode === 'dark') {
-      return ensureThemeById(preferences.darkThemeId, 'dark');
+      return withInkStates(ensureThemeById(preferences.darkThemeId, 'dark'));
     }
-    return systemPrefersDark
+    return withInkStates(systemPrefersDark
       ? ensureThemeById(preferences.darkThemeId, 'dark')
-      : ensureThemeById(preferences.lightThemeId, 'light');
+      : ensureThemeById(preferences.lightThemeId, 'light'));
   }, [ensureThemeById, preferences, systemPrefersDark]);
 
   const reloadCustomThemes = useCallback(async () => {
