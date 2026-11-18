@@ -496,7 +496,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 			// mobile browsers (see ChatInput's composerFormRef effect). `isolate`
 			// keeps the wallpaper under the title without moving that block.
 			<div data-composer-bound className="relative isolate flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
-				{isDesktopExpandedInput ? null : <DraftWallpaper />}
+				{isDesktopExpandedInput ? null : (
+					// On phones the composer is an opaque bar along the bottom, so the
+					// wallpaper fades out above it rather than stopping on a hard line.
+					<DraftWallpaper fade={useCompactDraftLayout} />
+				)}
 				{useCompactDraftLayout && !isDesktopExpandedInput ? <DraftWelcome /> : null}
 				<div
 					className={cn(

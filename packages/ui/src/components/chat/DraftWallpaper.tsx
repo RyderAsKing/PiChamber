@@ -37,7 +37,7 @@ function usePrefersReducedMotion(): boolean {
  * reduced motion keeps it still. Nothing renders while the picture loads; if
  * it cannot load, the pattern is drawn without it.
  */
-export const DraftWallpaper: React.FC = () => {
+export const DraftWallpaper: React.FC<{ fade: boolean }> = ({ fade }) => {
   const wallpaper = useUIStore((state) => state.draftWallpaper);
   const motion = useUIStore((state) => state.draftWallpaperMotion);
   const showPicture = useUIStore((state) => state.draftWallpaperPicture);
@@ -51,10 +51,9 @@ export const DraftWallpaper: React.FC = () => {
       picture={picture}
       moving={motion && !reducedMotion && wallpaperCanMove(wallpaper)}
       className="absolute inset-0 -z-10"
-      // Fades out above the bottom edge, where a phone's composer bar starts,
-      // so the pattern never ends on a hard line. Drawn into the canvas: a CSS
-      // mask on a canvas this large sometimes left a strip unmasked in Chrome.
-      fade
+      // Drawn into the canvas: a CSS mask on a canvas this large sometimes
+      // left a strip unmasked in Chrome.
+      fade={fade}
     />
   );
 };
