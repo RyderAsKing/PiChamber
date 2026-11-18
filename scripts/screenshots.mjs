@@ -91,7 +91,7 @@ const VISUALS_HTML = `<style>
 .bar b{font-size:11px;font-weight:500;color:var(--pc-muted);font-variant-numeric:tabular-nums}
 .days{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;text-align:center;font-size:11px;color:var(--pc-muted)}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.stat{border:1px solid var(--pc-border);border-radius:10px;padding:10px 12px}
+.stat{border:1px solid var(--pc-border);border-radius:var(--pc-radius);padding:12px}
 .stat div{font-size:11px;color:var(--pc-muted)}
 .stat strong{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
 </style>
@@ -840,7 +840,7 @@ const PAGES = {
     // Pi extensions on a phone, This project: reached from the composer
     // sheet's Plugin settings, since a phone has no settings link to open.
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     viewports: ['mobile'],
     settledScript: `(() => {
       const section = document.querySelector('[data-settings-item="plugins.extensions"]');
@@ -897,15 +897,32 @@ const PAGES = {
     viewports: ['desktop'],
   },
   'visuals-page': {
-    // A render_html page drawn in its frame under the turn's activity, with
-    // the Sub-agents composer toggle below (Visuals has none).
+    // A render_html page drawn in the reply column under the turn's
+    // activity, with no frame of its own, and the Sub-agents composer toggle
+    // below (Visuals has none).
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     // The page has drawn and the frame has fitted to it.
     settledScript: `(() => {
       const frame = document.querySelector('[data-plugin-artifact="visuals"] iframe');
       return Boolean(frame) && frame.getBoundingClientRect().height > 0 && frame.getBoundingClientRect().height !== 240;
     })()`,
+  },
+  'visuals-page-hover': {
+    // The same page with the pointer on it: its More and Expand buttons show
+    // at its top right (on touch screens they sit under the page). Desktop only.
+    path: VISUALS_SESSION_PATH,
+    readyText: [VISUALS_REPLY],
+    settledScript: `(() => {
+      const frame = document.querySelector('[data-plugin-artifact="visuals"] iframe');
+      return Boolean(frame) && frame.getBoundingClientRect().height > 0 && frame.getBoundingClientRect().height !== 240;
+    })()`,
+    hoverScript: `(() => {
+      // Rest on the buttons' corner of the page.
+      const rect = document.querySelector('[data-plugin-artifact="visuals"] [aria-label="Expand page"]')?.getBoundingClientRect();
+      return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+    })()`,
+    viewports: ['desktop'],
   },
   'visuals-choices': {
     // An answered render_choices call: one variant at a time at full width,
@@ -980,7 +997,7 @@ const PAGES = {
     // Phones: the plugin button beside Send pressed, opening the sheet with a
     // switch per composer toggle (only Sub-agents declares one).
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     expandSelector: 'button[aria-label^="Composer controls"]',
     settledScript: `document.body.innerText.includes('Plugin settings')`,
     viewports: ['mobile'],
@@ -1014,8 +1031,9 @@ const PAGES = {
   'visuals-expanded': {
     // The same page opened full window from its Expand action.
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
-    expandSelector: '[data-plugin-artifact="visuals"] [aria-label="Expand page"]',
+    readyText: [VISUALS_REPLY],
+    // Pressed until it exists: the reply can show before the page does.
+    openSelector: '[data-plugin-artifact="visuals"] [aria-label="Expand page"]',
     settledScript: `Boolean(document.querySelector('[role="dialog"] iframe'))`,
     viewports: ['desktop'],
   },

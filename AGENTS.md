@@ -206,8 +206,10 @@ mobile only);
 only); `settings-plugin-replaced` (Sub-agents' own page from the Night Shift
 session, whose folder has its own `subagent` extension: a warning callout
 names it and offers to turn it off in that project, desktop only);
-`visuals-page` (a `render_html` page in its frame between the turn's
-activity and its reply, with the Sub-agents toggle in the composer);
+`visuals-page` (a `render_html` page in the reply column, with no frame of
+its own, between the turn's activity and its reply, with the Sub-agents
+toggle in the composer); `visuals-page-hover` (the same page with the
+pointer on it, showing its More and Expand buttons, desktop only);
 `visuals-choices` (an answered `render_choices` call: three variants, one
 at a time at full width, opened on the chosen one with its switcher button
 marked and the note under the frame); `visuals-choices-pending` (a

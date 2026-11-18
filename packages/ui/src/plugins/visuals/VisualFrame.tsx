@@ -113,13 +113,7 @@ function ViewSwitch({ view, onChange }: { view: FrameView; onChange: (view: Fram
   );
 }
 
-function FrameActions({
-  details,
-  onExpand,
-}: {
-  details: VisualDetails;
-  onExpand?: () => void;
-}) {
+function useFrameActions(details: VisualDetails) {
   const handleCopy = React.useCallback(async () => {
     const result = await copyTextToClipboard(details.html);
     if (result.ok) toast.success('Copied HTML');
@@ -134,8 +128,12 @@ function FrameActions({
     }).catch(() => toast.error('Could not save the page'));
   }, [details.html, details.title]);
 
-  // In a narrow header (phones, a narrow panel) Copy and Download move into
-  // one menu, so the title keeps its room.
+  return { handleCopy, handleDownload };
+}
+
+/** Copy and Download as buttons, folded into one menu in a narrow header. */
+function FrameActions({ details }: { details: VisualDetails }) {
+  const { handleCopy, handleDownload } = useFrameActions(details);
   return (
     <div className="flex shrink-0 items-center gap-0.5">
       <Button variant="ghost" size="xs" className="hidden text-muted-foreground @md:inline-flex" onClick={handleCopy} aria-label="Copy HTML" title="Copy HTML">
@@ -155,11 +153,6 @@ function FrameActions({
           <DropdownMenuItem onSelect={handleDownload}>{'Download page'}</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {onExpand ? (
-        <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={onExpand} aria-label="Expand page" title="Expand">
-          <Icon name="fullscreen" className="size-3.5" />
-        </Button>
-      ) : null}
     </div>
   );
 }
@@ -224,7 +217,7 @@ export function VisualExpandDialog({
 const FIGURE_CLASS = 'my-3 overflow-hidden rounded-xl border border-border/60 bg-background';
 const HEADER_CLASS = '@container flex h-10 items-center gap-2 border-b border-border/60 pl-3.5 pr-1.5';
 
-/** A `render_html` call still being written: its title and how much page so far. */
+/** A `render_choices` call still being written: its title and how much so far. */
 export function VisualDrawing({ title, size, label = 'Drawing page' }: { title?: string; size: number; label?: string }) {
   return (
     <figure className={FIGURE_CLASS} data-plugin-artifact="visuals" aria-busy="true">
@@ -238,19 +231,63 @@ export function VisualDrawing({ title, size, label = 'Drawing page' }: { title?:
           <Icon name="loader-4" aria-hidden="true" className="size-3.5 animate-spin" />
           {label}
         </span>
-        {size > 0 ? (
-          <span className="typography-micro tabular-nums text-subtle-foreground">
-            {size < 1024 ? `${size} characters` : `${Math.round(size / 1024)} KB written`}
-          </span>
-        ) : null}
+        {size > 0 ? <span className="typography-micro tabular-nums text-subtle-foreground">{writtenSize(size)}</span> : null}
       </div>
     </figure>
   );
 }
 
+const writtenSize = (size: number): string => (
+  size < 1024 ? `${size} characters` : `${Math.round(size / 1024)} KB written`
+);
+
+/**
+ * A `render_html` call still being written: one quiet line in the reply,
+ * since the page itself has no frame around it either.
+ */
+export function PageDrawing({ title, size }: { title?: string; size: number }) {
+  const name = title?.trim();
+  return (
+    <div className="my-3 flex min-w-0 items-center gap-1.5 typography-meta text-muted-foreground" data-plugin-artifact="visuals" aria-busy="true">
+      <Icon name="loader-4" aria-hidden="true" className="size-3.5 shrink-0 animate-spin" />
+      <span className="min-w-0 truncate">{name ? `Drawing ${name}` : 'Drawing page'}</span>
+      {size > 0 ? <span className="shrink-0 typography-micro tabular-nums text-subtle-foreground">{writtenSize(size)}</span> : null}
+    </div>
+  );
+}
+
+/**
+ * The inline page's buttons: over its top right on hover or focus. Touch
+ * screens cannot hover them away, so there they sit in a row under the page
+ * and never cover it.
+ */
+function InlineActions({ details, onExpand }: { details: VisualDetails; onExpand: () => void }) {
+  const { handleCopy, handleDownload } = useFrameActions(details);
+  return (
+    <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-border/60 bg-background p-0.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/visual:opacity-100 pointer-coarse:static pointer-coarse:ml-auto pointer-coarse:mt-1 pointer-coarse:w-fit pointer-coarse:border-0 pointer-coarse:bg-transparent pointer-coarse:p-0 pointer-coarse:opacity-100">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="xs" className="text-muted-foreground" aria-label="More page actions" title="More">
+            <Icon name="more-fill" className="size-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-40">
+          <DropdownMenuItem onSelect={() => void handleCopy()}>{'Copy HTML'}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleDownload}>{'Download page'}</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={onExpand} aria-label="Expand page" title="Expand">
+        <Icon name="fullscreen" className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
+
 /**
  * A page the agent drew with `render_html`, shown under the turn's activity
- * so it stays in view after the activity collapses.
+ * so it stays in view after the activity collapses. No frame of its own: the
+ * page sits in the reply column on the chat background, and its title names
+ * the frame, the expanded view, and the download.
  */
 export function VisualFrame({ details, allowNetwork }: VisualFrameProps) {
   const srcDoc = usePageDocument(details.html, allowNetwork);
@@ -265,22 +302,17 @@ export function VisualFrame({ details, allowNetwork }: VisualFrameProps) {
     setFittedHeight(clamp(height, MIN_HEIGHT, INLINE_MAX_HEIGHT));
   }, []);
 
+  const handleExpand = React.useCallback(() => {
+    setView('page');
+    setExpanded(true);
+  }, []);
+
   const height = fixedHeight ?? fittedHeight ?? PLACEHOLDER_HEIGHT;
 
   return (
-    <figure className={FIGURE_CLASS} data-plugin-artifact="visuals">
-      <figcaption className={HEADER_CLASS}>
-        <span className="min-w-0 flex-1 truncate typography-ui-label font-medium text-foreground" title={details.title}>
-          {details.title}
-        </span>
-        <ViewSwitch view={view} onChange={setView} />
-        <span aria-hidden="true" className="mx-1 h-4 w-px bg-border/60" />
-        <FrameActions details={details} onExpand={() => setExpanded(true)} />
-      </figcaption>
+    <figure className="group/visual relative my-3" data-plugin-artifact="visuals" aria-label={details.title}>
       <div ref={hostRef} style={{ height }}>
-        {view === 'code' ? (
-          <PageCode html={details.html} style={{ height }} />
-        ) : mounted ? (
+        {mounted ? (
           <PageFrame
             title={details.title}
             srcDoc={srcDoc}
@@ -289,6 +321,7 @@ export function VisualFrame({ details, allowNetwork }: VisualFrameProps) {
           />
         ) : null}
       </div>
+      <InlineActions details={details} onExpand={handleExpand} />
 
       <VisualExpandDialog
         details={details}
