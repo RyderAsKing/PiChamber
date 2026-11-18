@@ -458,6 +458,34 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['worktree', 'setup commands', 'bootstrap', 'wait'],
   },
   {
+    id: 'projects.sandbox',
+    page: 'projects',
+    title: "Sandbox",
+    description: "Run a project's sessions inside nono, with allowed hosts, local ports and extra folders.",
+    keywords: ['sandbox', 'nono', 'isolation', 'landlock', 'allowed hosts', 'ports', 'extra folders'],
+  },
+  {
+    id: 'projects.sandboxing',
+    page: 'projects',
+    title: "Sandboxing",
+    description: "Whether nono can run on the server machine, what it cannot enforce there, and the sandbox profile.",
+    keywords: ['sandbox', 'nono', 'landlock', 'seatbelt', 'macos', 'wsl', 'wsl2', 'check again', 'isolation', 'profile', 'policy', 'custom profile'],
+  },
+  {
+    id: 'projects.sandbox-default',
+    page: 'projects',
+    title: "Sandbox projects by default",
+    description: "Sandbox every project set to Default, including folders you add later.",
+    keywords: ['sandbox', 'nono', 'default', 'all projects', 'isolation'],
+  },
+  {
+    id: 'projects.sandbox-default-hosts',
+    page: 'projects',
+    title: "Allowed hosts for all projects",
+    description: "Hosts every sandboxed project's agent may reach, with GitHub and package registry presets.",
+    keywords: ['sandbox', 'nono', 'allowed hosts', 'network', 'github', 'npm', 'registry', 'domains'],
+  },
+  {
     id: 'remote-access.client-auth',
     page: 'remote-access',
     title: "Add a device",
@@ -607,6 +635,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['subagent', 'sub-agent', 'agents', 'delegate', 'parallel', 'chain', 'scout', 'reviewer', 'plugin'],
   },
   {
+    id: 'plugins.browse',
+    page: 'plugins',
+    title: "Browse Pi packages",
+    description: "Find and install Pi packages from npm, and see which work with PiChamber",
+    keywords: ['marketplace', 'browse', 'install', 'npm', 'gallery', 'store', 'find', 'search', 'pi install', 'update'],
+  },
+  {
     id: 'plugins.extensions',
     page: 'plugins',
     title: "Pi extensions",
@@ -617,7 +652,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'plugins.extensions.packages',
     page: 'plugins',
     title: "Pi packages",
-    description: "See the packages Pi has installed and remove one",
+    description: "See the packages Pi has installed, update one, or remove it",
     keywords: ['package', 'packages', 'npm', 'git', 'pi list', 'pi remove', 'uninstall', 'remove', 'installed'],
   },
   {

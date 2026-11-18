@@ -13,6 +13,7 @@ import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { describeSandboxSendError } from '@/lib/pi/sandboxText';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useRevertNavigation } from '@/sync/revert-navigation-store';
 
@@ -75,7 +76,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
         try {
             await forkFromMessage(sessionId, messageId);
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to fork session');
+            toast.error(describeSandboxSendError(error) ?? (error instanceof Error ? error.message : 'Failed to fork session'));
         } finally {
             setForkingId(null);
         }

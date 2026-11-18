@@ -68,28 +68,40 @@ export const visualContentSecurityPolicy = (allowNetwork: boolean): string => (
 /** Strips characters that could end a CSS declaration from a theme value. */
 const cssValue = (value: string): string => value.replace(/[;{}<>]/g, '').trim();
 
+/** Shades of the first series colour for ordered values, strongest first, mixed toward the background. */
+const SERIES_SHADES = [100, 72, 48, 28];
+
 const themeVariables = (theme: VisualTheme): string => {
   const values: Record<string, string> = {
     bg: theme.bg, surface: theme.surface, fg: theme.fg, muted: theme.muted, border: theme.border,
     accent: theme.accent, font: theme.font, mono: theme.mono,
-    good: theme.good, warn: theme.warn, bad: theme.bad,
+    good: theme.good, warn: theme.warn, bad: theme.bad, radius: '10px',
   };
   theme.series.forEach((color, index) => { values[`c${index + 1}`] = color; });
+  SERIES_SHADES.forEach((share, index) => {
+    values[`shade-${index + 1}`] = share === 100
+      ? 'var(--pc-c1)'
+      : `color-mix(in oklab, var(--pc-c1) ${share}%, var(--pc-bg))`;
+  });
   return Object.entries(values).map(([name, value]) => `--pc-${name}:${cssValue(value)}`).join(';');
 };
 
 /**
  * Zero-specificity defaults (`:where`), so any rule in the page wins. They
- * make plain markup look at home in the app; the agent adds only layout.
+ * make plain markup look at home in the chat: the page sits on the chat
+ * background with an 8px gutter (room for focus rings and shadows), text
+ * stays at the chat's sizes, and SVG labels come out small and muted unless
+ * the page colours them. The agent adds only layout.
  */
 const BASE_STYLE = [
-  ':where(html){background:var(--pc-bg)}',
-  ':where(body){margin:0;padding:20px;font-family:var(--pc-font);color:var(--pc-fg);font-size:14px;line-height:1.55;'
+  ':where(html){background:var(--pc-bg);padding:8px;scrollbar-width:none}',
+  'html::-webkit-scrollbar{display:none}',
+  ':where(body){margin:0;font-family:var(--pc-font);color:var(--pc-fg);font-size:14px;line-height:1.55;'
     + '-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}',
   ':where(*,*::before,*::after){box-sizing:border-box}',
-  ':where(h1,h2,h3,h4){margin:0 0 .5em;line-height:1.25;font-weight:600;text-wrap:balance}',
-  ':where(h1){font-size:20px}:where(h2){font-size:16px}:where(h3){font-size:14px}:where(h4){font-size:13px;color:var(--pc-muted)}',
-  ':where(p){margin:0 0 .75em;text-wrap:pretty}:where(small,figcaption){color:var(--pc-muted);font-size:12px}',
+  ':where(h1,h2,h3,h4){margin:0 0 .5em;line-height:1.3;font-weight:600;text-wrap:balance}',
+  ':where(h1){font-size:16px}:where(h2){font-size:15px}:where(h3){font-size:14px}:where(h4){font-size:13px;color:var(--pc-muted)}',
+  ':where(p){margin:0 0 .75em;text-wrap:pretty}:where(small,figcaption,caption,legend){color:var(--pc-muted);font-size:12px}',
   ':where(a){color:var(--pc-accent);text-underline-offset:2px}',
   ':where(hr){border:0;border-top:1px solid var(--pc-border);margin:16px 0}',
   ':where(code,pre,kbd,samp){font-family:var(--pc-mono);font-size:12.5px}',
@@ -103,7 +115,12 @@ const BASE_STYLE = [
   ':where(button:hover){border-color:var(--pc-muted)}',
   ':where(input,select,textarea){background:var(--pc-bg);border:1px solid var(--pc-border);border-radius:8px;padding:6px 10px}',
   ':where(input[type=range],input[type=checkbox],input[type=radio]){accent-color:var(--pc-accent)}',
-  ':where(svg){overflow:visible}',
+  // Inherited, so a font-size or fill set on the text, its group, or by a
+  // page rule still wins. Shapes with no fill of their own get the muted
+  // colour instead of black. Skipped where the svg sets its own (an icon's
+  // fill="none"): a page rule would beat the attribute.
+  ':where(svg){overflow:visible;font-family:var(--pc-font);font-variant-numeric:tabular-nums}',
+  ':where(svg:not([fill])){fill:var(--pc-muted)}:where(svg:not([font-size])){font-size:12px}',
 ].join('');
 
 const themeStyle = (theme: VisualTheme): string => (

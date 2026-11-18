@@ -160,6 +160,15 @@ describe('plugin routes', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('names the npm packages of the bundled plugins', async () => {
+    const file = join(await mkdtemp(join(tmpdir(), 'pichamber-plugin-config-')), 'plugins.json');
+    const service = createPluginService({ store: createPluginStore({ file }) });
+    expect((await service.bundledPackageNames()).sort()).toEqual([
+      '@pi-chamber/plugin-subagents',
+      '@pi-chamber/plugin-visuals',
+    ]);
+  });
+
   it('builds the daemon config from enabled plugins only', async () => {
     const file = join(await mkdtemp(join(tmpdir(), 'pichamber-plugin-config-')), 'plugins.json');
     const service = createPluginService({ store: createPluginStore({ file }) });
@@ -174,6 +183,25 @@ describe('plugin routes', () => {
         state: { global: { allowNetwork: true }, projects: {}, sessions: {} },
       }],
     });
+  });
+
+  it('leaves other projects out of a sandboxed daemon\'s config', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-plugin-config-fixture-'));
+    await writePlugin(root, 'scoped', {
+      state: { mode: { type: 'enum', scope: 'project', default: 'a', label: 'Mode', options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] } },
+    });
+    await writeFile(join(root, 'registry.json'), JSON.stringify({ version: 1, plugins: ['scoped'] }));
+    const file = join(await mkdtemp(join(tmpdir(), 'pichamber-plugin-config-')), 'plugins.json');
+    const service = createPluginService({ store: createPluginStore({ file }), loadPlugins: () => loadBundledPlugins({ pluginsDir: root }) });
+    await service.setEnabled('scoped', true);
+    for (const directory of ['/work/night', '/work/night/app', '/work/nightly', '/work/other', '/data/worktree/abc/feature']) {
+      await service.setState('scoped', { key: 'mode', value: 'b', directory });
+    }
+    const projectsFor = async (scope) => Object.keys((await service.daemonConfig(scope)).plugins[0].state.projects).sort();
+    expect(await projectsFor()).toEqual(['/data/worktree/abc/feature', '/work/night', '/work/night/app', '/work/nightly', '/work/other']);
+    expect(await projectsFor({ roots: ['/work/night', '/data/worktree/abc'] }))
+      .toEqual(['/data/worktree/abc/feature', '/work/night', '/work/night/app']);
+    expect(await projectsFor({ roots: [] })).toEqual([]);
   });
 
   it('keeps a composer switch to one session and leaves the settings alone', async () => {

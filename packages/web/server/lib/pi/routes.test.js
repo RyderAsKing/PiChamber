@@ -2675,8 +2675,8 @@ describe('Pi extension config routes', () => {
     app.use(express.json());
     registerPiRuntimeRoutes(app, {
       getPiSessionDaemonRuntime: () => ({
-        request: async (command, payload) => {
-          calls.push({ command, payload });
+        request: async (command, payload, options) => {
+          calls.push(options === undefined ? { command, payload } : { command, payload, options });
           return request(command, payload);
         },
       }),
@@ -2780,6 +2780,91 @@ describe('Pi extension config routes', () => {
       { command: 'extensions.config.set', payload: { id: ID, scope: 'global', enabled: false } },
       { command: 'extensions.config.set', payload: { id: ID, scope: 'project', state: 'inherit', directory: '/work' } },
     ]);
+  });
+
+  it('projects package.json fields and drops bad values', async () => {
+    const packages = [
+      { id: PKG, source: 'npm:pi-btw@0.8.1', scope: 'user', kind: 'npm', installed: true, filtered: false, name: '@acme/pi-btw', version: '0.8.1', pichamber: true, pinned: true },
+      { id: ID, source: 'https://github.com/acme/tool', scope: 'user', kind: 'git', installed: true, filtered: false, name: 'Bad Name', version: '1.0.0 && rm', pichamber: 'yes', pinned: true },
+    ];
+    const { api } = await start(async () => daemonList({ packages, extensions: [] }));
+    const body = await (await fetch(`${api}/config`)).json();
+    expect(body.packages).toEqual([
+      { id: PKG, source: 'npm:pi-btw@0.8.1', scope: 'user', kind: 'npm', installed: true, filtered: false, name: '@acme/pi-btw', version: '0.8.1', pichamber: true, pinned: true },
+      { id: ID, source: 'https://github.com/acme/tool', scope: 'user', kind: 'git', installed: true, filtered: false },
+    ]);
+  });
+
+  it('validates install bodies strictly and forwards with a long timeout', async () => {
+    let fail = null;
+    const { calls, api } = await start(async () => {
+      if (fail) {
+        const error = new Error('x');
+        error.code = fail;
+        throw error;
+      }
+      return { ...daemonList(), installedId: PKG };
+    });
+    const post = (body) => fetch(`${api}/packages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    for (const body of [
+      { name: 'pi-btw' },
+      { name: 'pi-btw', scope: 'global' },
+      { name: 'pi-btw', scope: 'project' },
+      { name: 'pi-btw', scope: 'user', extra: 1 },
+      { name: 'npm:pi-btw', scope: 'user' },
+      { name: 'pi-btw@1.0.0', scope: 'user' },
+      { name: '../x', scope: 'user' },
+      { name: 'https://github.com/acme/tool', scope: 'user' },
+      { name: 'Pi-Btw', scope: 'user' },
+      { name: '.hidden', scope: 'user' },
+      { name: 'a'.repeat(215), scope: 'user' },
+      [],
+    ]) {
+      expect((await post(body)).status).toBe(400);
+    }
+    expect(calls).toEqual([]);
+    const installed = await post({ name: '@acme/pi-btw', scope: 'project', directory: '/work' });
+    expect(installed.status).toBe(200);
+    expect((await installed.json()).installedId).toBe(PKG);
+    expect(calls).toEqual([{
+      command: 'extensions.packages.install',
+      payload: { name: '@acme/pi-btw', scope: 'project', directory: '/work' },
+      options: { timeoutMs: 600_000 },
+    }]);
+    for (const [code, status] of [
+      ['PACKAGE_ALREADY_INSTALLED', 409],
+      ['PACKAGE_INSTALL_FAILED', 502],
+      ['PROJECT_UNTRUSTED', 400],
+      ['PI_SETTINGS_INVALID', 400],
+    ]) {
+      fail = code;
+      const response = await post({ name: 'pi-btw', scope: 'user' });
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toEqual({ error: { code } });
+    }
+  });
+
+  it('updates a package by id and maps daemon errors', async () => {
+    let fail = null;
+    const { calls, api } = await start(async () => {
+      if (fail) {
+        const error = new Error('x');
+        error.code = fail;
+        throw error;
+      }
+      return daemonList({ installedId: PKG });
+    });
+    expect((await fetch(`${api}/packages/nope/update`, { method: 'POST' })).status).toBe(400);
+    const updated = await fetch(`${api}/packages/${PKG}/update?directory=${encodeURIComponent('/work')}`, { method: 'POST' });
+    expect(updated.status).toBe(200);
+    expect('installedId' in await updated.json()).toBe(false);
+    expect(calls).toEqual([{ command: 'extensions.packages.update', payload: { id: PKG, directory: '/work' }, options: { timeoutMs: 600_000 } }]);
+    for (const [code, status] of [['PACKAGE_PINNED', 409], ['PACKAGE_UPDATE_FAILED', 502], ['RESOURCE_NOT_FOUND', 400], ['INVALID_ARGUMENT', 400]]) {
+      fail = code;
+      const response = await fetch(`${api}/packages/${PKG}/update`, { method: 'POST' });
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toEqual({ error: { code } });
+    }
   });
 
   it('removes a package by id and maps daemon errors', async () => {

@@ -16,6 +16,7 @@
         { "label": "Environment", "link": "/environment/" },
         { "label": "Docker", "link": "/docker/" },
         { "label": "Pi extensions", "link": "/extensions/" },
+        { "label": "Sandboxing", "link": "/sandboxing/" },
         { "label": "Security", "link": "/security/" },
         { "label": "Troubleshooting", "link": "/troubleshooting/" }
       ]

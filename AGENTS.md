@@ -191,11 +191,38 @@ mobile with its key bar); `extension-surface-unfocused`
 (the same prompt with focus on another control, so its footer offers to type
 to it, desktop only); `extension-surface-keys` (the same prompt with its
 footer's Show key buttons pressed; its Esc button answers the prompt afterwards, so capture it
-last of the three, desktop only). The seed turns on the bundled Visuals and
+last of the three, desktop only); `settings-sandboxing` (Projects settings
+scrolled to Sandboxing: whether nono can run on the server machine, with Check
+again, and the seed's Night Shift card labelled sandboxed or unavailable,
+desktop only); `settings-project-sandbox` (Night Shift's Sandbox section: nono
+with an allowed host, a local port and an extra folder, or why it cannot run,
+desktop only); `session-sandboxed` (a Night Shift session: its header and row
+say Sandboxed, or the chat says the sandbox is unavailable);
+`terminal-sandboxed` (the terminal beside that session says it runs outside
+the sandbox, desktop only). The seed sandboxes Night Shift with nono; on a
+machine without Landlock those pages show the unavailable states.
+The seed turns on the bundled Visuals and
 Sub-agents plugins and adds two backdated sessions for them:
 `settings-plugins` (Settings → Extensions & Plugins with both on, desktop
-only); `settings-extensions` (the same page at Pi extensions, Global: the
-seed's local `review-kit` package with one extension off, the demo
+only);
+`settings-marketplace` (Browse from that page's header: the featured picks
+and popular packages, desktop only); `settings-marketplace-search` (Browse
+searching `subagent`: the native Sub-agents plugin with its switch above the
+npm results, desktop only); `settings-marketplace-mobile` (the same search on
+a phone, from the composer sheet's Plugin settings, mobile only);
+`settings-marketplace-package` (the seeded npm package's page, opened from
+its name under Packages: enhanced for PiChamber, with Update to 1.3.0,
+desktop only); `settings-marketplace-install` (the
+Install dialog on a package page; nothing is installed, desktop only). The
+marketplace pages read a made-up npm registry the script serves on port 4778
+(`DEMO_NPM_PORT`): start the dev server with
+`PICHAMBER_NPM_REGISTRY_URL=http://127.0.0.1:4778`,
+`PICHAMBER_NPM_DOWNLOADS_URL=http://127.0.0.1:4778`, and
+`PICHAMBER_FEATURED_URL=off`; the seed writes the featured list into the data
+directory; `settings-extensions` (the same page at Pi extensions, Global: the
+seed's npm package `@acme/pi-review-gate`, one release behind the demo
+registry, with its Enhanced tag and Update; its local `review-kit` package
+with one extension off; the demo
 extensions, and Pi's built-ins); `settings-extensions-project` (Pi
 extensions on This project, each extension with the project's own choice);
 `settings-extensions-remove` (the package's Remove dialog; nothing is
@@ -206,8 +233,10 @@ mobile only);
 only); `settings-plugin-replaced` (Sub-agents' own page from the Night Shift
 session, whose folder has its own `subagent` extension: a warning callout
 names it and offers to turn it off in that project, desktop only);
-`visuals-page` (a `render_html` page in its frame between the turn's
-activity and its reply, with the Sub-agents toggle in the composer);
+`visuals-page` (a `render_html` page in the reply column, with no frame of
+its own, between the turn's activity and its reply, with the Sub-agents
+toggle in the composer); `visuals-page-hover` (the same page with the
+pointer on it, showing its More and Expand buttons, desktop only);
 `visuals-choices` (an answered `render_choices` call: three variants, one
 at a time at full width, opened on the chosen one with its switcher button
 marked and the note under the frame); `visuals-choices-pending` (a
@@ -218,6 +247,15 @@ done, which adds a turn to that session, so re-seed for a clean capture);
 `visuals-choices-switch` (the same waiting question after its second
 switcher button, so variant B is in the frame; the page presses Choose B
 when it is done, which also adds a turn);
+`notices-mid-turn` (the same session's scripted model answers
+`Run the release checks.` with three `run_check` tool rounds, and an
+extension notice lands after each passing check, so each notice sits between
+the rounds it arrived between while the last check runs; notices are
+live-only, so the page stops the turn when done, which adds a turn, desktop
+only); `notices-mid-turn-mobile` (the same on a phone, mobile only);
+`notices-idle` (the same model answers `Start the nightly backup.` at once
+and its extension raises a notice 1.5 s after the turn ends, so the notice
+is its own row below the finished turn; each capture adds a turn);
 `composer-plugin-sheet` (on a phone, the plugin button beside Send opened
 to its sheet of switches, mobile only);
 `composer-controls` (the demo session's footer with the seed's demo
@@ -235,7 +273,8 @@ Desktop captures report a mouse, so `hover:` styles apply; a page's
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,
-`PICHAMBER_HMR_API_PORT`) and capture each with its own label.
+`PICHAMBER_HMR_API_PORT`) and its own `XDG_RUNTIME_DIR` (otherwise the two share a daemon
+socket and the second answers DAEMON_ENDPOINT_UNVERIFIED) and capture each with its own label.
 
 ## Pull Request Handoff
 

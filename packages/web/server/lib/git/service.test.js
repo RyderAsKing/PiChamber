@@ -622,6 +622,185 @@ describe('worktree root resolution', () => {
 // ---------------------------------------------------------------------------
 
 describe('createWorktree', () => {
+  it('takes only a commit hash from the repository id file, so worktrees stay under the data folder', async () => {
+    if (!canRunGit()) return;
+
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
+    const dataHome = createTempDir();
+    process.env.PICHAMBER_DATA_DIR = dataHome;
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const rootCommit = runGit(repo, ['rev-list', '--max-parents=0', 'HEAD']).trim();
+      // Something working in the repository pointed the id out of the data folder.
+      const idFile = path.join(repo, '.git', 'pichamber');
+      fs.writeFileSync(idFile, '../../escape');
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/id-check',
+        worktreeName: 'id-check',
+        returnAfterDirectoryCreated: true,
+      });
+
+      const worktreeRoot = path.join(fs.realpathSync(dataHome), 'worktree', rootCommit);
+      expect(fs.realpathSync(created.path).startsWith(`${worktreeRoot}${path.sep}`)).toBe(true);
+      expect(fs.existsSync(path.join(dataHome, 'escape'))).toBe(false);
+      expect(fs.readFileSync(idFile, 'utf8')).toBe(rootCommit);
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).phase,
+        { timeout: 5_000 },
+      ).toBe('setup-ready');
+    } finally {
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
+      } else {
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
+      }
+    }
+  });
+
+  it('keeps a project\'s worktrees out of a folder remembered for another (sandboxed) project', async () => {
+    if (!canRunGit()) return;
+
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
+    const dataHome = createTempDir();
+    process.env.PICHAMBER_DATA_DIR = dataHome;
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      // Another clone of this repository is sandboxed and holds the folder
+      // named by the repository's root commit.
+      const shared = runGit(repo, ['rev-list', '--max-parents=0', 'HEAD']).trim();
+      const record = path.join(dataHome, 'pi', 'sandbox', 'worktree-ids.json');
+      fs.mkdirSync(path.dirname(record), { recursive: true });
+      fs.writeFileSync(record, JSON.stringify({ version: 1, projects: { '/code/other-clone': shared } }));
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/own-folder',
+        worktreeName: 'own-folder',
+        returnAfterDirectoryCreated: true,
+      });
+      expect(fs.existsSync(path.join(dataHome, 'worktree', shared))).toBe(false);
+      expect(fs.realpathSync(created.path).startsWith(`${path.join(fs.realpathSync(dataHome), 'worktree')}${path.sep}`)).toBe(true);
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).phase,
+        { timeout: 5_000 },
+      ).toBe('setup-ready');
+    } finally {
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
+      } else {
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
+      }
+    }
+  });
+
+  it('files worktrees under the id remembered for a sandboxed project, whatever its id file says', async () => {
+    if (!canRunGit()) return;
+
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
+    const dataHome = createTempDir();
+    process.env.PICHAMBER_DATA_DIR = dataHome;
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const remembered = 'c'.repeat(40);
+      const record = path.join(dataHome, 'pi', 'sandbox', 'worktree-ids.json');
+      fs.mkdirSync(path.dirname(record), { recursive: true });
+      fs.writeFileSync(record, JSON.stringify({ version: 1, projects: { [path.resolve(repo)]: remembered } }));
+      // The sandboxed agent named another project's worktree folder.
+      const idFile = path.join(repo, '.git', 'pichamber');
+      fs.writeFileSync(idFile, 'd'.repeat(40));
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/remembered',
+        worktreeName: 'remembered',
+        returnAfterDirectoryCreated: true,
+      });
+      const worktreeRoot = path.join(fs.realpathSync(dataHome), 'worktree', remembered);
+      expect(fs.realpathSync(created.path).startsWith(`${worktreeRoot}${path.sep}`)).toBe(true);
+      expect(fs.existsSync(path.join(dataHome, 'worktree', 'd'.repeat(40)))).toBe(false);
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).phase,
+        { timeout: 5_000 },
+      ).toBe('setup-ready');
+
+      // A record that cannot be read is not answered from the file.
+      fs.writeFileSync(record, '{');
+      await expect(createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/unreadable',
+        worktreeName: 'unreadable',
+        returnAfterDirectoryCreated: true,
+      })).rejects.toThrow();
+      expect(fs.existsSync(path.join(dataHome, 'worktree', 'd'.repeat(40)))).toBe(false);
+    } finally {
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
+      } else {
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
+      }
+    }
+  });
+
+  it('does not follow a symlink planted at the repository id file', async () => {
+    if (!canRunGit()) return;
+
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
+    const dataHome = createTempDir();
+    process.env.PICHAMBER_DATA_DIR = dataHome;
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const rootCommit = runGit(repo, ['rev-list', '--max-parents=0', 'HEAD']).trim();
+      const victim = path.join(createTempDir(), 'victim.txt');
+      fs.writeFileSync(victim, 'untouched');
+      const idFile = path.join(repo, '.git', 'pichamber');
+      fs.symlinkSync(victim, idFile);
+
+      await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/link-check',
+        worktreeName: 'link-check',
+        returnAfterDirectoryCreated: true,
+      });
+
+      expect(fs.readFileSync(victim, 'utf8')).toBe('untouched');
+      expect(fs.lstatSync(idFile).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(idFile, 'utf8')).toBe(rootCommit);
+      expect(fs.readdirSync(path.join(repo, '.git')).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+    } finally {
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
+      } else {
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
+      }
+    }
+  });
+
   it('returns ready/setup-ready when no bootstrap state is recorded', async () => {
     const directory = path.join(createTempDir(), 'missing-worktree');
 

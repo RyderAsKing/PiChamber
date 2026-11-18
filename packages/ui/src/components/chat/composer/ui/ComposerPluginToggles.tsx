@@ -195,7 +195,7 @@ function useSessionExtensionControls(sessionId: string | null, directory: string
         const timer = setTimeout(() => drop(control.id), PENDING_MS);
         void piClient.runExtensionControl(
             { sessionId, id: control.id, ...(value !== undefined ? { value } : {}), clientId: getTabClientId() },
-            { runtimeKey: getRuntimeKey() },
+            { ...(directory ? { directory } : {}), runtimeKey: getRuntimeKey() },
         ).then(({ ran }) => {
             // Nothing ran (the value was already set, or the control went away):
             // there is no event to wait for. An action is done once it answers.
@@ -208,7 +208,7 @@ function useSessionExtensionControls(sessionId: string | null, directory: string
             drop(control.id);
             toast.error(control.kind === 'action' ? `Could not run ${control.label}` : `Could not change ${control.label}`);
         });
-    }, [drop, sessionId]);
+    }, [directory, drop, sessionId]);
 
     // What this folder's extensions declare, for the next draft here to show while it starts.
     React.useEffect(() => {

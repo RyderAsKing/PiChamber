@@ -18,6 +18,11 @@ const MAX_STATE_KEYS = 32;
 const MAX_ENUM_OPTIONS = 32;
 const MAX_TOGGLES = 4;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+// Discovery keywords every Pi package or PiChamber plugin carries; they say
+// nothing about what one plugin does, so they are left out of its keywords.
+const DISCOVERY_KEYWORDS = new Set(['pi-package', 'pichamber-plugin']);
+const MAX_KEYWORDS = 16;
+const MAX_KEYWORD_LENGTH = 40;
 
 class PluginManifestError extends Error {
   constructor(reason) {
@@ -150,6 +155,24 @@ const parseEntry = (packageJson, packageDir) => {
 };
 
 /**
+ * What the plugin is about, for matching a marketplace search to it: the
+ * package keywords without the discovery ones. Bad entries are skipped, not
+ * fatal, since they only help search.
+ */
+const parseKeywords = (value) => {
+  if (!Array.isArray(value)) return [];
+  const keywords = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const keyword = entry.trim().toLowerCase();
+    if (keyword.length === 0 || keyword.length > MAX_KEYWORD_LENGTH || DISCOVERY_KEYWORDS.has(keyword) || keywords.includes(keyword)) continue;
+    keywords.push(keyword);
+    if (keywords.length === MAX_KEYWORDS) break;
+  }
+  return keywords;
+};
+
+/**
  * Parse one plugin package. `packageDir` must be absolute. Returns the
  * normalized manifest or throws `PluginManifestError`.
  */
@@ -172,6 +195,8 @@ export const parsePluginPackage = (packageJson, { packageDir, bundled = false })
     description: text(block.description, MAX_DESCRIPTION, 'pichamber.description'),
     icon: icon(block.icon, 'pichamber.icon'),
     version: packageJson.version,
+    ...(typeof packageJson.name === 'string' && packageJson.name.length > 0 ? { packageName: packageJson.name } : {}),
+    keywords: parseKeywords(packageJson.keywords),
     bundled,
     defaultEnabled,
     replaceable: block.replaceable === true,

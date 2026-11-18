@@ -55,9 +55,37 @@ export const observePiStreamEpoch = (runtimeKey: string, epoch: string): void =>
   }
 };
 
-export const getObservedPiStreamEpoch = (runtimeKey: string = getRuntimeKey()): string | undefined => (
-  observedStreamEpochByRuntime.get(runtimeKey)
-);
+/**
+ * Epoch of the daemon that numbers one session, for sessions on project
+ * daemons (sandboxed projects). Returns undefined for a main-daemon session,
+ * null for a project session whose daemon epoch is not established yet.
+ */
+type PiSessionStreamEpochResolver = (runtimeKey: string, sessionId: string) => string | null | undefined;
+
+let sessionStreamEpochResolver: PiSessionStreamEpochResolver | null = null;
+
+/** Install the session store's resolver. Returns an uninstall function that
+ *  only removes this resolver. */
+export const setPiSessionStreamEpochResolver = (resolver: PiSessionStreamEpochResolver): (() => void) => {
+  sessionStreamEpochResolver = resolver;
+  return () => {
+    if (sessionStreamEpochResolver === resolver) sessionStreamEpochResolver = null;
+  };
+};
+
+/**
+ * Daemon epoch a send is bound to. Without `sessionId`, or for a session on
+ * the main daemon, the health-verified main epoch. A session on a project
+ * daemon is bound to that daemon's epoch, and to none (the send is refused)
+ * until the client has established it.
+ */
+export const getObservedPiStreamEpoch = (runtimeKey: string = getRuntimeKey(), sessionId?: string): string | undefined => {
+  if (sessionId && sessionStreamEpochResolver) {
+    const sessionEpoch = sessionStreamEpochResolver(runtimeKey, sessionId);
+    if (sessionEpoch !== undefined) return sessionEpoch ?? undefined;
+  }
+  return observedStreamEpochByRuntime.get(runtimeKey);
+};
 
 const debug = (..._args: unknown[]): void => {
   // Keep diagnostics payload-free by default. A caller can observe lifecycle
@@ -65,11 +93,14 @@ const debug = (..._args: unknown[]): void => {
   void _args;
 };
 
-const resolveStreamQuery = (query: {
+type StreamQuery = {
   fromSequence?: number;
   sessionId?: string;
   streamEpoch?: string;
-}): Record<string, string> => {
+  cursor?: string;
+};
+
+const resolveStreamQuery = (query: StreamQuery): Record<string, string> => {
   const params: Record<string, string> = {};
   if (typeof query.fromSequence === 'number' && Number.isFinite(query.fromSequence)) {
     params.fromSequence = String(Math.max(0, Math.floor(query.fromSequence)));
@@ -83,6 +114,11 @@ const resolveStreamQuery = (query: {
     // replayed, even when the new daemon's sequence numerically overtook it.
     params.streamEpoch = query.streamEpoch;
   }
+  if (typeof query.cursor === 'string' && query.cursor.length > 0) {
+    // Opaque resume position of every project daemon (sandboxed projects),
+    // taken verbatim from the newest frame that carried one.
+    params.cursor = query.cursor;
+  }
   // Capability negotiation. This client understands the restart-safe stream
   // epoch; a server treats a subscriber without this marker as a legacy
   // client and falls back to a snapshot baseline instead of replaying a
@@ -93,7 +129,7 @@ const resolveStreamQuery = (query: {
 
 const resolveStreamUrl = (
   transport: 'ws' | 'sse',
-  query: { fromSequence?: number; sessionId?: string; streamEpoch?: string },
+  query: StreamQuery,
   urlAuthToken?: string,
 ): string => {
   const resolver = getRuntimeUrlResolver();
@@ -147,6 +183,10 @@ export interface PiStreamOptions {
    *  cursor from a retired epoch. When the transport itself verifies an epoch
    *  transition, its own adopted epoch takes precedence. */
   streamEpoch?: string;
+  /** Opaque project-daemon resume cursor the owner last accepted (the
+   *  `cursor` of the newest event that carried one). The stream then keeps
+   *  its own copy current from the frames it receives. */
+  cursor?: string;
   /** Deadline for a connect attempt to produce a ready stream. */
   setupTimeoutMs?: number;
   /** Deadline for minting the short-lived URL auth token. */
@@ -666,6 +706,9 @@ export const createPiEventStream = (
   let lastSequence = typeof options.fromSequence === 'number' && Number.isFinite(options.fromSequence)
     ? Math.max(0, Math.floor(options.fromSequence))
     : ownerEpoch ? 0 : undefined;
+  // Project daemon positions travel separately from the main daemon's
+  // `lastSequence`/epoch as one opaque value the server minted.
+  let cursor = typeof options.cursor === 'string' && options.cursor.length > 0 ? options.cursor : undefined;
   // The Pi event endpoint is SSE-only. WebSocket remains available only when
   // explicitly requested by a runtime that provides a matching upgrade path.
   let mode: 'ws' | 'sse' = options.transport === 'ws' ? 'ws' : 'sse';
@@ -820,6 +863,15 @@ export const createPiEventStream = (
     if (disposed || signal.aborted || connectionId !== generation) return;
     if (!isCurrentRuntime()) {
       handleDisconnect('runtime-change', connectionId);
+      return;
+    }
+    // Frames from a project daemon (`stream`) and server-made move notices
+    // are outside the main daemon's sequence space: they never move the
+    // main cursor or epoch. The store checks each project stream's epoch.
+    if (typeof event.stream === 'string' || event.name === 'session.moved') {
+      if (typeof event.cursor === 'string' && event.cursor.length > 0) cursor = event.cursor;
+      markActivity(connectionId);
+      handlers.onEvent(event);
       return;
     }
     const eventEpoch = typeof event.streamEpoch === 'string' && event.streamEpoch.length > 0 ? event.streamEpoch : null;
@@ -1031,6 +1083,7 @@ export const createPiEventStream = (
       ...(lastSequence !== undefined ? { fromSequence: lastSequence } : {}),
       ...(options.sessionId ? { sessionId: options.sessionId } : {}),
       ...(subscribeEpoch ? { streamEpoch: subscribeEpoch } : {}),
+      ...(cursor ? { cursor } : {}),
     }, urlAuthToken);
     const onReady = () => markReady(connectionId);
     const onEvent = (event: PiSessionEvent) => handleEvent(event, connectionId);
@@ -1039,6 +1092,7 @@ export const createPiEventStream = (
       ...(lastSequence !== undefined ? { fromSequence: lastSequence } : {}),
       ...(options.sessionId ? { sessionId: options.sessionId } : {}),
       ...(subscribeEpoch ? { streamEpoch: subscribeEpoch } : {}),
+      ...(cursor ? { cursor } : {}),
     });
     activeAbort = mode === 'ws'
       ? createWsConnection(url, signal, onReady, onEvent, onDisconnect, WS_READY_TIMEOUT_MS)
@@ -1119,6 +1173,7 @@ export const createPiEventStream = (
         ...(lastSequence !== undefined ? { fromSequence: lastSequence } : {}),
         ...(options.sessionId ? { sessionId: options.sessionId } : {}),
         ...(subscribeEpoch ? { streamEpoch: subscribeEpoch } : {}),
+        ...(cursor ? { cursor } : {}),
       });
     },
   };

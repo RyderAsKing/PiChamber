@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { spawn as spawnChildProcess } from 'node:child_process';
+import { execFile, spawn as spawnChildProcess } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
+import { readSmallRegularFile } from '../../server/cross-process-lock.js';
 import { resolveServerProfile } from '../../server/server-profile.js';
 import { isLocalSessionDaemonEndpoint } from './session-daemon.js';
 import { requestSessionDaemon, SessionDaemonClientError, subscribeSessionDaemon } from './ipc-client.js';
@@ -14,7 +15,14 @@ import { requestSessionDaemon, SessionDaemonClientError, subscribeSessionDaemon 
 const PROTOCOL_VERSION = 1;
 const OPERATION_TIMEOUT_MS = 5_000;
 const DAEMON_READY_TIMEOUT_MS = 15_000;
+// A sandbox daemon starts the same Node process behind nono's setup and its
+// network proxy. On a slow machine two of them starting together took over
+// 15 s; the start still fails closed, it only waits longer.
+const SANDBOX_DAEMON_READY_TIMEOUT_MS = 45_000;
 const RETRY_DELAY_MS = 100;
+// sun_path holds 108 bytes on Linux and 104 on macOS, including the
+// terminating NUL.
+const maxUnixSocketPathBytes = (platform) => (platform === 'darwin' ? 103 : 107);
 const DAEMON_ENTRYPOINT = fileURLToPath(new URL('./daemon-process.js', import.meta.url));
 
 class PiSessionDaemonUnavailableError extends Error {
@@ -81,6 +89,18 @@ const buildSessionDaemonChildEnv = ({ env = {}, electronVersion } = {}) => {
   return next;
 };
 
+// The server's own settings stay out of a sandbox: its UI password, JWT
+// secret and tunnel token would let sandboxed code sign in to this server and
+// run anything through it, and a shared endpoint override would point the
+// sandbox at the main daemon's socket. Only what a daemon reads is kept, so a
+// server variable added later is left out unless it is listed here.
+const SANDBOX_KEPT_PICHAMBER_ENV = new Set(['PICHAMBER_DATA_DIR', 'PICHAMBER_PI_AGENT_DIR']);
+const sandboxDaemonEnv = (env = {}) => Object.fromEntries(
+  Object.entries(env).filter(([name]) => (
+    !name.toUpperCase().startsWith('PICHAMBER_') || SANDBOX_KEPT_PICHAMBER_ENV.has(name)
+  )),
+);
+
 const isPidAlive = (processLike, pid) => {
   try {
     processLike.kill(pid, 0);
@@ -90,11 +110,51 @@ const isPidAlive = (processLike, pid) => {
   }
 };
 
+// What identifies a process besides its pid, so a recorded launcher pid that
+// was reused by another process is never signaled. Linux: the start time
+// (clock ticks since boot) from /proc/<pid>/stat; a zombie counts as gone.
+// macOS: `ps` state and start time, which has one-second resolution, so a pid
+// reused within the same second is not told apart. Elsewhere (Windows has no
+// sandbox launcher) nothing is checked and the answer is null, which signals
+// nothing.
+const readProcessIdentityFor = (platform) => async (pid) => {
+  if (!Number.isInteger(pid) || pid <= 1) return null;
+  if (platform === 'linux') {
+    try {
+      const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+      // The command name (field 2) can hold spaces and parentheses, so fields
+      // are counted from the last ')'. fields[0] is the state (field 3) and
+      // fields[19] the start time (field 22).
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      if (fields[0] === 'Z' || fields[0] === 'X') return null;
+      return /^\d+$/.test(fields[19] ?? '') ? `linux-start:${fields[19]}` : null;
+    } catch {
+      return null;
+    }
+  }
+  if (platform === 'darwin') {
+    return new Promise((resolveIdentity) => {
+      execFile('/bin/ps', ['-o', 'stat=', '-o', 'lstart=', '-p', String(pid)], { timeout: 2_000 }, (error, stdout) => {
+        const line = typeof stdout === 'string' ? stdout.trim() : '';
+        if (error || !line || line.startsWith('Z')) {
+          resolveIdentity(null);
+          return;
+        }
+        resolveIdentity(`darwin-start:${line.replace(/^\S+\s+/, '').replace(/\s+/g, ' ')}`);
+      });
+    });
+  }
+  return null;
+};
+
 const RETRYABLE_LOCK_CREATE_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY', 'EAGAIN']);
 const FRESH_LOCK_MS = 250;
 
 const chmodIfPossible = async (filePath, mode) => {
   try {
+    // A sandbox daemon can write its own profile folder; chmod follows a
+    // symlink, so one planted here must not reach the file it points at.
+    if ((await lstat(filePath)).isSymbolicLink()) return;
     await chmod(filePath, mode);
   } catch {
     // Windows and some filesystems reject POSIX mode bits; the lock/credential
@@ -137,6 +197,9 @@ const resolvePiSessionDaemonPaths = ({
   port,
   runtime,
   version,
+  // The runtime folder's name (default: the profile key). Sandbox daemons
+  // pass a short one so their socket path fits a Unix socket address.
+  runtimeName,
 } = {}) => {
   const resolvedProfile = profile && typeof profile.profileKey === 'string'
     ? profile
@@ -150,9 +213,10 @@ const resolvePiSessionDaemonPaths = ({
     buildId,
   } = resolvedProfile;
   const profileDir = pathModule.join(dataDir, 'pi', 'daemons', profileKey);
+  const runtimeFolder = runtimeName ?? profileKey;
   const runtimeBaseDir = typeof env.XDG_RUNTIME_DIR === 'string' && env.XDG_RUNTIME_DIR.trim()
-    ? pathModule.join(pathModule.resolve(env.XDG_RUNTIME_DIR.trim()), 'pichamber', 'pi-daemons', profileKey)
-    : pathModule.join(dataDir, 'runtime', 'pi-daemons', profileKey);
+    ? pathModule.join(pathModule.resolve(env.XDG_RUNTIME_DIR.trim()), 'pichamber', 'pi-daemons', runtimeFolder)
+    : pathModule.join(dataDir, 'runtime', 'pi-daemons', runtimeFolder);
   const configuredEndpoint = typeof env.PICHAMBER_PI_SESSION_DAEMON_ENDPOINT === 'string'
     ? env.PICHAMBER_PI_SESSION_DAEMON_ENDPOINT.trim()
     : '';
@@ -234,12 +298,42 @@ export const createPiSessionDaemonSupervisor = ({
   port,
   runtime,
   version,
+  launch,
+  leaseAgentDir,
+  leaseScope,
+  runtimeName,
+  readProcessIdentity = readProcessIdentityFor(platform),
   // Runs after every successful health probe, before the request it precedes.
   // `request` talks to that verified daemon directly. Errors are swallowed:
   // the hook must never fail the caller's request.
   onDaemonReady,
 } = {}) => {
-  const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform, profile, port, runtime, version });
+  const resolvedPaths = resolvePiSessionDaemonPaths({ env, dataDir, platform, profile, port, runtime, version, runtimeName });
+  // A daemon started through a launcher runs untrusted code (the agent's
+  // shell commands, project extensions) with read-write access to its own
+  // profile folder, so its state sidecar, credential and anything else there
+  // can be forged. The server keeps what it must trust about that daemon (the
+  // launcher it spawned, and the operation lock) in
+  // `<dataDir>/pi/launchers/<profileKey>/`. No sandbox grant covers it: the
+  // grants are the project, folders under `<dataDir>/pi/sandbox/<key>/`, the
+  // session and lease folders under the Pi agent folder,
+  // `<dataDir>/worktree/<projectId>`, the profile folder under
+  // `<dataDir>/pi/daemons/`, and socket binds in the runtime folder. It sits
+  // in the data folder rather than the runtime folder so the record survives
+  // a server restart: the detached daemon outlives it and the next server
+  // reuses or stops it.
+  const launcherDir = launch ? join(resolvedPaths.piDataDir, 'launchers', resolvedPaths.profileKey) : null;
+  const paths = launch
+    ? {
+      ...resolvedPaths,
+      lockFile: join(launcherDir, 'operation.lock'),
+      launcherFile: join(launcherDir, 'launcher.json'),
+      // The server sends the credential to the daemon on every request, so
+      // it must be a file the sandbox cannot replace: there the daemon may
+      // read it (one read-only file grant) and nothing more.
+      credentialFile: join(launcherDir, 'session-daemon.key'),
+    }
+    : resolvedPaths;
   const serverPid = processLike.pid;
   let startPromise = null;
   let intentionallyStopped = false;
@@ -247,8 +341,10 @@ export const createPiSessionDaemonSupervisor = ({
   const withOperationLock = async (operation) => {
     const deadline = Date.now() + startupTimeoutMs;
     const nonce = randomUUID();
-    await mkdir(paths.profileDir, { recursive: true, mode: 0o700 });
-    await chmodIfPossible(paths.profileDir, 0o700);
+    // The profile folder for the main daemon; the launcher folder for a
+    // launcher daemon.
+    await mkdir(dirname(paths.lockFile), { recursive: true, mode: 0o700 });
+    await chmodIfPossible(dirname(paths.lockFile), 0o700);
     while (true) {
       try {
         await writeFile(
@@ -279,9 +375,11 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
+  // A launcher daemon writes its own state file, so it is read as hostile
+  // input: never through a symlink, and never a FIFO that would block.
   const readState = async () => {
     try {
-      const state = JSON.parse(await readFile(paths.stateFile, 'utf8'));
+      const state = JSON.parse(await readSmallRegularFile(paths.stateFile));
       return isValidState(state) ? state : null;
     } catch {
       return null;
@@ -290,7 +388,7 @@ export const createPiSessionDaemonSupervisor = ({
 
   const readFailureState = async () => {
     try {
-      const state = JSON.parse(await readFile(paths.stateFile, 'utf8'));
+      const state = JSON.parse(await readSmallRegularFile(paths.stateFile));
       return isValidFailureState(state) ? state : null;
     } catch {
       return null;
@@ -299,7 +397,7 @@ export const createPiSessionDaemonSupervisor = ({
 
   const readCredential = async () => {
     try {
-      const credential = (await readFile(paths.credentialFile, 'utf8')).trim();
+      const credential = (await readSmallRegularFile(paths.credentialFile)).trim();
       if (credential.length < 32) throw new Error('invalid credential');
       return credential;
     } catch {
@@ -310,6 +408,8 @@ export const createPiSessionDaemonSupervisor = ({
   const ensureCredential = async () => {
     await mkdir(paths.profileDir, { recursive: true, mode: 0o700 });
     await chmodIfPossible(paths.profileDir, 0o700);
+    await mkdir(dirname(paths.credentialFile), { recursive: true, mode: 0o700 });
+    await chmodIfPossible(dirname(paths.credentialFile), 0o700);
     try {
       const credential = await readCredential();
       await chmodIfPossible(paths.credentialFile, 0o600);
@@ -385,6 +485,88 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
+  // Launcher record: the process this server spawned for a launcher daemon
+  // (the launcher itself, `child.pid`), its identity, and the server instance
+  // that owns it. It is the only pid a launcher daemon's stop signals.
+  const readLauncherRecord = async () => {
+    if (!launch) return null;
+    try {
+      const record = JSON.parse(await readFile(paths.launcherFile, 'utf8'));
+      if (!Number.isInteger(record?.pid) || record.pid <= 1
+        || typeof record.identity !== 'string' || record.identity.length === 0
+        || record.profileKey !== paths.profileKey
+        || typeof record.serverInstanceId !== 'string') return null;
+      return record;
+    } catch {
+      return null;
+    }
+  };
+
+  const writeLauncherRecord = async (record) => {
+    await mkdir(launcherDir, { recursive: true, mode: 0o700 });
+    const temporary = `${paths.launcherFile}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, JSON.stringify(record), { flag: 'wx', mode: 0o600 });
+      await rename(temporary, paths.launcherFile);
+    } catch (error) {
+      await rm(temporary, { force: true });
+      throw error;
+    }
+  };
+
+  const removeLauncherRecord = async (record) => {
+    const current = await readLauncherRecord();
+    if (current?.pid === record.pid && current.identity === record.identity) {
+      await rm(paths.launcherFile, { force: true });
+    }
+  };
+
+  const isLauncherAlive = async (record) => (
+    Boolean(record) && (await readProcessIdentity(record.pid)) === record.identity
+  );
+
+  // Wait for a launcher daemon to stop, signaling only the launcher process
+  // this server recorded, after confirming its identity. A launcher daemon's
+  // `state.pid` is never signaled: the sandbox can write any pid there.
+  // Under `nono run` (0.82.0) the launcher is nono's supervisor process. It
+  // forwards SIGTERM to the sandboxed daemon and exits after the daemon does,
+  // so waiting on it waits on the daemon. The daemon shares nono's process
+  // group (it has no terminal, so nono opens no PTY and makes no new
+  // session), so the group is not signaled: the daemon would get SIGTERM
+  // twice, and its handler is one-shot, so the second would kill it before
+  // its own shutdown finished.
+  const finishLauncherDaemonStop = async (state) => {
+    const record = await readLauncherRecord();
+    const deadline = Date.now() + startupTimeoutMs;
+    if (!record) {
+      // No record (a daemon started before records existed, or a lost
+      // record): signal nothing and give the authenticated shutdown time to
+      // take effect. A forged `state.pid` can only make this wait time out.
+      while (state && Date.now() < deadline) {
+        if (!isPidAlive(processLike, state.pid)) {
+          await removeStaleState(state);
+          return;
+        }
+        await wait(RETRY_DELAY_MS);
+      }
+      if (state) throw new PiSessionDaemonUnavailableError('DAEMON_STOP_TIMEOUT');
+      return;
+    }
+    if (await isLauncherAlive(record)) {
+      try {
+        processLike.kill(record.pid, 'SIGTERM');
+      } catch {
+        if (await isLauncherAlive(record)) throw new PiSessionDaemonUnavailableError('DAEMON_STOP_FAILED');
+      }
+      while (await isLauncherAlive(record)) {
+        if (Date.now() >= deadline) throw new PiSessionDaemonUnavailableError('DAEMON_STOP_TIMEOUT');
+        await wait(RETRY_DELAY_MS);
+      }
+    }
+    await removeLauncherRecord(record);
+    if (state) await removeStaleState(state);
+  };
+
   // Transfer a same-profile daemon to this server instance only after its
   // prior server owner has exited. The daemon persists the new owner before
   // acknowledging the claim, keeping IPC identity and the sidecar in sync.
@@ -442,11 +624,7 @@ export const createPiSessionDaemonSupervisor = ({
   // Authenticated shutdown: prove profile ownership over IPC before
   // signaling anything. A stale server whose daemon was claimed by a newer
   // instance receives an ownership error and must not terminate anything.
-  const requestDaemonShutdown = async (state, credential) => {
-    if (!state || !Number.isInteger(state.pid) || state.pid <= 0) return;
-    if (state.profileKey !== paths.profileKey) {
-      throw new PiSessionDaemonUnavailableError('DAEMON_OWNERSHIP_MISMATCH');
-    }
+  const requestShutdownOverIpc = async (state, credential) => {
     try {
       await request({
         endpoint: paths.endpoint,
@@ -468,6 +646,18 @@ export const createPiSessionDaemonSupervisor = ({
       // UNKNOWN_COMMAND (a daemon that predates shutdown) and unreachable
       // daemons fall through to the PID wait below; only a verified owner
       // reaches the signal.
+    }
+  };
+
+  const requestDaemonShutdown = async (state, credential) => {
+    if (!state || !Number.isInteger(state.pid) || state.pid <= 0) return;
+    if (state.profileKey !== paths.profileKey) {
+      throw new PiSessionDaemonUnavailableError('DAEMON_OWNERSHIP_MISMATCH');
+    }
+    await requestShutdownOverIpc(state, credential);
+    if (launch) {
+      await finishLauncherDaemonStop(state);
+      return;
     }
     try {
       processLike.kill(state.pid, 'SIGTERM');
@@ -500,6 +690,14 @@ export const createPiSessionDaemonSupervisor = ({
           && existing.health.buildId === paths.buildId
           && (!paths.profileDevelopment || existing.state.serverInstanceId === paths.serverInstanceId);
         const claimed = await claimDaemonOwnership(credential);
+        if (claimed) {
+          // The daemon now answers to this server, so the launcher record,
+          // which a launcher daemon's stop checks ownership against, does too.
+          const record = await readLauncherRecord();
+          if (record && record.serverInstanceId !== paths.serverInstanceId) {
+            await writeLauncherRecord({ ...record, serverInstanceId: paths.serverInstanceId });
+          }
+        }
         if (isCompatibleBuild && claimed) {
           const ready = await probe(credential);
           return {
@@ -524,6 +722,14 @@ export const createPiSessionDaemonSupervisor = ({
       const staleState = await readState() ?? await readFailureState();
       if (staleState && isPidAlive(processLike, staleState.pid)) {
         throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
+      }
+      // A launcher this server spawned that is still running holds a daemon
+      // that does not answer yet; never start a second one beside it, and
+      // never lose its record by writing another.
+      const previousLauncher = await readLauncherRecord();
+      if (previousLauncher) {
+        if (await isLauncherAlive(previousLauncher)) throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
+        await removeLauncherRecord(previousLauncher);
       }
       if (await endpointExists()) {
         const recovered = await recoverVerifiedStaleEndpoint(staleState, credential);
@@ -550,30 +756,49 @@ export const createPiSessionDaemonSupervisor = ({
       }
       let child;
       let spawnError = null;
+      let command = processLike.execPath;
+      let args = [
+        DAEMON_ENTRYPOINT,
+        '--endpoint', paths.endpoint,
+        '--credential-file', paths.credentialFile,
+        '--state-file', paths.stateFile,
+        '--cwd', cwd,
+        '--profile-key', paths.profileKey,
+        '--server-instance-id', paths.serverInstanceId,
+        '--server-pid', String(serverPid),
+        '--daemon-id', daemonId,
+        '--runtime', paths.profileRuntime,
+        '--build-id', paths.buildId,
+        ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
+        ...(leaseAgentDir ? ['--lease-agent-dir', leaseAgentDir] : []),
+        ...(leaseScope ? ['--lease-scope', leaseScope] : []),
+        ...(paths.openUrlSocket ? ['--open-url-socket', paths.openUrlSocket] : []),
+        // A daemon started without a launcher is the main daemon: it must
+        // stay out of the folders sandbox daemons own.
+        ...(launch ? [] : ['--sandboxed-folders-file', join(paths.piDataDir, 'sandboxed-folders.json')]),
+      ];
+      let childEnv = buildSessionDaemonChildEnv({
+        env,
+        electronVersion: processLike.versions?.electron,
+      });
       try {
-        child = spawn(processLike.execPath, [
-          DAEMON_ENTRYPOINT,
-          '--endpoint', paths.endpoint,
-          '--credential-file', paths.credentialFile,
-          '--state-file', paths.stateFile,
-          '--cwd', cwd,
-          '--profile-key', paths.profileKey,
-          '--server-instance-id', paths.serverInstanceId,
-          '--server-pid', String(serverPid),
-          '--daemon-id', daemonId,
-          '--runtime', paths.profileRuntime,
-          '--build-id', paths.buildId,
-          ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
-          ...(paths.openUrlSocket ? ['--open-url-socket', paths.openUrlSocket] : []),
-        ], {
+        // A sandbox launcher wraps the unchanged daemon command. Its stop
+        // signals only the launcher process recorded below, never the pid in
+        // the state sidecar.
+        if (launch) ({ command, args, env: childEnv } = await launch({ command, args, env: childEnv, cwd, paths }));
+      } catch (error) {
+        if (logFd !== null) {
+          try { closeSync(logFd); } catch { /* nothing was spawned */ }
+        }
+        throw new PiSessionDaemonUnavailableError(typeof error?.code === 'string' ? error.code : 'SANDBOX_LAUNCH_FAILED');
+      }
+      try {
+        child = spawn(command, args, {
           cwd,
           detached: platform !== 'win32',
           stdio: logFd === null ? 'ignore' : ['ignore', logFd, logFd],
           windowsHide: true,
-          env: buildSessionDaemonChildEnv({
-            env,
-            electronVersion: processLike.versions?.electron,
-          }),
+          env: childEnv,
         });
       } catch {
         throw new PiSessionDaemonUnavailableError('DAEMON_SPAWN_FAILED');
@@ -588,6 +813,29 @@ export const createPiSessionDaemonSupervisor = ({
         });
       }
       child?.unref?.();
+      if (launch && Number.isInteger(child?.pid) && child.pid > 1) {
+        // Record the launcher before waiting for readiness, so a daemon that
+        // never becomes ready can still be found and stopped. A launcher
+        // whose identity cannot be read (already gone, or no way to check on
+        // this platform) gets no record, and stop signals nothing.
+        const identity = await readProcessIdentity(child.pid);
+        if (identity) {
+          try {
+            await writeLauncherRecord({
+              pid: child.pid,
+              identity,
+              profileKey: paths.profileKey,
+              serverInstanceId: paths.serverInstanceId,
+              recordedAt: new Date().toISOString(),
+            });
+          } catch {
+            // Without its record the daemon could never be stopped by
+            // signal, so it does not get to run.
+            try { processLike.kill(child.pid, 'SIGTERM'); } catch { /* already gone */ }
+            throw new PiSessionDaemonUnavailableError('DAEMON_LAUNCHER_RECORD_FAILED');
+          }
+        }
+      }
 
       // Loading Pi settings, providers, and a larger local model catalog can
       // legitimately exceed the short lock/stop operation budget.
@@ -665,10 +913,18 @@ export const createPiSessionDaemonSupervisor = ({
     return ready;
   };
 
-  const requestDaemon = async (command, payload) => {
+  // `options.timeoutMs` overrides the IPC client's default for slow
+  // commands such as package installs.
+  const requestDaemon = async (command, payload, options = {}) => {
     try {
       const { credential } = await ensureReadyAndNotify();
-      return await request({ endpoint: paths.endpoint, credential, command, payload });
+      return await request({
+        endpoint: paths.endpoint,
+        credential,
+        command,
+        payload,
+        ...(Number.isFinite(options?.timeoutMs) && options.timeoutMs > 0 ? { timeoutMs: options.timeoutMs } : {}),
+      });
     } catch (error) {
       throw new PiSessionDaemonUnavailableError(
         error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'
@@ -713,11 +969,38 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
+  // Stop a launcher daemon this server has a record for. Ownership comes from
+  // the server-owned record, which a claim rewrites, not from the state
+  // sidecar. The authenticated shutdown is still asked for first, but the
+  // credential, sidecar and health answer all sit where the sandbox can
+  // write, so a missing, forged or refused answer cannot keep the server
+  // from stopping the launcher it started.
+  const stopRecordedLauncherDaemon = async (record) => {
+    if (record.serverInstanceId !== paths.serverInstanceId) {
+      throw new PiSessionDaemonUnavailableError('DAEMON_OWNERSHIP_MISMATCH');
+    }
+    let state = null;
+    try {
+      const credential = await readCredential();
+      ({ state } = await probe(credential));
+      await requestShutdownOverIpc(state, credential);
+    } catch (error) {
+      if (!(error instanceof PiSessionDaemonUnavailableError)) throw error;
+    }
+    await finishLauncherDaemonStop(state ?? await readState() ?? await readFailureState());
+  };
+
   const stop = async () => {
     intentionallyStopped = true;
     const pendingStart = startPromise;
     if (pendingStart) await pendingStart.catch(() => {});
     return withOperationLock(async () => {
+      const launcherRecord = await readLauncherRecord();
+      if (launcherRecord) {
+        await stopRecordedLauncherDaemon(launcherRecord);
+        intentionallyStopped = true;
+        return { state: 'stopped' };
+      }
       let credential;
       try {
         credential = await readCredential();
@@ -747,4 +1030,72 @@ export const createPiSessionDaemonSupervisor = ({
   };
 
   return { paths, start, health, request: requestDaemon, subscribe, stop };
+};
+
+/**
+ * Supervise a project's sandbox daemon: the same daemon command, started
+ * through a sandbox launcher. The profile key carries the launch identity,
+ * so a changed launcher version, policy, grant set or network never reuses
+ * an older daemon. Fails closed with SANDBOX_UNAVAILABLE and the launcher's
+ * reason code when the launcher cannot sandbox on this host.
+ */
+export const createSandboxedPiSessionDaemonSupervisor = async ({
+  launcher,
+  sandbox,
+  env = process.env,
+  port,
+  runtime,
+  version,
+  ...options
+}) => {
+  const probe = await launcher.probe();
+  if (!probe.available) {
+    const error = new PiSessionDaemonUnavailableError('SANDBOX_UNAVAILABLE');
+    error.reason = probe.code;
+    throw error;
+  }
+  const identity = launcher.identity({ grants: sandbox.grants, network: sandbox.network });
+  const base = resolveServerProfile({ env, port, runtime, version });
+  const profile = { ...base, profileKey: `${base.profileKey}-sbx-${sandbox.projectKey}-${identity}` };
+  // The full key is about 40 characters. Without XDG_RUNTIME_DIR (macOS) the
+  // runtime folder sits under the data folder, where a socket path built
+  // from it would pass macOS's 103-byte limit, so it is named by a hash.
+  const runtimeName = `sbx-${createHash('sha256').update(profile.profileKey).digest('hex').slice(0, 16)}`;
+  const ownEnv = sandboxDaemonEnv(env);
+  const supervisor = createPiSessionDaemonSupervisor({
+    daemonReadyTimeoutMs: SANDBOX_DAEMON_READY_TIMEOUT_MS,
+    ...options,
+    env: { ...ownEnv, PICHAMBER_PI_AGENT_DIR: sandbox.agentDir },
+    cwd: sandbox.cwd,
+    profile,
+    runtimeName,
+    // The daemon reads Pi config through the shadow folder but keys session
+    // leases on the real one, like the main daemon.
+    leaseAgentDir: sandbox.leaseAgentDir,
+    // Its own lease folder, the only one it is granted.
+    leaseScope: sandbox.leaseScope,
+    launch: ({ command, args, env: childEnv, cwd, paths }) => launcher.prepare({
+      argv: [command, ...args],
+      env: childEnv,
+      cwd,
+      tmpDir: sandbox.tmpDir,
+      cacheDir: sandbox.cacheDir,
+      network: sandbox.network,
+      // The daemon's own profile and runtime folders derive from the
+      // identity, so they are added here rather than hashed into it.
+      grants: [
+        ...sandbox.grants,
+        { kind: 'readWrite', path: paths.profileDir },
+        { kind: 'readFile', path: paths.credentialFile },
+        { kind: 'unixSocketBind', dir: paths.runtimeDir },
+      ],
+    }),
+  });
+  // A long data folder or XDG_RUNTIME_DIR can still push the socket path
+  // past the Unix socket address limit, and the daemon's listen would then
+  // fail with EINVAL, so refuse it up front with a stable code.
+  if (Buffer.byteLength(supervisor.paths.endpoint) > maxUnixSocketPathBytes(options.platform ?? process.platform)) {
+    throw new PiSessionDaemonUnavailableError('SANDBOX_ENDPOINT_TOO_LONG');
+  }
+  return { ...supervisor, sandbox: { launcher: launcher.id, version: probe.version, identity } };
 };

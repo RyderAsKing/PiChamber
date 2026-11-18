@@ -4,6 +4,7 @@ import type {
   PiExtensionConfigItem,
   PiExtensionConfigResponse,
   PiExtensionConfigWrite,
+  PiExtensionPackageInstall,
 } from '@/lib/pi/protocol';
 
 let readImpl: (directory?: string) => Promise<PiExtensionConfigResponse> = async () => {
@@ -15,6 +16,12 @@ let writeImpl: (id: string, input: PiExtensionConfigWrite) => Promise<PiExtensio
 let removeImpl: (id: string, directory?: string) => Promise<PiExtensionConfigResponse> = async () => {
   throw new Error('unset');
 };
+let installImpl: (input: PiExtensionPackageInstall) => Promise<PiExtensionConfigResponse> = async () => {
+  throw new Error('unset');
+};
+let updateImpl: (id: string, directory?: string) => Promise<PiExtensionConfigResponse> = async () => {
+  throw new Error('unset');
+};
 let runtimeKey = 'runtime-1';
 
 mock.module('@/lib/pi/client', () => ({
@@ -22,11 +29,13 @@ mock.module('@/lib/pi/client', () => ({
     getExtensionConfig: (directory?: string) => readImpl(directory),
     setExtensionConfig: (id: string, input: PiExtensionConfigWrite) => writeImpl(id, input),
     removeExtensionPackage: (id: string, directory?: string) => removeImpl(id, directory),
+    installExtensionPackage: (input: PiExtensionPackageInstall) => installImpl(input),
+    updateExtensionPackage: (id: string, directory?: string) => updateImpl(id, directory),
   },
 }));
 mock.module('@/lib/runtime-switch', () => ({ getRuntimeKey: () => runtimeKey }));
 
-const { useExtensionConfigStore } = await import('./extensionConfigStore');
+const { installKey, useExtensionConfigStore } = await import('./extensionConfigStore');
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -80,6 +89,12 @@ describe('useExtensionConfigStore', () => {
       throw new Error('unset');
     };
     removeImpl = async () => {
+      throw new Error('unset');
+    };
+    installImpl = async () => {
+      throw new Error('unset');
+    };
+    updateImpl = async () => {
       throw new Error('unset');
     };
   });
@@ -269,6 +284,68 @@ describe('useExtensionConfigStore', () => {
     const result = await store().removePackage('pkg-a');
     expect(result).toEqual({ ok: false, error: failure });
     expect(store().entries['']?.config?.packages).toHaveLength(1);
+    expect(store().pending['pkg-a']).toBeUndefined();
+  });
+
+  test('an install sends the scope from the folder and shows the list it returns', async () => {
+    await store().load();
+    await store().load(PROJECT);
+    const answer = deferred<PiExtensionConfigResponse>();
+    let sent: PiExtensionPackageInstall | undefined;
+    installImpl = (input) => {
+      sent = input;
+      return answer.promise;
+    };
+    const install = store().installPackage('pi-lens', PROJECT);
+    expect(store().pending[installKey('pi-lens')]).toBe(true);
+    expect(await store().installPackage('pi-lens', PROJECT)).toMatchObject({ ok: false });
+    const installed = { id: 'pkg-lens', source: 'npm:pi-lens', scope: 'project' as const, kind: 'npm' as const, installed: true, filtered: false };
+    answer.resolve({ ...projectView([inProject('inherit')]), packages: [installed] });
+    expect(await install).toEqual({ ok: true, deferred: false });
+    expect(sent).toEqual({ name: 'pi-lens', scope: 'project', directory: PROJECT });
+    expect(store().entries[PROJECT]?.config?.packages).toEqual([installed]);
+    expect(store().pending[installKey('pi-lens')]).toBeUndefined();
+
+    installImpl = async (input) => {
+      sent = input;
+      return globalView();
+    };
+    await store().installPackage('pi-web-access');
+    expect(sent).toEqual({ name: 'pi-web-access', scope: 'user' });
+  });
+
+  test('a failed install changes nothing and reads the list again', async () => {
+    await store().load();
+    let reads = 0;
+    readImpl = async () => {
+      reads += 1;
+      return globalView();
+    };
+    const failure = new Error('npm failed');
+    installImpl = async () => {
+      throw failure;
+    };
+    const result = await store().installPackage('pi-lens');
+    expect(result).toEqual({ ok: false, error: failure });
+    expect(store().entries['']?.config?.packages).toHaveLength(1);
+    expect(store().pending[installKey('pi-lens')]).toBeUndefined();
+    await Promise.resolve();
+    expect(reads).toBe(1);
+  });
+
+  test('an update is pending on the package and passes its folder', async () => {
+    await store().load(PROJECT);
+    const answer = deferred<PiExtensionConfigResponse>();
+    let sent: [string, string | undefined] | undefined;
+    updateImpl = (id, directory) => {
+      sent = [id, directory];
+      return answer.promise;
+    };
+    const update = store().updatePackage('pkg-a', PROJECT);
+    expect(store().pending['pkg-a']).toBe(true);
+    answer.resolve({ ...projectView([inProject('inherit')]), deferred: true });
+    expect(await update).toEqual({ ok: true, deferred: true });
+    expect(sent).toEqual(['pkg-a', PROJECT]);
     expect(store().pending['pkg-a']).toBeUndefined();
   });
 

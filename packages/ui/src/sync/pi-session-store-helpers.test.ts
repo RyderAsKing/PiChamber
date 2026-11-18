@@ -7,6 +7,7 @@ import {
   isInvalidSessionError,
   isSessionInUseError,
   isSessionRuntimeConflictError,
+  isSessionScopedRefusal,
   createRecordFromPiSession,
   mergeHydratedSession,
 } from './pi-session-store-helpers';
@@ -68,6 +69,13 @@ describe('pi-session-store-helpers', () => {
 
     expect(isSessionRuntimeConflictError(runtimeConflict)).toBe(true);
     expect(isSessionRuntimeConflictError(generic)).toBe(false);
+
+    // Session-scoped refusals fail one chat; they are never a connection failure.
+    expect(isSessionScopedRefusal(sessionInUse)).toBe(true);
+    expect(isSessionScopedRefusal(new PiRequestError('SANDBOX_UNAVAILABLE', 'Sandbox unavailable', 503))).toBe(true);
+    expect(isSessionScopedRefusal(new PiRequestError('DAEMON_UNAVAILABLE', 'Down', 503))).toBe(false);
+    expect(isSessionScopedRefusal(invalidSession)).toBe(false);
+    expect(isSessionScopedRefusal(generic)).toBe(false);
 
     expect(asError(invalidSession)).toBe(invalidSession);
     expect(asError(generic).code).toBe('DAEMON_REQUEST_FAILED');

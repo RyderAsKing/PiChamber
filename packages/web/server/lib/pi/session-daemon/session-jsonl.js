@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs';
+import { constants } from 'node:fs';
 import { mkdir, open, readdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -32,6 +32,22 @@ class SessionJsonlError extends Error {
 
 const malformed = () => new SessionJsonlError('MALFORMED_SESSION_JSONL');
 const unreadable = () => new SessionJsonlError('SESSION_JSONL_UNREADABLE');
+
+// Session folders of a sandboxed project are writable by code in the sandbox,
+// and the server and main daemon read them. A FIFO planted under a transcript
+// name would hold a thread of Node's file pool for as long as nothing writes
+// to it, so transcripts are opened without blocking and anything that is not
+// a regular file is refused.
+const openTranscript = async (filePath) => {
+  const handle = await open(filePath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  try {
+    if (!(await handle.stat()).isFile()) throw unreadable();
+  } catch (error) {
+    await handle.close().catch(() => {});
+    throw error;
+  }
+  return handle;
+};
 
 const LIST_PREVIEW_CHARS = 500;
 /** Bound in-directory JSONL listing so a large folder is not one file at a time. */
@@ -107,8 +123,14 @@ export const matchesPiSessionJsonlName = (fileName, sessionId) => (
  * Read only the session header. Callers that are looking up an id must
  * not scan the rest of a multi-megabyte transcript.
  */
-async function readPiSessionJsonlHeader(filePath) {
-  const input = createReadStream(filePath, { encoding: 'utf8' });
+export async function readPiSessionJsonlHeader(filePath) {
+  let handle;
+  try {
+    handle = await openTranscript(filePath);
+  } catch {
+    throw unreadable();
+  }
+  const input = handle.createReadStream({ encoding: 'utf8' });
   const lines = createInterface({ input, crlfDelay: Infinity });
   try {
     for await (const line of lines) {
@@ -137,17 +159,24 @@ async function readPiSessionJsonlHeader(filePath) {
  * or `<id>.jsonl`) without listing or fully reading every transcript. A miss
  * is `null`, not an empty success.
  */
-export async function findPiSessionJsonlById({ sessionId, agentDir, resolvePath = resolve }) {
+/**
+ * Every transcript under `agentDir` whose header holds `sessionId`. Session
+ * ids are unique, so more than one match means some file was written by
+ * something other than Pi; callers that route by transcript choose among
+ * them (see the project sandbox manager).
+ */
+export async function findPiSessionJsonlsById({ sessionId, agentDir, resolvePath = resolve, limit = Infinity }) {
   if (typeof sessionId !== 'string' || sessionId.length === 0 || typeof agentDir !== 'string') {
-    return null;
+    return [];
   }
   const sessionsRoot = join(resolvePath(agentDir), 'sessions');
   let dirEntries;
   try {
     dirEntries = await readdir(sessionsRoot, { withFileTypes: true });
   } catch {
-    return null;
+    return [];
   }
+  const matches = [];
   for (const dirEntry of dirEntries) {
     if (!dirEntry.isDirectory()) continue;
     const dirPath = join(sessionsRoot, dirEntry.name);
@@ -164,20 +193,28 @@ export async function findPiSessionJsonlById({ sessionId, agentDir, resolvePath 
       try {
         const header = await readPiSessionJsonlHeader(fullPath);
         if (header.id === sessionId) {
-          return { id: sessionId, path: fullPath, cwd: header.cwd };
+          matches.push({ id: sessionId, path: fullPath, cwd: header.cwd });
+          if (matches.length >= limit) return matches;
         }
       } catch {
         continue;
       }
     }
   }
-  return null;
+  return matches;
+}
+
+export async function findPiSessionJsonlById({ sessionId, agentDir, resolvePath = resolve }) {
+  const [found] = await findPiSessionJsonlsById({ sessionId, agentDir, resolvePath, limit: 1 });
+  return found ?? null;
 }
 
 export async function validatePiSessionJsonlFile(filePath) {
   let sawHeader = false;
+  let handle;
   try {
-    const input = createReadStream(filePath, { encoding: 'utf8' });
+    handle = await openTranscript(filePath);
+    const input = handle.createReadStream({ encoding: 'utf8' });
     const lines = createInterface({ input, crlfDelay: Infinity });
     for await (const line of lines) {
       if (!line.trim()) continue;
@@ -196,6 +233,8 @@ export async function validatePiSessionJsonlFile(filePath) {
   } catch (error) {
     if (error instanceof SessionJsonlError) throw error;
     throw unreadable();
+  } finally {
+    await handle?.close().catch(() => {});
   }
   if (!sawHeader) throw malformed();
 }
@@ -293,7 +332,7 @@ const applyCompleteLines = (state, buffer, end) => {
 async function scanPiSessionJsonlRange(filePath, state, size, stats) {
   let handle;
   try {
-    handle = await open(filePath, 'r');
+    handle = await openTranscript(filePath);
     let position = state.offset;
     let carry = [];
     let carryBytes = 0;

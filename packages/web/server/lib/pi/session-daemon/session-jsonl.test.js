@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { appendFile, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +13,7 @@ import {
   listPiSessionJsonlDirectory,
   matchesPiSessionJsonlName,
   normalizeWindowsShellPath,
+  readPiSessionJsonlHeader,
   validatePiSessionJsonlDirectory,
   validatePiSessionJsonlFile,
 } from './session-jsonl.js';
@@ -272,5 +274,14 @@ describe('Pi session JSONL validation', () => {
       await expect(list()).rejects.toMatchObject({ code: 'MALFORMED_SESSION_JSONL' });
       expect(cache.entries.size).toBe(0);
     });
+  });
+
+  // A sandboxed project's session folder is writable from inside its sandbox.
+  it.skipIf(process.platform === 'win32')('refuses a FIFO under a transcript name instead of waiting on it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pichamber-jsonl-fifo-'));
+    const file = join(dir, 'x_abc.jsonl');
+    execFileSync('mkfifo', [file]);
+    await expect(readPiSessionJsonlHeader(file)).rejects.toMatchObject({ code: 'SESSION_JSONL_UNREADABLE' });
+    await expect(validatePiSessionJsonlFile(file)).rejects.toMatchObject({ code: 'SESSION_JSONL_UNREADABLE' });
   });
 });

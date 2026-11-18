@@ -1057,3 +1057,71 @@ describe("createPiEventStream transport lifecycle", () => {
     }
   })
 })
+
+describe("createPiEventStream merged daemon streams", () => {
+  beforeEach(() => {
+    runtimeKey = "runtime-a"
+    capacitor = false
+    streamUrls.length = 0
+    runtimeFetch.mockReset()
+    refreshRuntimeUrlAuthToken.mockReset()
+    openRuntimeWebSocket.mockReset()
+  })
+
+  const projectFrame = (sequence: number, epoch: string, cursor: string) => ({
+    ...event(sequence),
+    sessionId: "session-box",
+    streamEpoch: epoch,
+    stream: "box-stream-id-01",
+    cursor,
+  })
+  const moved = { protocolVersion: 1, kind: "event", name: "session.moved", sequence: 0, sessionId: "session-1", directory: "/workspace", payload: {} }
+
+  test("delivers project daemon frames without touching the main cursor and resumes with the newest cursor", async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    runtimeFetch.mockImplementation(async (_path: string, init?: RequestInit) => new Response(new ReadableStream({
+      start(controller) {
+        controllers.push(controller)
+        init?.signal?.addEventListener("abort", () => controller.close(), { once: true })
+      },
+    })))
+    const received: string[] = []
+    const epochChanges: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push(`${frame.name}:${frame.sequence}`),
+      onEpochChange: (epoch) => epochChanges.push(epoch),
+    }, { fromSequence: 7, streamEpoch: "epoch-main", cursor: "cursor-0", reconnectDelayMs: 0 })
+
+    await flush()
+    expect(streamUrls[0]?.query.cursor).toBe("cursor-0")
+    const main = { ...event(8), streamEpoch: "epoch-main" }
+    for (const frame of [main, projectFrame(500, "epoch-box", "cursor-1"), moved, projectFrame(501, "epoch-box", "cursor-2")]) {
+      controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`))
+    }
+    await flush()
+    expect(received).toEqual(["session.snapshot:8", "session.snapshot:500", "session.moved:0", "session.snapshot:501"])
+    // A project daemon's epoch is not a main daemon restart.
+    expect(epochChanges).toEqual([])
+    expect(runtimeFetch.mock.calls.length).toBe(1)
+
+    handle.reconnect()
+    await flush()
+    await flush()
+    const resumed = streamUrls.at(-1)?.query
+    expect(resumed?.fromSequence).toBe("8")
+    expect(resumed?.streamEpoch).toBe("epoch-main")
+    expect(resumed?.cursor).toBe("cursor-2")
+    handle.dispose()
+  })
+
+  test("sends no cursor before one is known", async () => {
+    runtimeFetch.mockResolvedValueOnce(new Response(new ReadableStream({ start() {} })))
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({ onEvent: () => {} }, { fromSequence: 7, streamEpoch: "epoch-main" })
+    await flush()
+    expect("cursor" in (streamUrls[0]?.query ?? {})).toBe(false)
+    handle.dispose()
+  })
+})

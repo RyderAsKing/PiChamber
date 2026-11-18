@@ -1,6 +1,7 @@
-// Owns what `pi config`, `pi list`, and `pi remove` do for Pi extensions:
-// listing what is configured (path-free), turning resources on or off per
-// scope, and removing a configured package. `session-daemon.js` routes the
+// Owns what `pi config`, `pi list`, `pi install npm:<name>`, `pi update`, and
+// `pi remove` do for Pi extensions: listing what is configured (path-free),
+// turning resources on or off per scope, and installing, updating, or
+// removing a configured package. `session-daemon.js` routes the
 // private commands here and supplies the lock, queue, trust, and runtime
 // recreation.
 //
@@ -10,7 +11,7 @@
 // Recheck them against that file on every SDK upgrade.
 
 import { createHash } from 'node:crypto';
-import { realpathSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +36,19 @@ const GROUP_ORDER = { package: 0, auto: 1, settings: 2, builtin: 3 };
 const MAX_ERROR_MESSAGE_LENGTH = 300;
 const MAX_NAME_LENGTH = 256;
 const ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+// npm's rules for a new package name (validate-npm-package-name): lowercase,
+// optional scope, URL-safe characters, no leading `.` or `_`.
+const NPM_PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[a-z0-9~-][a-z0-9._~-]*$/;
+const MAX_NPM_NAME_LENGTH = 214;
+const MAX_VERSION_LENGTH = 64;
+const VERSION_PATTERN = /^[0-9A-Za-z.+-]+$/;
+// The exact versions semver's `valid()` takes, which is what Pi calls pinned
+// (`isExactNpmVersion` in core/package-manager.js).
+const EXACT_VERSION_PATTERN = /^=?v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const MAX_PACKAGE_JSON_BYTES = 256 * 1024;
+
+const isValidNpmPackageName = (name) => typeof name === 'string'
+  && name.length > 0 && name.length <= MAX_NPM_NAME_LENGTH && NPM_PACKAGE_NAME_PATTERN.test(name);
 
 class ExtensionConfigError extends Error {
   constructor(code, message) {
@@ -353,7 +367,46 @@ export const displayPackageSource = (source, baseDir) => {
   return sanitizeName(basename(resolved) || 'local');
 };
 
-const parseNpmName = (spec) => spec.match(/^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/)?.[1] ?? spec;
+const NPM_SPEC_PATTERN = /^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/;
+const parseNpmName = (spec) => spec.match(NPM_SPEC_PATTERN)?.[1] ?? spec;
+
+// Pi never updates an npm source written with an exact version.
+const isPinnedSource = (source) => {
+  if (packageKind(source) !== 'npm') return false;
+  const version = source.trim().slice('npm:'.length).trim().match(NPM_SPEC_PATTERN)?.[2];
+  return typeof version === 'string' && EXACT_VERSION_PATTERN.test(version.trim());
+};
+
+// name, version, and the PiChamber plugin marker from an installed package's
+// own package.json. Any read or parse error leaves them out; the path is
+// never returned.
+const readInstalledPackageInfo = (installedPath) => {
+  if (typeof installedPath !== 'string' || installedPath.length === 0) return {};
+  let fd;
+  try {
+    fd = openSync(join(installedPath, 'package.json'), 'r');
+    const { size } = fstatSync(fd);
+    if (size > MAX_PACKAGE_JSON_BYTES) return {};
+    const buffer = Buffer.alloc(size);
+    const read = readSync(fd, buffer, 0, size, 0);
+    const manifest = JSON.parse(buffer.subarray(0, read).toString('utf8'));
+    if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return {};
+    const { name, version, pichamber } = manifest;
+    return {
+      ...(isValidNpmPackageName(name) ? { name } : {}),
+      ...(typeof version === 'string' && version.length <= MAX_VERSION_LENGTH && VERSION_PATTERN.test(version) ? { version } : {}),
+      ...(pichamber && typeof pichamber === 'object' && !Array.isArray(pichamber) && Number.isFinite(pichamber.apiVersion)
+        ? { pichamber: true }
+        : {}),
+    };
+  } catch {
+    return {};
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch { /* already closed */ }
+    }
+  }
+};
 
 // Pi's package identity (npm by name, local by resolved path); git sources
 // keep their written form minus credentials.
@@ -517,6 +570,8 @@ export function createExtensionConfig({
         kind: packageKind(pkg.source),
         installed: typeof pkg.installedPath === 'string' && pkg.installedPath.length > 0,
         filtered: pkg.filtered === true,
+        ...(isPinnedSource(pkg.source) ? { pinned: true } : {}),
+        ...readInstalledPackageInfo(pkg.installedPath),
       });
     }
     packages.sort((a, b) => (a.scope === b.scope ? a.source.localeCompare(b.source) : a.scope === 'user' ? -1 : 1));
@@ -669,6 +724,149 @@ export function createExtensionConfig({
     if (setProjectResourceOverride(ctx, item, state)) await commit(settingsManager);
   };
 
+  const managersFor = (target) => {
+    const projectTrusted = Boolean(target.directory && target.trusted);
+    const globalCwd = target.directory ?? target.cwd;
+    const settingsManager = createSettingsManager({ cwd: globalCwd, agentDir, projectTrusted });
+    const packageManager = createPackageManager({ cwd: globalCwd, agentDir, settingsManager, builtinExtensions: [...builtinExtensions] });
+    return { projectTrusted, globalCwd, settingsManager, packageManager };
+  };
+
+  const configuredEntries = (packageManager) => {
+    const configured = packageManager.listConfiguredPackages();
+    return (Array.isArray(configured) ? configured : [])
+      .filter((pkg) => pkg && typeof pkg.source === 'string' && (pkg.scope === 'user' || pkg.scope === 'project'));
+  };
+
+  // The configured package a list id names. A project package needs a
+  // trusted directory.
+  const findConfiguredPackage = (target, id) => {
+    const managers = managersFor(target);
+    const match = configuredEntries(managers.packageManager).find((pkg) => (
+      packageId(pkg.scope, packageIdentity(pkg.source, baseDirFor(pkg.scope, managers.globalCwd))) === id
+    ));
+    if (!match) throw new ExtensionConfigError('RESOURCE_NOT_FOUND', 'The requested package was not found.');
+    if (match.scope === 'project' && !managers.projectTrusted) {
+      throw new ExtensionConfigError('PROJECT_UNTRUSTED', 'The project is not trusted.');
+    }
+    return { ...managers, match };
+  };
+
+  const errorText = (error, globalCwd) => sanitizeErrorMessage(
+    error instanceof Error ? error.message : error,
+    [agentDir, globalCwd, homedir()],
+  );
+
+  const runDirectly = (operation) => operation();
+
+  const parseInstallRequest = (payload) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw invalid();
+    // A bare npm name only: no version, and no git, URL, or local source.
+    if (!isValidNpmPackageName(payload.name)) throw invalid('Only an npm package name can be installed.');
+    if (payload.scope !== 'user' && payload.scope !== 'project') throw invalid();
+    return { name: payload.name, scope: payload.scope };
+  };
+
+  const assertInstallTarget = (target, scope) => {
+    if (scope !== 'project') return;
+    if (!target.directory) throw invalid('Project scope requires a directory.');
+    if (!target.trusted) throw new ExtensionConfigError('PROJECT_UNTRUSTED', 'The project is not trusted.');
+  };
+
+  const assertNotConfigured = (packageManager, scope, identity) => {
+    if (configuredEntries(packageManager).some((pkg) => pkg.scope === scope && packageKind(pkg.source) === 'npm'
+      && packageIdentity(pkg.source) === identity)) {
+      throw new ExtensionConfigError('PACKAGE_ALREADY_INSTALLED', 'The package is already installed in that scope.');
+    }
+  };
+
+  /**
+   * `pi install npm:<name>` in two steps so the npm download holds no lock:
+   * `serializeInstall` runs Pi's `install` (one npm run at a time), then
+   * `withWriteLock(write)` runs `write(freshTarget)` under the resource
+   * mutation queue and the shared Pi config lock to add the source to
+   * settings. Both hooks default to running directly. `resolveTarget`
+   * reads the target again when the queued npm step starts, so trust
+   * revoked while it waited stops it. Returns `{ installedId }`, the new
+   * package's list id.
+   */
+  const installPackage = async (target, payload, {
+    serializeInstall = runDirectly,
+    withWriteLock = (write) => write(target),
+    resolveTarget = async () => target,
+  } = {}) => {
+    const request = parseInstallRequest(payload);
+    const source = `npm:${request.name}`;
+    const identity = packageIdentity(source);
+    const local = request.scope === 'project';
+    assertInstallTarget(target, request.scope);
+    {
+      const { packageManager } = managersFor(target);
+      assertNotConfigured(packageManager, request.scope, identity);
+    }
+    await serializeInstall(async () => {
+      // Trust can change while this waits in the queue: check again first.
+      const current = await resolveTarget();
+      assertInstallTarget(current, request.scope);
+      const { packageManager, globalCwd } = managersFor(current);
+      try {
+        await packageManager.install(source, { local });
+      } catch (error) {
+        throw new ExtensionConfigError('PACKAGE_INSTALL_FAILED', errorText(error, globalCwd));
+      }
+    });
+    await withWriteLock(async (fresh) => {
+      // Trust and settings can change while npm runs: check again.
+      assertInstallTarget(fresh, request.scope);
+      const { settingsManager, packageManager } = managersFor(fresh);
+      assertNotConfigured(packageManager, request.scope, identity);
+      assertWritable(settingsManager);
+      // The package files are installed by now and stay if this write fails;
+      // Pi's own `installAndPersist` leaves them the same way. Report the
+      // failed write, never success.
+      try {
+        packageManager.addSourceToSettings(source, { local });
+      } catch {
+        throw new ExtensionConfigError('PI_SETTINGS_INVALID', 'Pi settings could not be written.');
+      }
+      await commit(settingsManager);
+    });
+    return { installedId: packageId(request.scope, identity) };
+  };
+
+  /**
+   * `pi update <source>` for one configured npm or git package, run through
+   * `serializeInstall` with no lock held. Pi updates every entry with the
+   * same identity in the settings it can read. `resolveTarget` reads the
+   * target again when the queued step starts, so the package is looked up
+   * with the trust and settings of that moment. The caller recreates
+   * runtimes afterwards.
+   */
+  const updatePackage = async (target, payload, { serializeInstall = runDirectly, resolveTarget = async () => target } = {}) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+      || typeof payload.id !== 'string' || !ID_PATTERN.test(payload.id)) {
+      throw invalid();
+    }
+    const assertUpdatable = (source) => {
+      if (packageKind(source) === 'local') throw invalid('A local package has nothing to update.');
+      if (isPinnedSource(source)) throw new ExtensionConfigError('PACKAGE_PINNED', 'The package is pinned to a version.');
+    };
+    assertUpdatable(findConfiguredPackage(target, payload.id).match.source);
+    await serializeInstall(async () => {
+      // Trust and settings can change while this waits in the queue: look
+      // the package up again, which leaves out an untrusted project's.
+      const current = await resolveTarget();
+      const { match } = findConfiguredPackage(current, payload.id);
+      assertUpdatable(match.source);
+      const { packageManager, globalCwd } = managersFor(current);
+      try {
+        await packageManager.update(match.source);
+      } catch (error) {
+        throw new ExtensionConfigError('PACKAGE_UPDATE_FAILED', errorText(error, globalCwd));
+      }
+    });
+  };
+
   /**
    * Removes one configured package through Pi's `removeAndPersist`. Same
    * locking contract as `set`. PiChamber deletes no path itself.
@@ -678,19 +876,7 @@ export function createExtensionConfig({
       || typeof payload.id !== 'string' || !ID_PATTERN.test(payload.id)) {
       throw invalid();
     }
-    const projectTrusted = Boolean(target.directory && target.trusted);
-    const globalCwd = target.directory ?? target.cwd;
-    const settingsManager = createSettingsManager({ cwd: globalCwd, agentDir, projectTrusted });
-    const packageManager = createPackageManager({ cwd: globalCwd, agentDir, settingsManager, builtinExtensions: [...builtinExtensions] });
-    const configured = packageManager.listConfiguredPackages();
-    const match = (Array.isArray(configured) ? configured : []).find((pkg) => (
-      pkg && typeof pkg.source === 'string' && (pkg.scope === 'user' || pkg.scope === 'project')
-      && packageId(pkg.scope, packageIdentity(pkg.source, baseDirFor(pkg.scope, globalCwd))) === payload.id
-    ));
-    if (!match) throw new ExtensionConfigError('RESOURCE_NOT_FOUND', 'The requested package was not found.');
-    if (match.scope === 'project' && !projectTrusted) {
-      throw new ExtensionConfigError('PROJECT_UNTRUSTED', 'The project is not trusted.');
-    }
+    const { projectTrusted, globalCwd, settingsManager, packageManager, match } = findConfiguredPackage(target, payload.id);
     assertWritable(settingsManager);
     // Pi matches the source as if it were typed after `pi remove`: a relative
     // local path is read against the working directory. Settings keep it
@@ -703,10 +889,7 @@ export function createExtensionConfig({
     try {
       removed = await packageManager.removeAndPersist(source, { local: match.scope === 'project' });
     } catch (error) {
-      throw new ExtensionConfigError(
-        'PACKAGE_REMOVE_FAILED',
-        sanitizeErrorMessage(error instanceof Error ? error.message : error, [agentDir, globalCwd, homedir()]),
-      );
+      throw new ExtensionConfigError('PACKAGE_REMOVE_FAILED', errorText(error, globalCwd));
     }
     // The package files may already be gone here. A settings write that
     // fails now leaves an entry for a missing package: report it, never
@@ -715,5 +898,5 @@ export function createExtensionConfig({
     if (!removed) throw new ExtensionConfigError('PACKAGE_NOT_CONFIGURED', 'Pi settings had no entry for the package.');
   };
 
-  return { list, set, removePackage };
+  return { list, set, installPackage, updatePackage, removePackage };
 }

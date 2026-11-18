@@ -18,10 +18,13 @@ export const MIN_HEIGHT = 120;
 export const MAX_HEIGHT = 2_000;
 
 const DESCRIPTION = 'Show a finished, self-contained HTML page (chart, diagram, table, mockup) in the chat above your reply. '
-  + 'Inline all CSS and JS; network requests are blocked. About 760px wide, narrower on phones, so let it reflow. '
-  + 'Body, headings, tables, buttons, inputs and code are already styled; add only layout and specifics. '
-  + 'Colour with the theme variables --pc-bg, --pc-surface, --pc-fg, --pc-muted, --pc-border, --pc-accent, '
-  + '--pc-c1 to --pc-c5 (data series), --pc-good, --pc-warn and --pc-bad so it matches light and dark mode. '
+  + 'Inline all CSS and JS; no network. It sits in the reply column (~760px, ~360px on phones) on the chat background, so use fluid widths. '
+  + 'No outer card, border, background, side padding or title heading; boxes get 12-16px padding and var(--pc-radius). '
+  + 'Charts get a fixed px height; no vh. Text, tables, inputs, code and SVG text are pre-styled. '
+  + 'Labels and axes 12px in --pc-muted, headings ≤16px, big numbers ≤24px. '
+  + 'Colours: --pc-bg, --pc-surface, --pc-fg, --pc-muted, --pc-border, --pc-accent. One series = --pc-c1; '
+  + 'ranked values: its shades --pc-shade-1..4; --pc-c2..5 only for more series, max 3 in all; '
+  + '--pc-good/--pc-warn/--pc-bad only for status. '
   + "Do not repeat the page's content in your reply.";
 
 const PARAMETERS = {

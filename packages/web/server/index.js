@@ -17,15 +17,23 @@ import { createTailscaleService } from './lib/tailscale/service.js';
 import { createServerIdResolver } from './lib/relay/server-id.js';
 import { registerTailscaleRoutes } from './lib/tailscale/routes.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
+import { createPiDaemonPool } from './lib/pi/session-daemon/daemon-pool.js';
 import { createPluginService } from './lib/plugins/service.js';
 import { createPluginDaemonSync } from './lib/plugins/daemon-sync.js';
 import { registerPluginRoutes } from './lib/plugins/routes.js';
+import { createFeaturedSource, DEFAULT_FEATURED_URL } from './lib/marketplace/featured.js';
+import { createNpmRegistry } from './lib/marketplace/npm-registry.js';
+import { registerMarketplaceRoutes } from './lib/marketplace/routes.js';
+import { createMarketplaceService } from './lib/marketplace/service.js';
 import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
 import { detectLinuxDistribution } from './lib/server/linux-distribution.js';
 import { createPiNotificationWatcher } from './lib/notifications/pi-notification-watcher.js';
 import { registerWorkspaceIntegrations } from './lib/workspace/host.js';
 import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
 import { createOpenUrlIntake } from './lib/open-url/intake.js';
+import { createNonoLauncher } from './lib/pi/sandbox/nono-launcher.js';
+import { createProjectSandboxManager } from './lib/pi/sandbox/project-sandbox-manager.js';
+import { createTrustAskStore } from './lib/pi/sandbox/trust-ask.js';
 import {
   getUnauthenticatedLanErrorMessage,
   isNetworkExposedBindHost,
@@ -134,6 +142,11 @@ export async function startWebUiServer(options = {}) {
   const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY);
   const app = express();
   const server = http.createServer(app);
+  // The port the server is listening on, or null before it binds.
+  const boundPort = () => {
+    const address = server.address();
+    return typeof address === 'object' && address ? address.port : null;
+  };
   const serverStartedAt = new Date().toISOString();
   const dataPath = (name) => path.join(PICHAMBER_DATA_DIR, name);
   const remoteClientAuthRuntime = createRemoteClientAuthRuntime({ fsPromises: fs.promises, path, crypto: await import('node:crypto'), storePath: dataPath('remote-clients.json') });
@@ -160,10 +173,7 @@ export async function startWebUiServer(options = {}) {
   });
   const tunnelService = createTunnelService({
     dataDir: PICHAMBER_DATA_DIR,
-    getPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getPort: boundPort,
     tunnelAuthController,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
@@ -185,10 +195,7 @@ export async function startWebUiServer(options = {}) {
   const tailscaleService = createTailscaleService({
     dataDir: PICHAMBER_DATA_DIR,
     getServerId: serverIdResolver.getServerId,
-    getPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getPort: boundPort,
     isUiAuthEnabled: hasUiPasswordConfigured,
     isUnsafeUnauthenticatedLanAllowed: () => isUnsafeUnauthenticatedLanAllowed(process.env),
   });
@@ -198,10 +205,7 @@ export async function startWebUiServer(options = {}) {
     console.warn(`[tailscale] Failed to load persisted config: ${error?.message || error}`);
   }
   const pairingTransports = createPairingTransportResolvers({
-    getPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getPort: boundPort,
     bindHost: host,
     getTailscaleCandidate: () => tailscaleService.getPairingCandidate(),
   });
@@ -239,10 +243,7 @@ export async function startWebUiServer(options = {}) {
     serverStartedAt,
     gracefulShutdown,
     getHealthSnapshot: () => ({ pi: { state: 'ready' }, apiOnly }),
-    getServerPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getServerPort: boundPort,
     getTunnelUrl: () => null,
     getServerId: serverIdResolver.getServerId,
     tunnelAuthController,
@@ -265,21 +266,74 @@ export async function startWebUiServer(options = {}) {
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
   // Plugins: the server owns manifests and state and pushes the enabled set
-  // to the daemon (lib/plugins/DOCUMENTATION.md). A health probe runs the
-  // supervisor's onDaemonReady hook, which pushes.
+  // to every daemon (lib/plugins/DOCUMENTATION.md). A health probe runs the
+  // supervisor's onDaemonReady hook, which pushes. A sandboxed project's
+  // daemon gets a config trimmed to its own folders.
   const pluginService = createPluginService();
   const pluginDaemonSync = createPluginDaemonSync({
-    buildConfig: () => pluginService.daemonConfig(),
+    buildConfig: (scope) => pluginService.daemonConfig(scope),
     refresh: () => piSessionDaemonRuntime?.health(),
   });
-  const piRuntimeRoutes = registerPiRuntimeRoutes(app, {
-    getPiSessionDaemonRuntime: () => piSessionDaemonRuntime,
+  // The main daemon is today's supervisor; project daemons register here.
+  const piDaemonPool = createPiDaemonPool({ getMainRuntime: () => piSessionDaemonRuntime });
+  // Sandboxed projects get their own daemon, started through nono on first
+  // use. With no sandboxed project this registers nothing and probes nothing.
+  let piRuntimeRoutes = null;
+  // Folders whose Pi trust stays "ask" after their sandbox was turned off;
+  // the daemons read the same file (sandbox/trust-ask.js).
+  const piTrustAsk = createTrustAskStore({ dataDir: PICHAMBER_DATA_DIR });
+  const piSandboxManager = createProjectSandboxManager({
+    daemonPool: piDaemonPool,
+    trustAsk: piTrustAsk,
+    uiSettingsStore,
+    launcher: createNonoLauncher({
+      stageDir: path.join(PICHAMBER_DATA_DIR, 'pi', 'sandbox'),
+      customProfileFile: path.join(PICHAMBER_DATA_DIR, 'pi', 'sandbox', 'nono-profile.custom.json'),
+    }),
+    dataDir: PICHAMBER_DATA_DIR,
+    agentDir: async () => {
+      const configured = typeof process.env.PICHAMBER_PI_AGENT_DIR === 'string' ? process.env.PICHAMBER_PI_AGENT_DIR.trim() : '';
+      if (configured) return configured;
+      return (await import('@earendil-works/pi-coding-agent')).getAgentDir();
+    },
+    getServerPort: boundPort,
+    hasConnectedDevices: () => piRuntimeRoutes?.hasLiveEventStreams() ?? false,
+    // The same port and version as the main daemon, so sandbox profile keys
+    // extend the main daemon's.
+    supervisorOptions: ({ roots } = {}) => ({
+      port: boundPort() ?? port,
+      version: PICHAMBER_VERSION,
+      onDaemonReady: pluginDaemonSync.onDaemonReadyFor({ roots }),
+    }),
+  });
+  piRuntimeRoutes = registerPiRuntimeRoutes(app, {
+    daemonPool: piDaemonPool,
+    sandboxManager: piSandboxManager,
+    trustAsk: piTrustAsk,
     uiSettingsStore,
     onSessionDeleted: async (sessionId) => {
       if (await pluginService.forgetSession(sessionId)) pluginDaemonSync.changed();
     },
   });
   registerPluginRoutes(app, { service: pluginService, onChange: pluginDaemonSync.changed });
+  // Marketplace: npm search and the featured list (lib/marketplace/DOCUMENTATION.md).
+  // PICHAMBER_NPM_REGISTRY_URL / PICHAMBER_NPM_DOWNLOADS_URL point it at a
+  // mirror or a test fixture; PICHAMBER_FEATURED_URL=off stops refreshing the
+  // featured list from the repository.
+  const featuredUrlSetting = process.env.PICHAMBER_FEATURED_URL;
+  registerMarketplaceRoutes(app, {
+    service: createMarketplaceService({
+      registry: createNpmRegistry({
+        ...(process.env.PICHAMBER_NPM_REGISTRY_URL ? { registryUrl: process.env.PICHAMBER_NPM_REGISTRY_URL } : {}),
+        ...(process.env.PICHAMBER_NPM_DOWNLOADS_URL ? { downloadsUrl: process.env.PICHAMBER_NPM_DOWNLOADS_URL } : {}),
+      }),
+      featuredSource: createFeaturedSource({
+        cachePath: dataPath(path.join('pi', 'featured.json')),
+        remoteUrl: featuredUrlSetting === 'off' ? null : featuredUrlSetting || DEFAULT_FEATURED_URL,
+      }),
+      bundledPackageNames: () => pluginService.bundledPackageNames(),
+    }),
+  });
   // Cloudflare Tunnel external access (managed-remote and managed-local modes).
   const requireTunnelAuth = (req, res, next) => uiAuthController.requireAuth(req, res, next);
   app.get('/api/pichamber/tunnel/status', requireTunnelAuth, async (_req, res) => {
@@ -318,7 +372,7 @@ export async function startWebUiServer(options = {}) {
   void tailscaleService.reconcile().catch((error) => {
     console.warn(`[tailscale] Failed to apply mapping on startup: ${error?.message || error}`);
   });
-  const resolvedPort = typeof server.address() === 'object' && server.address() ? server.address().port : null;
+  const resolvedPort = boundPort();
   piSessionDaemonRuntime = createPiSessionDaemonSupervisor({
     dataDir: PICHAMBER_DATA_DIR,
     port: typeof resolvedPort === 'number' ? resolvedPort : port,
@@ -339,7 +393,7 @@ export async function startWebUiServer(options = {}) {
   // supplies its native notification callback.
   if (typeof options.onDesktopNotification === 'function') {
     notificationWatcher = createPiNotificationWatcher({
-      supervisor: piSessionDaemonRuntime,
+      daemonPool: piDaemonPool,
       uiSettingsStore,
       notify: options.onDesktopNotification,
     });
@@ -356,6 +410,13 @@ export async function startWebUiServer(options = {}) {
   } catch (error) {
     console.warn(`[open-url] Intake unavailable: ${error?.code ?? 'UNKNOWN'}`);
   }
+  // Register sandboxed projects before any request can route; a failure
+  // leaves those projects unregistered, so log it loudly.
+  try {
+    await piSandboxManager.reconcile();
+  } catch (error) {
+    console.warn(`[pi-sandbox] Could not load project sandbox settings: ${error?.code ?? error?.message ?? 'UNKNOWN'}`);
+  }
   void piSessionDaemonRuntime.start()
     .then(() => {
       // Configure plugins on the started daemon; later requests re-check.
@@ -370,10 +431,7 @@ export async function startWebUiServer(options = {}) {
   const controller = {
     expressApp: app,
     httpServer: server,
-    getPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getPort: boundPort,
     getTunnelUrl: () => null,
     getDaemonProfileKey: () => piSessionDaemonRuntime?.paths?.profileKey ?? null,
     getTailscaleStatus: () => tailscaleService.getStatus(),
@@ -390,6 +448,7 @@ export async function startWebUiServer(options = {}) {
       await Promise.allSettled([
         notificationWatcher?.stop(),
         openUrlIntake.stop(),
+        piSandboxManager.stop(),
         workspaceRuntime.shutdown(),
         piSessionDaemonRuntime ? piSessionDaemonRuntime.stop() : Promise.resolve(),
         tailscaleService.shutdown(),

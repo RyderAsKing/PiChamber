@@ -1,6 +1,7 @@
 import React from 'react';
 import { ProjectActionsSection } from '@/components/sections/projects/ProjectActionsSection';
 import { ProjectIdentityFields } from '@/components/sections/projects/ProjectIdentityFields';
+import { ProjectSandboxSection } from '@/components/sections/projects/ProjectSandboxSection';
 import {
   useProjectIdentityForm,
   type ProjectIdentitySaveData,
@@ -40,6 +41,7 @@ export const ProjectSettingsPanel: React.FC<ProjectSettingsPanelProps> = ({
     <div className="space-y-0">
       <ProjectIdentityFields form={form} />
       <ProjectActionsSection projectRef={projectRef} />
+      <ProjectSandboxSection projectId={project.id} />
     </div>
   );
 };

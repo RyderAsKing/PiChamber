@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Lets the agent hand tasks to sub-agents that work in their own context.",
-  "keywords": ["pi-package"],
+  "keywords": ["pi-package", "pichamber-plugin", "subagent", "subagents", "delegate", "parallel", "agents", "workflow", "orchestration"],
   "license": "MIT",
   "pi": {
     "extensions": ["./extension.js"]

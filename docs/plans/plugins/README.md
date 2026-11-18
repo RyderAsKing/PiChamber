@@ -21,8 +21,9 @@ Ticket 14 (2026-11-17): a plugin's tool can ask a question with
 `pichamber.ui.choose(ctx, ...)`, tied to its tool call so its chat component answers it;
 Visuals gains `render_choices` (variants one at a time at full width, pick
 one, add a note).
-Open: merging with `pichamber/nono-sandbox` (below), a check of the packaged
-Electron app, and a `plugins.changed` push to other devices.
+Merged with `pichamber/nono-sandbox` on 2026-11-18 (below). Open: the nono
+e2e case for plugins, a check of the packaged Electron app, and a
+`plugins.changed` push to other devices.
 
 ## Goal
 
@@ -156,6 +157,11 @@ registers no tools, prompt text or hooks.
   the same way: the server pushes to every daemon it talks to.
 
 ### Merging with `pichamber/nono-sandbox`
+
+Done on 2026-11-18: sandbox daemons get `onDaemonReadyFor({ roots })` with
+a config trimmed to their folders, and composer controls, draft discards and
+project extension config route to the folder's daemon. The nono e2e case
+below is still to do. The notes from the trial merge:
 
 Checked with a trial merge on 2026-11-16 (`git merge-tree`, nothing written):
 

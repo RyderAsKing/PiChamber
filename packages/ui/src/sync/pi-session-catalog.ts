@@ -33,7 +33,7 @@ import { getGlobalSessionDirectories } from './global-session-directory';
 
 import type { PiSessionListItem, PiPendingInputSummary } from '@/lib/pi/protocol';
 import { isValidPendingInputSummary } from '@/lib/pi/protocol';
-import type { PiRetryInfo, PiSessionId } from '@/lib/pi/types';
+import type { PiRetryInfo, PiSessionId, PiSessionPendingSwitch } from '@/lib/pi/types';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -79,6 +79,13 @@ export interface LiveSessionRecord {
   preview?: string;
   /** Optional message count from the listing API. */
   messageCount?: number;
+  /** The session's project runs Pi in a sandbox. The listing is
+   *  authoritative: a row without the flag is not sandboxed. */
+  sandboxed?: true;
+  /** The session finishes its turn in its old daemon, then switches to the
+   *  project's new sandbox mode. Authoritative from the listing like
+   *  `sandboxed`: a row without it has no pending switch. */
+  pendingSwitch?: PiSessionPendingSwitch;
   /** Live lifecycle mirror — see `LiveSessionLifecycle`. */
   lifecycle: LiveSessionLifecycle;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
@@ -180,6 +187,8 @@ const recordsStructurallyEqual = (left: LiveSessionRecord, right: LiveSessionRec
   && left.updatedAt === right.updatedAt
   && left.preview === right.preview
   && left.messageCount === right.messageCount
+  && left.sandboxed === right.sandboxed
+  && left.pendingSwitch?.to === right.pendingSwitch?.to
   && left.lifecycle === right.lifecycle
   && left.retry === right.retry
   && left.hydrated === right.hydrated
@@ -229,12 +238,12 @@ const retryInfoEqual = (left: PiRetryInfo | undefined, right: PiRetryInfo | unde
  * is ignored.
  */
 export interface DirectoryListLiveOptions {
-  acceptLiveObservation?: (sessionId: PiSessionId, sequence: number) => boolean;
+  acceptLiveObservation?: (sessionId: PiSessionId, sequence: number, item: PiSessionListItem) => boolean;
   /** Ordering gate for a listing's `inputState` observation. Mirrors the
    *  `live` gate: an observation is accepted only when its sequence is not
    *  older than the newest accepted pending-input observation for that
    *  session. Without a gate the observation is ignored (unknown). */
-  acceptPendingInputObservation?: (sessionId: PiSessionId, sequence: number) => boolean;
+  acceptPendingInputObservation?: (sessionId: PiSessionId, sequence: number, item: PiSessionListItem) => boolean;
 }
 
 /**
@@ -276,7 +285,7 @@ export const applyDirectoryListToCatalog = (
     // A resident runtime's sampled lifecycle replaces the row's lifecycle
     // only when the caller proves it is not older than accepted events. An
     // absent observation is unknown: keep the event-driven mirror.
-    const live = item.live && options?.acceptLiveObservation?.(session.id, item.live.sequence)
+    const live = item.live && options?.acceptLiveObservation?.(session.id, item.live.sequence, item)
       ? item.live
       : undefined;
     const lifecycle: LiveSessionLifecycle = live ? live.lifecycle : (existing?.lifecycle ?? 'idle');
@@ -291,7 +300,7 @@ export const applyDirectoryListToCatalog = (
     // A malformed summary is unknown too: keep the current value, never
     // adopt it and never treat it as empty.
     const rawInput = item.inputState
-      && options?.acceptPendingInputObservation?.(session.id, item.inputState.sequence)
+      && options?.acceptPendingInputObservation?.(session.id, item.inputState.sequence, item)
       ? item.inputState.pending
       : undefined;
     const observedInput = rawInput === undefined || rawInput === null || isValidPendingInputSummary(rawInput)
@@ -318,6 +327,10 @@ export const applyDirectoryListToCatalog = (
       ...(typeof session.messageCount === 'number'
         ? { messageCount: session.messageCount }
         : existing?.messageCount !== undefined ? { messageCount: existing.messageCount } : {}),
+      ...(session.sandboxed === true ? { sandboxed: true as const } : {}),
+      ...(session.pendingSwitch?.to === 'nono' || session.pendingSwitch?.to === 'off'
+        ? { pendingSwitch: existing?.pendingSwitch?.to === session.pendingSwitch.to ? existing.pendingSwitch : { to: session.pendingSwitch.to } }
+        : {}),
       lifecycle,
       ...(retry ? { retry } : {}),
       ...(pendingInput !== undefined ? { pendingInput } : {}),
@@ -566,37 +579,71 @@ export const applyPendingInputObservation = (
 
 /**
  * Commit a `GET /api/pi/sessions/pending-input` response. For each entry
- * set pending (gated by the response `sequence`); for catalog rows NOT in
+ * set pending (gated by its daemon's `sequence`); for catalog rows NOT in
  * the response whose current `pendingInput` is non-null and whose accepted
  * sequence the response covers, set `null`. Rows whose value is unknown
  * (`undefined`) stay unknown — absence from one response is not proof of
  * emptiness for a row we never observed. Entries for sessions outside the
  * catalog insert stub rows so the badge can show before the directory is
- * listed. The whole response is rejected when its `streamEpoch` differs
- * from the established epoch.
+ * listed. An `incomplete` response (a session daemon failed to answer) sets
+ * its entries and clears nothing.
+ *
+ * Each daemon numbers its own stream. Main-daemon entries (no `stream`) use
+ * the top-level `sequence`/`streamEpoch` and are skipped when that epoch
+ * differs from the established one. A project daemon's entries carry its
+ * `stream` id and use `streams[stream]`, checked by
+ * `acceptProjectStreamEpoch` (without it they are skipped). A row is
+ * cleared by absence only when the daemon that numbers it (`streamOf`)
+ * answered under a current epoch.
  */
 export const applyPendingInputListToCatalog = (
   state: PiSessionCatalogState,
   response: {
-    sessions: ReadonlyArray<{ sessionId: PiSessionId; directory: string; pending: PiPendingInputSummary }>;
-    sequence: number;
+    sessions: ReadonlyArray<{ sessionId: PiSessionId; directory: string; pending: PiPendingInputSummary; stream?: string }>;
+    sequence?: number;
     streamEpoch?: string;
+    streams?: Readonly<Record<string, { sequence: number; streamEpoch?: string }>>;
+    incomplete?: true;
   },
   options?: {
-    /** Per-session ordering gate; mirrors the list `live` gate. */
-    acceptPendingInputObservation?: (sessionId: PiSessionId, sequence: number) => boolean;
-    /** Established stream epoch. A response from another epoch is rejected
-     *  wholesale — its sequence space is unrelated. `null` accepts any
-     *  response (pre-epoch daemon). */
+    /** Per-session ordering gate; mirrors the list `live` gate. `stream`
+     *  is the project daemon stream id, undefined for the main daemon. */
+    acceptPendingInputObservation?: (sessionId: PiSessionId, sequence: number, stream: string | undefined) => boolean;
+    /** Established main stream epoch. Main entries from another epoch are
+     *  skipped — their sequence space is unrelated. `null` accepts any
+     *  (pre-epoch daemon). */
     streamEpoch?: string | null;
+    /** Whether a project stream's epoch is current. */
+    acceptProjectStreamEpoch?: (stream: string, epoch: string) => boolean;
+    /** Project stream that numbers a session's live state, undefined for
+     *  the main daemon. Absent: every row is the main daemon's. */
+    streamOf?: (sessionId: PiSessionId) => string | undefined;
   },
 ): PiSessionCatalogState => {
   const established = options?.streamEpoch ?? null;
-  if (established !== null) {
-    if (typeof response.streamEpoch !== 'string' || response.streamEpoch !== established) return state;
-  }
-  const sequence = response.sequence;
-  if (!Number.isSafeInteger(sequence) || sequence < 0) return state;
+  const mainSequence = (() => {
+    const sequence = response.sequence;
+    if (typeof sequence !== 'number' || !Number.isSafeInteger(sequence) || sequence < 0) return undefined;
+    if (established !== null && (typeof response.streamEpoch !== 'string' || response.streamEpoch !== established)) return undefined;
+    return sequence;
+  })();
+  const projectSequences = new Map<string, number | undefined>();
+  const sequenceFor = (stream: string | undefined): number | undefined => {
+    if (stream === undefined) return mainSequence;
+    if (projectSequences.has(stream)) return projectSequences.get(stream);
+    const position = response.streams && Object.prototype.hasOwnProperty.call(response.streams, stream)
+      ? response.streams[stream]
+      : undefined;
+    const valid = position
+      && Number.isSafeInteger(position.sequence)
+      && position.sequence >= 0
+      && typeof position.streamEpoch === 'string'
+      && position.streamEpoch.length > 0
+      && options?.acceptProjectStreamEpoch?.(stream, position.streamEpoch) === true;
+    const sequence = valid ? position.sequence : undefined;
+    projectSequences.set(stream, sequence);
+    return sequence;
+  };
   const accept = options?.acceptPendingInputObservation ?? (() => true);
   const seen = new Set<PiSessionId>();
   let next = state;
@@ -608,15 +655,23 @@ export const applyPendingInputListToCatalog = (
     // A malformed summary is unknown, never empty: it blocks the
     // absence-clear below but changes nothing on its own row.
     if (!isValidPendingInputSummary(entry.pending)) continue;
-    if (!accept(entry.sessionId, sequence)) continue;
+    const stream = typeof entry.stream === 'string' && entry.stream.length > 0 ? entry.stream : undefined;
+    const sequence = sequenceFor(stream);
+    if (sequence === undefined) continue;
+    if (!accept(entry.sessionId, sequence, stream)) continue;
     next = applyPendingInputObservation(next, entry.sessionId, entry.directory, entry.pending, sequence);
   }
+  // A list some daemon failed to answer proves nothing by absence.
+  if (response.incomplete === true) return next;
   for (const [id, record] of next.byId) {
     if (seen.has(id)) continue;
     // `null` is already authoritatively empty and `undefined` is unknown —
     // only a non-null (pending) row can be cleared by absence.
     if (record.pendingInput == null) continue;
-    if (!accept(id, sequence)) continue;
+    const stream = options?.streamOf?.(id);
+    const sequence = sequenceFor(stream);
+    if (sequence === undefined) continue;
+    if (!accept(id, sequence, stream)) continue;
     next = applyPendingInputObservation(next, id, record.directory, null, sequence);
   }
   return next;

@@ -8,7 +8,10 @@ import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import type { ToolPart as ToolPartType } from '@/lib/chat/types';
 import type { ToolPopupContent } from '../message/types';
 import type { StreamPhase } from '../message/types';
-import type { TurnActivityRecord, TurnRecord } from '../lib/turns/types';
+import type { ChatMessageEntry, TurnActivityRecord, TurnRecord } from '../lib/turns/types';
+import { readExtensionNotice } from '../lib/turns/applyExtensionNoticeOverlay';
+import { messageCreatedAtById, splitNoticesByAnchors } from '../lib/turns/placeTurnNotices';
+import { ExtensionNoticeRow } from '../message/parts/extension/ExtensionNoticeRow';
 import {
     ACTIVITY_LOAD_BATCH_SIZE,
     getVisibleTurnActivity,
@@ -148,8 +151,21 @@ const TurnToolActivityRow = React.memo(({
 
 TurnToolActivityRow.displayName = 'TurnToolActivityRow';
 
+/** A live notice shown among the rail's rows, at the time it arrived. */
+const TurnRailNoticeRow = React.memo(({ notice }: { notice: ChatMessageEntry }) => {
+    const read = readExtensionNotice(notice);
+    if (!read) return null;
+    return <ExtensionNoticeRow messageId={notice.info.id} level={read.level} message={read.text} />;
+});
+
+TurnRailNoticeRow.displayName = 'TurnRailNoticeRow';
+
+const EMPTY_RAIL_NOTICES: ChatMessageEntry[] = [];
+
 const TurnActivityRail: React.FC<{
     turn: TurnRecord;
+    /** Notices placed in the rail by `partitionTurnNotices`, in arrival order. */
+    notices?: ChatMessageEntry[];
     isExpanded: boolean;
     isLiveTurn: boolean;
     activeStreamingMessageId?: string | null;
@@ -157,6 +173,7 @@ const TurnActivityRail: React.FC<{
     onContentChange?: (reason?: ContentChangeReason) => void;
 }> = ({
     turn,
+    notices = EMPTY_RAIL_NOTICES,
     isExpanded,
     isLiveTurn,
     activeStreamingMessageId,
@@ -184,6 +201,17 @@ const TurnActivityRail: React.FC<{
         () => getVisibleTurnActivity(activityParts, visibleToolCount),
         [activityParts, visibleToolCount],
     );
+
+    // Splitting over the visible rows keeps a notice older than the hidden
+    // "Load earlier" rows at the top of what shows instead of hiding it.
+    const noticeSplit = React.useMemo(() => {
+        if (notices.length === 0) return null;
+        const createdById = messageCreatedAtById(turn.assistantMessages);
+        return splitNoticesByAnchors(notices, visibleActivity.activities.map((activity) => ({
+            id: activity.id,
+            createdAt: createdById.get(activity.messageId),
+        })));
+    }, [notices, turn.assistantMessages, visibleActivity.activities]);
 
     const {
         effectiveExpandedTools,
@@ -305,6 +333,20 @@ const TurnActivityRail: React.FC<{
         notifyContentChange,
     ]);
 
+    // One flat keyed list: activity rows keep the keys they had without
+    // notices, and a notice keeps its key as later rows arrive, so neither
+    // remounts when a notice moves from the end to between two rows.
+    const activityRows: React.ReactNode[] = [];
+    for (const activity of visibleActivity.activities) {
+        noticeSplit?.beforeById.get(activity.id)?.forEach((notice) => {
+            activityRows.push(<TurnRailNoticeRow key={notice.info.id} notice={notice} />);
+        });
+        activityRows.push(renderActivity(activity));
+    }
+    noticeSplit?.trailing.forEach((notice) => {
+        activityRows.push(<TurnRailNoticeRow key={notice.info.id} notice={notice} />);
+    });
+
     return (
         <>
             <div className="chat-message-column">
@@ -345,7 +387,7 @@ const TurnActivityRail: React.FC<{
                                     </Button>
                                 ) : null}
                                 <div className="min-w-0 space-y-1" data-chat-activity-list="true">
-                                    {visibleActivity.activities.map(renderActivity)}
+                                    {activityRows}
                                 </div>
                             </div>
                         </div>

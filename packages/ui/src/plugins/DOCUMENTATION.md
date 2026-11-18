@@ -84,8 +84,15 @@ only shows it and sends choices.
   that started before a write is dropped. A failed write puts the one item
   back and reads the list again, because the server decides what was saved.
   Every write ages the other views, so they are read again when next shown.
-- Removing a package is not optimistic: the package stays listed until the
-  server says it is gone.
+- Package writes (`removePackage`, `installPackage`, `updatePackage`) are
+  not optimistic: the list changes when the server answers with the new
+  one, and a failure reads it again. An install is pending under
+  `installKey(name)` until then, so its buttons show progress anywhere the
+  name appears; remove and update are pending under the package id.
+  `installPackage(name, directory?)` installs for every project without a
+  directory and for that project with one (`pi install` and
+  `pi install -l`). npm runs on the server outside Pi's settings lock, so
+  an install can take minutes without blocking other writes.
 - A write's `deferred` answer means running sessions pick it up when idle;
   the page says so in a toast.
 - `useExtensionConfig(directory)` loads on mount and when the window becomes
@@ -94,7 +101,8 @@ only shows it and sends choices.
   `invalidate()`).
 - `components/sections/plugins/ExtensionsSection.tsx` draws it: Global and
   This project chips (only with a folder open), packages with their
-  extensions and a Remove action with a confirm dialog, extensions outside
+  version, extensions, Update, and a Remove action with a confirm dialog
+  (or an empty state that links to Browse), extensions outside
   packages, the project's own, and Pi's built-ins. The global view has a
   switch per extension. The project view has the same switch, showing
   whether the extension loads in this project. It sends only on or off
@@ -106,6 +114,39 @@ only shows it and sends choices.
   project only" or "Off in this project only" under its name. A
   package is removed from the view of the scope that lists it. A project Pi
   does not trust answers with the global list, shown without controls.
+
+### Marketplace
+
+Settings → Extensions & Plugins has a Browse button that opens the
+marketplace in place of the list (`MarketplaceView.tsx`); a row opens the
+package's page (`MarketplacePackagePage.tsx`); Install opens
+`InstallPackageDialog.tsx`, which says the package runs as code with Pi's
+access and asks where to load it. The server side is
+`packages/web/server/lib/marketplace/DOCUMENTATION.md`.
+
+- `marketplaceStore.ts` (`useMarketplaceStore`) holds the featured list,
+  search pages per `searchKey(query, pichamberOnly)`, package pages, and
+  `latest` (newest version per npm name, from any answer that carried one,
+  and from `loadVersions`). Answers stay fresh for 5 minutes. A failed first
+  search is `status: 'error'`, not empty; a failed further page keeps the
+  pages before it (`moreFailed`). A runtime switch clears it.
+- `marketplace.ts` holds the pure rules: `npmNameOf(pkg)`,
+  `installedByName` (a project's package wins over the same name globally),
+  `availableUpdate` (installed, unpinned npm packages whose version is
+  behind `latest`; never for git or local sources), and `matchingPlugins`.
+- PiChamber's own plugins never come back from the server's marketplace
+  routes. When a search word starts a word of a bundled plugin's name or
+  keywords, the search shows that plugin first, with its switch, under
+  Built into PiChamber.
+- Every Pi package works in PiChamber, so the mark is not about support: it
+  means enhanced for PiChamber: built with the plugin SDK. List rows mark it
+  by the author's `pichamber-plugin` keyword (the Enhanced for PiChamber filter);
+  the package page reads the manifest. An installed package whose
+  `package.json` has a `pichamber` block gets the Enhanced tag in the Pi
+  extensions list. It still runs as a plain Pi package.
+- A package shows once: in Pi extensions under Packages, with its version,
+  Update to X when one is out, and Remove. Its name opens its marketplace
+  page.
 
 ### An extension that takes a plugin's place
 
@@ -224,7 +265,7 @@ Native plugins add to slots; none replaces a built-in control.
 | `composer.toggles` | `components/chat/composer/ui/ComposerPluginToggles.tsx`. Desktop (stacked footer, not the mini-chat pill): a borderless pill per toggle after the model controls (a tinted fill when on, plain text when off, spaced like the model controls), icons only when the footer is narrow. Phones: one sliders button beside Send (the same whatever is on, plus a dot while the session differs from the defaults), opening a sheet with a switch per toggle that says it changes this session only; the model controls then shrink to fit (`useHasComposerToggles` turns off `keepLabels`) | Manifest `contributes.composerToggles`, each bound to one boolean state value (`composerToggles.ts` lists them). Changes the open session (or draft) only; the tooltip and sheet name the default when it differs. Optional: a plugin whose tool belongs in every session (Visuals) declares none. Drawn by the host; shown only while the plugin is on. The same slot then draws the open session's Pi extension controls (`extensionControls.ts`; declared with `pichamber:composer`, see the session daemon's `extension-controls.js`): a toggle pill like a plugin toggle, a cycle pill showing its option and moving to the next on click, an action pill; on phones, sheet rows (a switch, chips for every option, a Run button). A click shows its value until the extension reports it (or 8 seconds pass) and runs the extension's command through `piClient.runExtensionControl`. A new-session draft gets its own (see Draft sessions below). Desktop pills draw an icon only for names `icons.ts` knows, never a fallback; sheet rows are text only, plugin rows included, so they line up |
 | `turn.artifacts` | `components/chat/components/TurnPluginArtifacts.tsx`, between a turn's activity rail and its reply, so it stays visible when the rail collapses | `NativePluginUi.turnArtifacts` in `registry.ts`, keyed by tool name, loaded lazily |
 | `rail.surface` | A context panel surface (`lib/surfaces/registry.ts`, `ContextPanel.tsx`) | One per native plugin that needs it; desktop only |
-| `settings` | Settings → Extensions & Plugins, the Plugins section (`components/sections/plugins/PluginsPage.tsx`): a list with a switch per plugin (All/On/Off filters), and a page per plugin with what it adds to the agent, what it adds to PiChamber, its options, and About | Manifest `stateSchema` and `contributes.settings` (field order); `NativePluginUi.features` for the "In PiChamber" lines |
+| `settings` | Settings → Extensions & Plugins, the Native plugins section (`components/sections/plugins/PluginsPage.tsx`): a list with a switch per plugin (All/On/Off filters), and a page per plugin with what it adds to the agent, what it adds to PiChamber, its options, and About | Manifest `stateSchema` and `contributes.settings` (field order); `NativePluginUi.features` for the "In PiChamber" lines |
 
 Turn artifacts draw any finished call whose details have the plugin's shape,
 also after the plugin was turned off: the result is part of the session.
@@ -276,17 +317,32 @@ names a manifest may use and falls back to `puzzle` for any other.
   the click still counts as a user action, at most once a second
   (`canOpenLink`).
 - The variables are `--pc-bg`, `--pc-surface`, `--pc-fg`, `--pc-muted`,
-  `--pc-border`, `--pc-accent`, `--pc-font`, `--pc-mono`, `--pc-c1` to
-  `--pc-c5` (the theme's chart palette), and `--pc-good`/`--pc-warn`/`--pc-bad`
-  (status colours). The defaults style body text, headings, tables, buttons,
-  inputs, and code, so the agent writes only layout; the tool description
-  names them.
-- `VisualFrame.tsx` fits the frame to its page up to 560 px (or the call's
-  `height`), mounts it when it nears the viewport, and offers a Page/Code
-  switch, Copy HTML, Download (in a menu when the header is narrower than
-  28rem), and Expand (a full-window dialog with the same
-  switch). While the call streams, `VisualDrawing` shows the title and the
-  page's size instead of an empty frame.
+  `--pc-border`, `--pc-accent` (links and controls; near-black in some light
+  themes, so not for data), `--pc-radius`, `--pc-font`, `--pc-mono`,
+  `--pc-c1` to `--pc-c5` (the theme's chart palette: `--pc-c1` for a single
+  series, the rest for more series), `--pc-shade-1` to `--pc-shade-4`
+  (shades of `--pc-c1` mixed toward the background, strongest first, for
+  ordered values), and
+  `--pc-good`/`--pc-warn`/`--pc-bad` (status colours). The defaults put the
+  page on the chat background with an 8 px gutter on `html` (room for focus
+  rings and shadows; scrollbar hidden), style body text, headings (16 px at
+  most), tables, buttons, inputs, and code, and give `svg` a 12 px size and
+  the muted fill (unless the `svg` sets its own, like an icon's
+  `fill="none"`), which its text inherits unless the text, a group, or a
+  page rule sets its own, so the agent writes only layout. The tool description names the variables and sets the layout,
+  text-size, and colour rules (no outer card or title banner, one colour per
+  series in `--pc-c1`, at most three series hues).
+- `VisualFrame.tsx` draws the page without a frame of its own: no border,
+  header, or title bar, so it reads as part of the reply; the title names
+  the iframe, the expanded view, and the download. It fits the frame to its
+  page up to 560 px (or the call's `height`) and mounts it when it nears the
+  viewport. More (Copy HTML, Download page) and Expand sit at its top right,
+  shown on hover or focus; on touch screens they sit in a row under the page
+  so they never cover it. Expand opens a
+  full-window dialog with the Page/Code switch, Copy, and Download. While
+  the call streams, `PageDrawing` shows one muted line with the title and
+  the page's size. `render_choices` keeps its framed look and
+  `VisualDrawing` placeholder.
 
 - `render_choices` calls draw one variant at a time at the chat's full width
   (`ChoicesArtifact.tsx`, parsing in `choices.ts`): a row of buttons, one per

@@ -21,6 +21,7 @@ import { DiffIcon } from '@/components/icons/DiffIcon';
 import { useUIStore, type MainTab } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useGlobalSessionStatus, useSession, useSessionMessages } from '@/sync/sync-context';
+import { SessionSandboxMark } from '@/components/session/SessionSandboxMark';
 import { useSync } from '@/sync/use-sync';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore as useDirectoryMetadataStore } from '@/stores/useDirectoryStore';
@@ -1212,9 +1213,12 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </form>
               ) : (
-                <span className="min-w-0 truncate typography-ui-label font-normal leading-tight text-foreground">
-                  {isNewSessionDraftOpen ? "New session" : currentSessionTitle}
-                </span>
+                <>
+                  <span className="min-w-0 truncate typography-ui-label font-normal leading-tight text-foreground">
+                    {isNewSessionDraftOpen ? "New session" : currentSessionTitle}
+                  </span>
+                  {currentSessionId && !isNewSessionDraftOpen ? <SessionSandboxMark sessionId={currentSessionId} /> : null}
+                </>
               )}
               {showHeaderMetaRow ? (
                 <>

@@ -34,6 +34,9 @@ Environment:
   THEME      light or dark (default: light)
   DEMO_SITE_PORT  Port of the demo site the browser-page and browser-downloads pages load (default: 4777);
              if it cannot start, that page fails and the others still capture
+  DEMO_NPM_PORT   Port of the demo npm registry the marketplace pages read (default: 4778); start the
+             dev server with PICHAMBER_NPM_REGISTRY_URL and PICHAMBER_NPM_DOWNLOADS_URL set to
+             http://127.0.0.1:<port> and PICHAMBER_FEATURED_URL=off
 
 Pages: ${'%PAGES%'}`;
 
@@ -55,6 +58,82 @@ const DEMO_REPLY = 'autosave default changed to true';
 // A stand-in for a project's dev server, served by this script on a fixed
 // port while browser pages are captured.
 const DEMO_SITE_PORT = Number(process.env.DEMO_SITE_PORT || 4777);
+
+// A stand-in for npm's public registry, so the marketplace pages never reach
+// npm and always show the same packages. Every name is made up.
+const DEMO_NPM_PORT = Number(process.env.DEMO_NPM_PORT || 4778);
+const demoNpmPackage = (name, version, description, keywords, extra = {}) => ({
+  name,
+  version,
+  description,
+  keywords: ['pi-package', ...keywords],
+  date: '2026-11-02T10:00:00.000Z',
+  license: 'MIT',
+  maintainers: [{ username: extra.maintainer ?? 'demo-dev' }],
+  links: { repository: `https://github.com/demo-dev/${name.replace(/^@[^/]+\//, '')}` },
+  pi: extra.pi ?? { extensions: ['./index.ts'] },
+  ...(extra.pichamber ? { pichamber: { apiVersion: 1 } } : {}),
+  downloads: extra.downloads ?? 120,
+});
+const DEMO_NPM_PACKAGES = [
+  demoNpmPackage('pi-web-reader', '2.4.1', 'Search the web and read pages as clean markdown, with citations the agent can quote.', ['web', 'search', 'fetch'], { downloads: 18_400, maintainer: 'lena-k' }),
+  demoNpmPackage('@acme/pi-review-gate', '1.3.0', 'Ask before risky shell commands, with a review panel in PiChamber and a prompt in the terminal.', ['pichamber-plugin', 'review', 'permissions', 'safety'], { downloads: 2_150, maintainer: 'acme-tools', pichamber: true }),
+  demoNpmPackage('pi-todo-board', '0.9.3', 'A todo list the agent keeps up to date as it works, with a /todos command.', ['todo', 'tasks', 'planning'], { downloads: 7_830, maintainer: 'mo-ellis' }),
+  demoNpmPackage('pi-lint-lens', '1.1.0', 'Runs your linters after each edit and hands the agent the errors it introduced.', ['lint', 'eslint', 'diagnostics'], { downloads: 5_020, pi: { extensions: ['./index.ts'], skills: ['./skills'] } }),
+  demoNpmPackage('pi-team-agents', '0.4.2', 'Send tasks to parallel subagents with their own models and context.', ['subagent', 'agents', 'parallel'], { downloads: 1_260, maintainer: 'quill-labs' }),
+  demoNpmPackage('pi-commit-coach', '3.0.0', 'Writes commit messages from the staged diff in your project\'s style.', ['git', 'commit'], { downloads: 940 }),
+  demoNpmPackage('@acme/pi-theme-dusk', '1.0.2', 'A low-contrast dark theme for Pi in the terminal.', ['theme'], { downloads: 310, maintainer: 'acme-tools', pi: { themes: ['./themes'] } }),
+];
+const DEMO_FEATURED = {
+  version: 1,
+  // Newer than any built-in list, so the seeded cache is the one shown.
+  updated: '2099-01-01',
+  featured: [
+    { name: 'pi-web-reader', note: 'Gives the agent the web, with sources.' },
+    { name: '@acme/pi-review-gate', note: 'Review risky commands before they run.' },
+    { name: 'pi-todo-board' },
+  ],
+  hidden: [],
+};
+
+// npm's search, latest-manifest, and weekly-downloads endpoints over the
+// packages above. Search keeps packages with the asked keyword and puts the
+// ones that match the text first, as npm does.
+const serveDemoNpm = (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  const send = (status, body) => {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  const strip = ({ downloads, ...pkg }) => pkg;
+  if (url.pathname === '/-/v1/search') {
+    const text = url.searchParams.get('text') ?? '';
+    const keywords = [...text.matchAll(/keywords:(\S+)/g)].map((match) => match[1]);
+    const words = text.replace(/keywords:\S+/g, ' ').toLowerCase().split(/\s+/).filter(Boolean);
+    const haystack = (pkg) => [pkg.name, pkg.description, ...pkg.keywords].join(' ').toLowerCase();
+    const listed = DEMO_NPM_PACKAGES
+      .filter((pkg) => keywords.every((keyword) => pkg.keywords.includes(keyword)))
+      .map((pkg) => ({ pkg, hit: words.length === 0 || words.some((word) => haystack(pkg).includes(word)) }))
+      .sort((a, b) => Number(b.hit) - Number(a.hit) || b.pkg.downloads - a.pkg.downloads);
+    const from = Number(url.searchParams.get('from') ?? 0);
+    const size = Number(url.searchParams.get('size') ?? 20);
+    return send(200, {
+      total: listed.length,
+      objects: listed.slice(from, from + size).map(({ pkg }) => ({ package: strip(pkg), downloads: { weekly: pkg.downloads } })),
+    });
+  }
+  const downloads = url.pathname.match(/^\/downloads\/point\/last-week\/(.+)$/);
+  if (downloads) {
+    const pkg = DEMO_NPM_PACKAGES.find((entry) => entry.name === decodeURIComponent(downloads[1]));
+    return pkg ? send(200, { downloads: pkg.downloads, package: pkg.name }) : send(404, { error: 'not found' });
+  }
+  const latest = url.pathname.match(/^\/(.+)\/latest$/);
+  if (latest) {
+    const pkg = DEMO_NPM_PACKAGES.find((entry) => entry.name === decodeURIComponent(latest[1]));
+    return pkg ? send(200, strip(pkg)) : send(404, { error: 'not found' });
+  }
+  return send(404, { error: 'not found' });
+};
 const DEMO_SITE_TITLE = 'Acme dashboard';
 const DEMO_SITE_HTML = `<!doctype html><html><head><title>${DEMO_SITE_TITLE}</title>
 <style>body{margin:0;font:15px system-ui,sans-serif;color:#1f2933;background:#f5f7fa}
@@ -91,7 +170,7 @@ const VISUALS_HTML = `<style>
 .bar b{font-size:11px;font-weight:500;color:var(--pc-muted);font-variant-numeric:tabular-nums}
 .days{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;text-align:center;font-size:11px;color:var(--pc-muted)}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.stat{border:1px solid var(--pc-border);border-radius:10px;padding:10px 12px}
+.stat{border:1px solid var(--pc-border);border-radius:var(--pc-radius);padding:12px}
 .stat div{font-size:11px;color:var(--pc-muted)}
 .stat strong{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
 </style>
@@ -123,6 +202,25 @@ const CHOICES_PROMPT = 'Mock up three headers for the pricing page.';
 const CHOICES_TITLE = 'Which pricing header?';
 const CHOICES_REPLY = 'Going with the split header.';
 const CHOICES_NOTE = 'Keep the yearly toggle from A.';
+// The same session's scripted model answers this prompt with three
+// run_check tool rounds; the extension raises a notice as each check passes,
+// and the last check keeps running so the capture shows the turn mid-way.
+const NOTICES_PROMPT = 'Run the release checks.';
+const NOTICES_CHECKS = [
+  { name: 'lint', ms: 300, notice: 'lint passed: 0 warnings' },
+  { name: 'unit tests', ms: 300, notice: 'unit tests passed: 214 of 214' },
+  { name: 'e2e', ms: 120_000, notice: 'e2e passed' },
+];
+// The same scripted model answers this prompt at once; its extension raises
+// a notice shortly after the turn ends, while nothing runs.
+const IDLE_PROMPT = 'Start the nightly backup.';
+const IDLE_REPLY = 'Started the nightly backup. I will report when it finishes.';
+const IDLE_NOTICE = 'Nightly backup finished: 3 projects, 0 errors';
+const NOTICES_RUNNING = `(() => {
+  const text = document.body?.innerText ?? '';
+  return ${JSON.stringify(NOTICES_CHECKS.slice(0, 2).map((check) => check.notice))}.every((t) => text.includes(t))
+    && Boolean(document.querySelector('button[aria-label="Stop generating"]'));
+})()`;
 const choicePage = (body) => `<style>
 .h{display:grid;gap:10px}
 .h h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-0.01em}
@@ -735,6 +833,77 @@ const PAGES = {
     })()`,
     idleRequestPrefix: '/api/fs/project-icon',
   },
+  'settings-sandboxing': {
+    // Projects settings scrolled to Sandboxing: whether nono can run on the
+    // server machine (a reason when it cannot) and Check again; the seeded
+    // Night Shift card is labelled as sandboxed or unavailable.
+    path: '/?settings=projects',
+    readyText: ['Acme Web', 'Night Shift'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="projects.sandboxing"]');
+      if (!section || !section.innerText.includes('Check again')) return false;
+      const grid = document.querySelector('[data-settings-item="projects.browse"]');
+      if (!grid || !/Sandbox/.test(grid.innerText)) return false;
+      section.scrollIntoView({ block: 'end' });
+      return true;
+    })()`,
+  },
+  'settings-project': {
+    // The seeded Night Shift project's settings page from the top: name,
+    // default model, actions and the start of its Sandbox section.
+    path: '/?settings=projects',
+    readyText: ['Night Shift'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="projects.sandbox"]');
+      if (!section) {
+        document.querySelector('button[aria-label^="Night Shift project"]')?.click();
+        return false;
+      }
+      return section.innerText.includes('Default');
+    })()`,
+  },
+  'settings-project-sandbox': {
+    // The seeded Night Shift project's Sandbox section: nono with an allowed
+    // host, a local port and an extra folder, or why it cannot run.
+    path: '/?settings=projects',
+    readyText: ['Night Shift'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="projects.sandbox"]');
+      if (!section) {
+        document.querySelector('button[aria-label^="Night Shift project"]')?.click();
+        return false;
+      }
+      if (!section.innerText.includes('Allowed hosts')) return false;
+      section.scrollIntoView({ block: 'start' });
+      return true;
+    })()`,
+  },
+  'session-sandboxed': {
+    // A session in the sandboxed Night Shift project: the chat header and its
+    // sidebar row show a lock named Sandboxed. Its transcript shows even when the sandbox
+    // cannot run (read from disk), so wait for the message bubble too.
+    path: `/?session=${SHELF_SESSIONS[1].id}`,
+    readyText: [SHELF_SESSIONS[1].title],
+    settledScript: `(() => {
+      const text = document.body.innerText;
+      return document.querySelector('[role="img"][aria-label="Sandboxed"]') && text.split(${JSON.stringify(SHELF_SESSIONS[1].title)}).length > 3;
+    })()`,
+  },
+  'terminal-sandboxed': {
+    // The terminal beside a sandboxed session says it runs outside the sandbox.
+    path: `/?session=${SHELF_SESSIONS[1].id}`,
+    readyText: [SHELF_SESSIONS[1].title],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      if (document.body.innerText.includes('runs outside the sandbox')) return true;
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label^="Terminal"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') control?.click();
+      return false;
+    })()`,
+  },
   'settings-archive': {
     // Sessions settings scrolled to Archive and delete: the two day settings
     // and the suggestion that shows while auto-archive is off.
@@ -787,8 +956,145 @@ const PAGES = {
     // plugin with its switch and what it adds to the agent, then the start of
     // Pi's extensions.
     path: '/?settings=plugins',
-    readyText: ['Visuals', 'Sub-agents', 'Built in'],
+    readyText: ['Visuals', 'Sub-agents', 'Native'],
     viewports: ['desktop'],
+  },
+  'settings-marketplace': {
+    // Browse from the Extensions & Plugins header: the featured picks, then
+    // popular Pi packages, from the demo npm registry.
+    path: '/?settings=plugins',
+    readyText: ['Visuals'],
+    demoNpm: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      if (!document.body.innerText.includes('Popular')) {
+        if (!window.__browseAsked) {
+          window.__browseAsked = true;
+          document.querySelector('[data-settings-item="plugins.browse"]')?.click();
+        }
+        return false;
+      }
+      return ['Featured', 'pi-web-reader', 'pi-commit-coach'].every((t) => document.body.innerText.includes(t));
+    })()`,
+  },
+  'settings-marketplace-search': {
+    // A search for "subagent": Sub-agents ships with PiChamber, so it shows
+    // first with its switch, above the npm results.
+    path: '/?settings=plugins',
+    readyText: ['Visuals'],
+    demoNpm: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const input = document.querySelector('input[aria-label="Search Pi packages"]');
+      if (!input) {
+        if (!window.__browseAsked) {
+          window.__browseAsked = true;
+          document.querySelector('[data-settings-item="plugins.browse"]')?.click();
+        }
+        return false;
+      }
+      if (input.value !== 'subagent') {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'subagent');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return false;
+      }
+      return ['Built into PiChamber', 'pi-team-agents'].every((t) => document.body.innerText.includes(t));
+    })()`,
+  },
+  'settings-marketplace-package': {
+    // A package's page, opened from its name under Packages: the seeded
+    // npm package, enhanced for PiChamber and one release behind, with
+    // Update, what it adds, About, and Links.
+    path: '/?settings=plugins',
+    readyText: ['Visuals'],
+    demoNpm: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      if (document.body.innerText.includes('What it adds to Pi')) {
+        return ['Maintainer', 'acme-tools', 'Source code'].every((t) => document.body.innerText.includes(t));
+      }
+      const open = document.querySelector('button[aria-label="@acme/pi-review-gate details"]');
+      if (open) {
+        if (!window.__packageAsked) {
+          window.__packageAsked = true;
+          open.click();
+        }
+        return false;
+      }
+      if (!window.__browseAsked) {
+        window.__browseAsked = true;
+        document.querySelector('[data-settings-item="plugins.browse"]')?.click();
+      }
+      return false;
+    })()`,
+  },
+  'settings-marketplace-mobile': {
+    // Browse on a phone, searching "subagent": reached from the composer
+    // sheet's Plugin settings, since a phone has no settings link to open.
+    path: VISUALS_SESSION_PATH,
+    readyText: [VISUALS_REPLY],
+    viewports: ['mobile'],
+    demoNpm: true,
+    settledScript: `(() => {
+      const input = document.querySelector('input[aria-label="Search Pi packages"]');
+      if (input) {
+        if (input.value !== 'subagent') {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'subagent');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.blur();
+          return false;
+        }
+        return ['Built into PiChamber', 'pi-team-agents'].every((t) => document.body.innerText.includes(t));
+      }
+      const browse = document.querySelector('[data-settings-item="plugins.browse"]');
+      if (browse) {
+        if (!window.__browseAsked) {
+          window.__browseAsked = true;
+          browse.click();
+        }
+        return false;
+      }
+      // One press each: the sheet's button, then its settings link.
+      const link = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Plugin settings');
+      if (link && !window.__settingsAsked) {
+        window.__settingsAsked = true;
+        link.click();
+      } else if (!link && !window.__sheetAsked) {
+        window.__sheetAsked = true;
+        document.querySelector('button[aria-label^="Composer controls"]')?.click();
+      }
+      return false;
+    })()`,
+  },
+  'settings-marketplace-install': {
+    // Install on a package page: the dialog says what installing means and
+    // asks where to load it. Nothing is installed.
+    path: '/?settings=plugins',
+    readyText: ['Visuals'],
+    demoNpm: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      // The settings window is a dialog too: wait for the install one's title.
+      if (document.body.innerText.includes('Install pi-web-reader?')) return true;
+      const install = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Install'
+        && document.body.innerText.includes('What it adds to Pi'));
+      if (install) {
+        if (!window.__installAsked) {
+          window.__installAsked = true;
+          install.click();
+        }
+        return false;
+      }
+      const open = document.querySelector('button[aria-label="pi-web-reader details"]');
+      if (open && !window.__packageAsked) {
+        window.__packageAsked = true;
+        open.click();
+      } else if (!open && !window.__browseAsked) {
+        window.__browseAsked = true;
+        document.querySelector('[data-settings-item="plugins.browse"]')?.click();
+      }
+      return false;
+    })()`,
   },
   'settings-extensions': {
     // The same page at Pi extensions, Global: the seed's local package with
@@ -821,7 +1127,7 @@ const PAGES = {
     // Pi extensions on a phone, This project: reached from the composer
     // sheet's Plugin settings, since a phone has no settings link to open.
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     viewports: ['mobile'],
     settledScript: `(() => {
       const section = document.querySelector('[data-settings-item="plugins.extensions"]');
@@ -878,15 +1184,32 @@ const PAGES = {
     viewports: ['desktop'],
   },
   'visuals-page': {
-    // A render_html page drawn in its frame under the turn's activity, with
-    // the Sub-agents composer toggle below (Visuals has none).
+    // A render_html page drawn in the reply column under the turn's
+    // activity, with no frame of its own, and the Sub-agents composer toggle
+    // below (Visuals has none).
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     // The page has drawn and the frame has fitted to it.
     settledScript: `(() => {
       const frame = document.querySelector('[data-plugin-artifact="visuals"] iframe');
       return Boolean(frame) && frame.getBoundingClientRect().height > 0 && frame.getBoundingClientRect().height !== 240;
     })()`,
+  },
+  'visuals-page-hover': {
+    // The same page with the pointer on it: its More and Expand buttons show
+    // at its top right (on touch screens they sit under the page). Desktop only.
+    path: VISUALS_SESSION_PATH,
+    readyText: [VISUALS_REPLY],
+    settledScript: `(() => {
+      const frame = document.querySelector('[data-plugin-artifact="visuals"] iframe');
+      return Boolean(frame) && frame.getBoundingClientRect().height > 0 && frame.getBoundingClientRect().height !== 240;
+    })()`,
+    hoverScript: `(() => {
+      // Rest on the buttons' corner of the page.
+      const rect = document.querySelector('[data-plugin-artifact="visuals"] [aria-label="Expand page"]')?.getBoundingClientRect();
+      return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+    })()`,
+    viewports: ['desktop'],
   },
   'visuals-choices': {
     // An answered render_choices call: one variant at a time at full width,
@@ -919,11 +1242,49 @@ const PAGES = {
     settledScript: CHOICES_SWITCHED,
     dismissAfter: '[data-plugin-artifact="visuals-choices"] figcaption button',
   },
+  'notices-mid-turn': {
+    // Notices raised between tool rounds of a running turn (Acme Web's
+    // scripted model and run_check tool): each sits where it arrived, with
+    // later rounds below it. Notices are live-only, so a reload drops them:
+    // each viewport is its own page and stops its turn when done, which adds
+    // a turn to the session. Desktop only.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [NOTICES_PROMPT],
+    submitComposer: true,
+    settledScript: NOTICES_RUNNING,
+    dismissAfter: 'button[aria-label="Stop generating"]',
+    viewports: ['desktop'],
+  },
+  'notices-idle': {
+    // A notice raised after the turn ended (Acme Web's scripted model and
+    // extension): its own row below the finished turn. Each capture adds a
+    // turn to the session.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [IDLE_PROMPT],
+    submitComposer: true,
+    settledScript: `(() => {
+      const text = document.body?.innerText ?? '';
+      return text.includes(${JSON.stringify(IDLE_NOTICE)}) && text.includes(${JSON.stringify(IDLE_REPLY)})
+        && !document.querySelector('button[aria-label="Stop generating"]');
+    })()`,
+  },
+  'notices-mid-turn-mobile': {
+    // The same on a phone, mobile only.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [NOTICES_PROMPT],
+    submitComposer: true,
+    settledScript: NOTICES_RUNNING,
+    dismissAfter: 'button[aria-label="Stop generating"]',
+    viewports: ['mobile'],
+  },
   'composer-plugin-sheet': {
     // Phones: the plugin button beside Send pressed, opening the sheet with a
     // switch per composer toggle (only Sub-agents declares one).
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
+    readyText: [VISUALS_REPLY],
     expandSelector: 'button[aria-label^="Composer controls"]',
     settledScript: `document.body.innerText.includes('Plugin settings')`,
     viewports: ['mobile'],
@@ -957,8 +1318,9 @@ const PAGES = {
   'visuals-expanded': {
     // The same page opened full window from its Expand action.
     path: VISUALS_SESSION_PATH,
-    readyText: [VISUALS_TITLE, VISUALS_REPLY],
-    expandSelector: '[data-plugin-artifact="visuals"] [aria-label="Expand page"]',
+    readyText: [VISUALS_REPLY],
+    // Pressed until it exists: the reply can show before the page does.
+    openSelector: '[data-plugin-artifact="visuals"] [aria-label="Expand page"]',
     settledScript: `Boolean(document.querySelector('[role="dialog"] iframe'))`,
     viewports: ['desktop'],
   },
@@ -1365,6 +1727,11 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
         for (const type of ['keyDown', 'keyUp']) {
           await client.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
         }
+        // A phone composer takes Enter as a new line; send with its button.
+        if (viewport.mobile) {
+          await wait(300);
+          await client.evaluate(`document.querySelector('button[aria-label="Send message"]')?.click()`);
+        }
         if (page.settledScript) await waitForSettled(client, page, network, `${pageName} settled after send`);
       }
     }
@@ -1429,8 +1796,32 @@ const PROJECT_SUBAGENT_EXTENSION = `export default function (pi) {
 const PROJECT_SCRIPTED_MODEL_EXTENSION = `import { fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
 
 const CALL = ${JSON.stringify({ title: CHOICES_TITLE, options: CHOICES_OPTIONS })};
+const CHECKS = ${JSON.stringify(NOTICES_CHECKS)};
+const textOf = (message) => (typeof message.content === 'string'
+  ? message.content
+  : (message.content ?? []).map((part) => part.text ?? '').join(''));
 
 export default function (pi) {
+  pi.on('agent_end', async (event, ctx) => {
+    const prompt = (event.messages ?? []).find((message) => message.role === 'user');
+    if (!prompt || !textOf(prompt).includes(${JSON.stringify(IDLE_PROMPT)})) return;
+    setTimeout(() => ctx.ui.notify(${JSON.stringify(IDLE_NOTICE)}, 'info'), 1500);
+  });
+  pi.registerTool({
+    name: 'run_check',
+    label: 'Run check',
+    description: 'Run one release check.',
+    parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+    execute: async (toolCallId, params, signal, onUpdate, ctx) => {
+      const check = CHECKS.find((candidate) => candidate.name === params.name) ?? CHECKS[0];
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, check.ms);
+        signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
+      if (!signal?.aborted) ctx.ui.notify(check.notice, 'info');
+      return { content: [{ type: 'text', text: check.notice }], details: {} };
+    },
+  });
   const faux = fauxProvider({
     provider: 'demo',
     models: [{ id: 'demo-model', name: 'Demo Model', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 8192 }],
@@ -1438,6 +1829,17 @@ export default function (pi) {
   });
   const respond = (context) => {
     const last = context.messages.at(-1);
+    const userIndex = context.messages.findLastIndex((message) => message.role === 'user');
+    if (userIndex >= 0 && textOf(context.messages[userIndex]).includes(${JSON.stringify(NOTICES_PROMPT)})) {
+      const done = context.messages.slice(userIndex).filter((message) => message.role === 'toolResult').length;
+      if (done < CHECKS.length) {
+        return fauxAssistantMessage([fauxToolCall('run_check', { name: CHECKS[done].name })], { stopReason: 'toolUse' });
+      }
+      return fauxAssistantMessage('All release checks passed.');
+    }
+    if (userIndex >= 0 && textOf(context.messages[userIndex]).includes(${JSON.stringify(IDLE_PROMPT)})) {
+      return fauxAssistantMessage(${JSON.stringify(IDLE_REPLY)});
+    }
     if (last?.role !== 'toolResult') {
       return fauxAssistantMessage([fauxToolCall('render_choices', CALL)], { stopReason: 'toolUse' });
     }
@@ -1461,8 +1863,21 @@ const writeDemoPackage = async (home) => {
   for (const name of ['checklist.ts', 'release-notes.ts']) {
     await writeFile(join(root, 'extensions', name), 'export default function () {}\n');
   }
+  // An npm package one release behind the demo registry, as if `pi install`
+  // had put it in Pi's npm folder: Packages shows it with Update to 1.3.0 and
+  // the Enhanced tag. Its extension does nothing.
+  const gate = join(home, '.pi', 'agent', 'npm', 'node_modules', '@acme', 'pi-review-gate');
+  await mkdir(gate, { recursive: true });
+  await writeFile(join(gate, 'package.json'), `${JSON.stringify({
+    name: '@acme/pi-review-gate', version: '1.2.0', keywords: ['pi-package', 'pichamber-plugin'],
+    pi: { extensions: ['./index.ts'] }, pichamber: { apiVersion: 1 },
+  }, null, 2)}\n`);
+  await writeFile(join(gate, 'index.ts'), 'export default function () {}\n');
   await writeFile(join(home, '.pi', 'agent', 'settings.json'), `${JSON.stringify({
-    packages: [{ source: '../../.pi-packages/review-kit', extensions: ['-extensions/release-notes.ts'] }],
+    packages: [
+      'npm:@acme/pi-review-gate',
+      { source: '../../.pi-packages/review-kit', extensions: ['-extensions/release-notes.ts'] },
+    ],
   }, null, 2)}\n`);
 };
 
@@ -1868,12 +2283,20 @@ const seed = async (dir) => {
       { id, path: repo, label: 'demo-repo' },
       ...extraFolders.map((folder) => {
         const path = join(folders, folder.name);
-        return { id: projectId(path), path, label: folder.label };
+        // Night Shift is sandboxed with nono (settings-sandboxing,
+        // settings-project-sandbox, session-sandboxed, terminal-sandboxed).
+        const sandbox = folder.name === 'night-shift'
+          ? { mode: 'nono', allowHosts: ['registry.npmjs.org'], allowLocalPorts: [8080], extraFolders: [{ path: join(home, 'code', 'design-notes'), access: 'read' }] }
+          : undefined;
+        return { id: projectId(path), path, label: folder.label, ...(sandbox ? { sandbox } : {}) };
       }),
     ],
     activeProjectId: id,
     lastDirectory: repo,
   }, null, 2)}\n`);
+  // The marketplace's featured list, as if just fetched from the repository.
+  await mkdir(join(data, 'pi'), { recursive: true });
+  await writeFile(join(data, 'pi', 'featured.json'), JSON.stringify({ fetchedAt: Date.now(), list: DEMO_FEATURED }));
   await writeDemoSession(home, repo);
   await writeDemoExtension(home);
   await writePluginSessions(home, data, repo);
@@ -1882,7 +2305,9 @@ const seed = async (dir) => {
   for (const name of ['api-gateway', 'design-notes', 'sandbox']) {
     await mkdir(join(home, 'code', name), { recursive: true });
   }
-  console.log(`Seeded ${repo}\nStart the dev server with HOME=${home} PICHAMBER_DATA_DIR=${data}`);
+  console.log(`Seeded ${repo}\nStart the dev server with HOME=${home} PICHAMBER_DATA_DIR=${data}`
+    + `\nFor the marketplace pages add PICHAMBER_NPM_REGISTRY_URL=http://127.0.0.1:${DEMO_NPM_PORT}`
+    + ` PICHAMBER_NPM_DOWNLOADS_URL=http://127.0.0.1:${DEMO_NPM_PORT} PICHAMBER_FEATURED_URL=off`);
 };
 
 const main = async () => {
@@ -1919,6 +2344,7 @@ const main = async () => {
 
   let client;
   let demoSite;
+  let demoNpm;
   const failed = [];
   try {
     let target;
@@ -1953,7 +2379,26 @@ const main = async () => {
       }
     }
 
+    let demoNpmError = null;
+    if (pageNames.some((name) => PAGES[name].demoNpm)) {
+      demoNpm = createHttpServer(serveDemoNpm);
+      try {
+        await new Promise((resolveListen, reject) => {
+          demoNpm.once('error', reject);
+          demoNpm.listen(DEMO_NPM_PORT, '127.0.0.1', resolveListen);
+        });
+      } catch (error) {
+        demoNpm = null;
+        demoNpmError = `the demo npm registry could not start on port ${DEMO_NPM_PORT} (${error instanceof Error ? error.message : error}); set DEMO_NPM_PORT to a free port`;
+      }
+    }
+
     for (const name of pageNames) {
+      if (PAGES[name].demoNpm && demoNpmError) {
+        console.error(`${name}: ${demoNpmError}`);
+        failed.push(name);
+        continue;
+      }
       if (PAGES[name].browserAddress && demoSiteError) {
         console.error(`${name}: ${demoSiteError}`);
         failed.push(name);
@@ -1971,6 +2416,7 @@ const main = async () => {
     // The server browser keeps its page, and so its connection, open.
     demoSite?.closeAllConnections();
     demoSite?.close();
+    demoNpm?.close();
     chrome.kill('SIGTERM');
     await rm(profileDir, { recursive: true, force: true }).catch(() => {});
   }
