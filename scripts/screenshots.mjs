@@ -1337,15 +1337,15 @@ const PAGES = {
     viewports: ['desktop'],
   }])),
   'settings-wallpaper': {
-    // Appearance at Wallpaper: a preview tile per pattern, the Picture tile
-    // asking for one, and the picture and motion rows under them.
+    // Appearance at Wallpaper: a preview tile per pattern, and the picture
+    // and motion rows under them; the seed has no picture, so only Choose works.
     path: '/?settings=appearance',
     readyText: ['Moving wallpaper'],
     draftWallpaper: 'halftone',
     viewports: ['desktop'],
     settledScript: `(() => {
       const group = document.querySelector('[data-settings-item="appearance.wallpaper"]');
-      if (!group || group.querySelectorAll('canvas').length < 6) return false;
+      if (!group || group.querySelectorAll('canvas').length < 5) return false;
       group.scrollIntoView({ block: 'start' });
       return true;
     })()`,
@@ -1678,6 +1678,7 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
     body: JSON.stringify({
       sidebarViewMode: page.sidebarViewMode ?? 'workspace',
       draftWallpaper: page.draftWallpaper ?? 'none',
+      draftWallpaperPicture: false,
       // Kept still so each capture shows the same frame.
       draftWallpaperMotion: false,
     }),

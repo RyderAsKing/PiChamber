@@ -273,8 +273,8 @@ commands, one failing: its `Worked for` line with the counts and `1 error`);
 screen with each pattern, set through the `draftWallpaper` UI setting and
 held still through `draftWallpaperMotion`, desktop only; pages without one
 reset it to None); `settings-wallpaper` (Appearance at Wallpaper: a preview
-tile per pattern, the Picture tile, and the picture and motion rows; the
-seed has no picture, so the Picture tile asks for one, desktop only);
+tile per pattern, and the picture and motion rows; the seed has no
+picture, so only its Choose button works, desktop only);
 `subagents-turn` (a finished scout-then-reviewer chain, a card per run);
 `subagents-run` (the reviewer's card pressed: the run on its own, in the
 Agents panel on desktop and a sheet on phones); and `subagents-panel` (the

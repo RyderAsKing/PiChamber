@@ -71,15 +71,15 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'appearance.wallpaper-picture',
     page: 'appearance',
     title: "Wallpaper picture",
-    description: "Upload a picture and show it as a photo, dither or ASCII.",
-    keywords: ['image', 'photo', 'upload', 'background', 'wallpaper', 'custom'],
+    description: "Upload a picture to show behind the pattern, which takes its colours.",
+    keywords: ['image', 'photo', 'upload', 'background', 'wallpaper', 'custom', 'show behind the pattern'],
   },
   {
     id: 'appearance.wallpaper-motion',
     page: 'appearance',
     title: "Moving wallpaper",
     description: "The wallpaper's pattern drifts slowly.",
-    keywords: ['animate', 'animation', 'motion', 'wallpaper', 'dither', 'ascii'],
+    keywords: ['animate', 'animation', 'motion', 'wallpaper', 'dither', 'ascii', 'halftone', 'strands'],
   },
   {
     id: 'appearance.dock-badge',

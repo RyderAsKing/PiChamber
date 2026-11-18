@@ -6,11 +6,13 @@ import {
   bayerThreshold,
   createWallpaperField,
   fillWallpaper,
+  fillPictureWallpaper,
   fillWallpaperHeight,
+  followsPictureShape,
   isWallpaper,
-  isWallpaperImageStyle,
   isWallpaperImageVersion,
   pictureDensity,
+  wallpaperFade,
   wallpaperCanMove,
   sampleWallpaper,
   wallpaperDensity,
@@ -18,24 +20,23 @@ import {
 
 describe('wallpaper', () => {
   test('accepts only the known wallpapers, picture styles and versions', () => {
-    expect(['none', 'dither', 'ascii', 'halftone', 'strands', 'grain', 'image'].every(isWallpaper)).toBe(true);
+    expect(['none', 'dither', 'ascii', 'halftone', 'strands', 'grain'].every(isWallpaper)).toBe(true);
+    // The picture is a layer under any pattern now, not a wallpaper of its own.
+    expect(isWallpaper('image')).toBe(false);
     expect(isWallpaper('stars')).toBe(false);
     // Contours was tried and removed; a saved value falls back to the default.
     expect(isWallpaper('contours')).toBe(false);
     expect(isWallpaper(undefined)).toBe(false);
-    expect(['photo', 'dither', 'ascii'].every(isWallpaperImageStyle)).toBe(true);
-    expect(isWallpaperImageStyle('halftone')).toBe(false);
     expect(isWallpaperImageVersion('0123456789abcdef')).toBe(true);
     expect(isWallpaperImageVersion('0123456789ABCDEF')).toBe(false);
     expect(isWallpaperImageVersion('../etc/passwd')).toBe(false);
     expect(isWallpaperImageVersion(null)).toBe(false);
   });
 
-  test('only patterns move; grain and pictures hold still', () => {
+  test('only patterns move; grain holds still', () => {
     expect(['dither', 'ascii', 'halftone', 'strands'].every((w) => wallpaperCanMove(w as never))).toBe(true);
     expect(wallpaperCanMove('none')).toBe(false);
     expect(wallpaperCanMove('grain')).toBe(false);
-    expect(wallpaperCanMove('image')).toBe(false);
   });
 
   test('the Bayer thresholds cover (0, 1) once each per 8x8 tile', () => {
@@ -105,6 +106,42 @@ describe('wallpaper', () => {
     const heights = new Float32Array(field.cells.length);
     fillWallpaperHeight(field, 0, heights);
     expect(Math.max(...heights) - Math.min(...heights) > 0.4).toBe(true);
+  });
+
+  test('a faded field empties the bottom and keeps the top', () => {
+    expect(wallpaperFade(0, 1000)).toBe(1);
+    expect(wallpaperFade(450, 1000)).toBe(1);
+    expect(Math.abs(wallpaperFade(615, 1000) - 0.5) < 1e-9).toBe(true);
+    expect(wallpaperFade(780, 1000)).toBe(0);
+    const plain = createWallpaperField(1600, 1000, 8, 8);
+    const faded = createWallpaperField(1600, 1000, 8, 8, true);
+    const lastRow = (field: typeof plain) => Math.floor(field.cells[field.cells.length - 1] / field.cols);
+    expect(lastRow(plain)).toBe(plain.rows - 1);
+    expect(lastRow(faded) * 8 < 780).toBe(true);
+    // Above the fade the two agree.
+    expect(faded.reveal[0]).toBe(plain.reveal[0]);
+  });
+
+  test('dither, ASCII and halftone follow a picture, drifting through it', () => {
+    expect(['dither', 'ascii', 'halftone'].every((w) => followsPictureShape(w as never))).toBe(true);
+    expect(followsPictureShape('strands')).toBe(false);
+    expect(followsPictureShape('grain')).toBe(false);
+    const field = createWallpaperField(1200, 800, 8, 8);
+    const dark = new Float32Array(field.cells.length).fill(0);
+    const bright = new Float32Array(field.cells.length).fill(1);
+    const out = new Float32Array(field.cells.length);
+    // The picture's tone sets the level; the bands only push it by a little.
+    fillPictureWallpaper(field, dark, 0, out);
+    expect(Math.max(...out) <= 0.2 + 1e-6).toBe(true);
+    fillPictureWallpaper(field, bright, 0, out);
+    let corner = 0;
+    for (let i = 0; i < out.length; i += 1) if (field.reveal[i] === 1) corner = Math.max(corner, out[i]);
+    expect(corner).toBe(1);
+    const later = new Float32Array(field.cells.length);
+    const mid = new Float32Array(field.cells.length).fill(0.5);
+    fillPictureWallpaper(field, mid, 0, out);
+    fillPictureWallpaper(field, mid, 5, later);
+    expect(later).not.toEqual(out);
   });
 
   test('draws a picture the right way round for the ink', () => {

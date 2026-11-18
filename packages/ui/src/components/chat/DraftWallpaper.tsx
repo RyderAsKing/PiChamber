@@ -4,10 +4,10 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useWallpaperPicture } from '@/hooks/useWallpaperPicture';
 import { parseColor } from '@/lib/theme/contrast';
 import { cn } from '@/lib/utils';
-import { wallpaperCanMove, type Wallpaper, type WallpaperImageStyle } from '@/lib/wallpaper';
+import { wallpaperCanMove, type Wallpaper } from '@/lib/wallpaper';
 import { useUIStore } from '@/stores/useUIStore';
 
-import { createWallpaperPainter, isPixelatedWallpaper } from './lib/wallpaperPainters';
+import { createWallpaperPainter, isPixelatedWallpaper, paintPictureBackdrop } from './lib/wallpaperPainters';
 
 /** Redraws wait for the pane to stop resizing, so a drag costs one rebuild. */
 const RESIZE_SETTLE_MS = 120;
@@ -30,53 +30,58 @@ function usePrefersReducedMotion(): boolean {
 }
 
 /**
- * Wallpaper behind the new-session screen, in the theme's ink (or the
- * server's picture), hidden from assistive technology. When it moves, its
- * pattern drifts at 6 frames a second; the browser stops the loop in
- * hidden tabs, and reduced motion keeps it still. Nothing renders when the
- * setting is None, or for a picture that is missing or still loading.
+ * Wallpaper behind the new-session screen, hidden from assistive technology:
+ * a pattern in the theme's ink, or with the server's picture turned on, the
+ * picture with the pattern in its colours over it. When it moves, the pattern
+ * drifts at 6 frames a second; the browser stops the loop in hidden tabs, and
+ * reduced motion keeps it still. Nothing renders while the picture loads; if
+ * it cannot load, the pattern is drawn without it.
  */
 export const DraftWallpaper: React.FC = () => {
   const wallpaper = useUIStore((state) => state.draftWallpaper);
   const motion = useUIStore((state) => state.draftWallpaperMotion);
-  const pictureStyle = useUIStore((state) => state.draftWallpaperImageStyle);
+  const showPicture = useUIStore((state) => state.draftWallpaperPicture);
   const pictureVersion = useUIStore((state) => state.draftWallpaperImageVersion);
-  const picture = useWallpaperPicture(wallpaper === 'image' ? pictureVersion : null);
+  const { picture, pending } = useWallpaperPicture(showPicture ? pictureVersion : null);
   const reducedMotion = usePrefersReducedMotion();
-  if (wallpaper === 'none' || (wallpaper === 'image' && !picture)) return null;
+  if (pending || (wallpaper === 'none' && !picture)) return null;
   return (
     <WallpaperCanvas
       wallpaper={wallpaper}
       picture={picture}
-      pictureStyle={pictureStyle}
       moving={motion && !reducedMotion && wallpaperCanMove(wallpaper)}
       className="absolute inset-0 -z-10"
       // Fades out above the bottom edge, where a phone's composer bar starts,
-      // so the pattern never ends on a hard line.
+      // so the pattern never ends on a hard line. Drawn into the canvas: a CSS
+      // mask on a canvas this large sometimes left a strip unmasked in Chrome.
       fade
     />
   );
 };
 
 type WallpaperCanvasProps = {
-  wallpaper: Exclude<Wallpaper, 'none'>;
+  wallpaper: Wallpaper;
   picture?: ImageBitmap | null;
-  pictureStyle?: WallpaperImageStyle;
   moving: boolean;
   className?: string;
   fade?: boolean;
 };
 
-/** One wallpaper drawn to fill its box; also used for the Settings previews. */
+/**
+ * One wallpaper drawn to fill its box; also used for the Settings previews.
+ * The picture and the pattern have a canvas each, so a moving pattern never
+ * redraws the picture.
+ */
 export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
   wallpaper,
   picture = null,
-  pictureStyle = 'photo',
   moving,
   className,
   fade = false,
 }) => {
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const boxRef = React.useRef<HTMLDivElement | null>(null);
+  const pictureRef = React.useRef<HTMLCanvasElement | null>(null);
+  const patternRef = React.useRef<HTMLCanvasElement | null>(null);
   const { currentTheme } = useThemeSystem();
   const foreground = currentTheme.colors.surface.foreground;
   const variant = currentTheme.metadata.variant === 'dark' ? 'dark' : 'light';
@@ -85,11 +90,11 @@ export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
   const secondsRef = React.useRef(0);
 
   React.useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const box = boxRef.current;
+    if (!box) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const measure = () => {
-      const rect = canvas.getBoundingClientRect();
+      const rect = box.getBoundingClientRect();
       const width = Math.round(rect.width);
       const height = Math.round(rect.height);
       setSize((previous) => (previous?.width === width && previous.height === height ? previous : { width, height }));
@@ -99,7 +104,7 @@ export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
       if (timer) clearTimeout(timer);
       timer = setTimeout(measure, RESIZE_SETTLE_MS);
     });
-    observer.observe(canvas);
+    observer.observe(box);
     return () => {
       observer.disconnect();
       if (timer) clearTimeout(timer);
@@ -107,19 +112,16 @@ export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
   }, []);
 
   React.useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = pictureRef.current;
+    if (!canvas || !size || !picture) return;
+    paintPictureBackdrop({ canvas, width: size.width, height: size.height, picture, variant, underPattern: wallpaper !== 'none', fade });
+  }, [fade, picture, size, variant, wallpaper]);
+
+  React.useEffect(() => {
+    const canvas = patternRef.current;
     const ink = parseColor(foreground);
-    if (!canvas || !size || !ink) return;
-    const painter = createWallpaperPainter({
-      canvas,
-      width: size.width,
-      height: size.height,
-      ink,
-      variant,
-      wallpaper,
-      picture,
-      pictureStyle,
-    });
+    if (!canvas || !size || !ink || wallpaper === 'none') return;
+    const painter = createWallpaperPainter({ canvas, width: size.width, height: size.height, ink, variant, wallpaper, picture, fade });
     if (!painter) return;
     painter.draw(secondsRef.current);
     if (!moving) return;
@@ -141,19 +143,28 @@ export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [foreground, moving, picture, pictureStyle, size, variant, wallpaper]);
+  }, [fade, foreground, moving, picture, size, variant, wallpaper]);
 
+  const layer = 'absolute inset-0 h-full w-full';
   return (
-    <canvas
-      ref={canvasRef}
+    <div
+      ref={boxRef}
       aria-hidden="true"
       data-draft-wallpaper={wallpaper}
+      data-draft-wallpaper-picture={picture ? 'true' : 'false'}
       data-draft-wallpaper-moving={moving ? 'true' : 'false'}
-      className={cn('pointer-events-none h-full w-full select-none', className)}
-      style={{
-        maskImage: fade ? 'linear-gradient(to bottom, black 45%, transparent 78%)' : undefined,
-        imageRendering: isPixelatedWallpaper(wallpaper) ? 'pixelated' : undefined,
-      }}
-    />
+      className={cn('pointer-events-none relative h-full w-full select-none', className)}
+    >
+      {picture ? <canvas ref={pictureRef} className={layer} /> : null}
+      {wallpaper !== 'none' ? (
+        <canvas
+          // A new canvas per pattern: a canvas cannot switch between pixel and smooth scaling cleanly mid-life.
+          key={wallpaper}
+          ref={patternRef}
+          className={layer}
+          style={{ imageRendering: isPixelatedWallpaper(wallpaper) ? 'pixelated' : undefined }}
+        />
+      ) : null}
+    </div>
   );
 };

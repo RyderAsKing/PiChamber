@@ -1,11 +1,14 @@
 /**
- * The new-session screen's wallpaper: none, a pattern drawn from one shared
- * field in the theme's ink (dither, ASCII, halftone, strands, grain), or the server's uploaded picture.
+ * The new-session screen's wallpaper: none, or a pattern drawn from one shared
+ * field (dither, ASCII, halftone, strands, grain). With the server's uploaded
+ * picture turned on, the picture shows faintly behind and the pattern takes
+ * its colours (and, for dither, ASCII and halftone, its light and dark);
+ * without it, the pattern is drawn in the theme's ink.
  *
  * Persisted server-side as the `draftWallpaper*` UI settings so every client
  * of a server shows the same screen.
  */
-const WALLPAPERS = ['none', 'dither', 'ascii', 'halftone', 'strands', 'grain', 'image'] as const;
+const WALLPAPERS = ['none', 'dither', 'ascii', 'halftone', 'strands', 'grain'] as const;
 
 export type Wallpaper = (typeof WALLPAPERS)[number];
 
@@ -14,17 +17,12 @@ export const DEFAULT_WALLPAPER: Wallpaper = 'none';
 export const isWallpaper = (value: unknown): value is Wallpaper =>
   typeof value === 'string' && (WALLPAPERS as readonly string[]).includes(value);
 
-/** Whether a wallpaper can drift. Grain and pictures always hold still. */
-export const wallpaperCanMove = (wallpaper: Wallpaper): boolean =>
-  wallpaper !== 'none' && wallpaper !== 'grain' && wallpaper !== 'image';
+/** Whether a wallpaper can drift, with or without a picture. Grain always holds still. */
+export const wallpaperCanMove = (wallpaper: Wallpaper): boolean => wallpaper !== 'none' && wallpaper !== 'grain';
 
-const IMAGE_STYLES = ['photo', 'dither', 'ascii'] as const;
-
-/** How an uploaded picture shows: as itself, dimmed, or drawn as dither or ASCII. */
-export type WallpaperImageStyle = (typeof IMAGE_STYLES)[number];
-
-export const isWallpaperImageStyle = (value: unknown): value is WallpaperImageStyle =>
-  typeof value === 'string' && (IMAGE_STYLES as readonly string[]).includes(value);
+/** Whether dither, ASCII or halftone follow a picture's light and dark, not the field's noise. */
+export const followsPictureShape = (wallpaper: Wallpaper): boolean =>
+  wallpaper === 'dither' || wallpaper === 'ascii' || wallpaper === 'halftone';
 
 /** The server names each picture by a 16-hex-digit hash of its bytes. */
 export const isWallpaperImageVersion = (value: unknown): value is string =>
@@ -72,12 +70,29 @@ const valueNoise = (x: number, y: number): number => {
 /** The bands drift one full cycle a minute when the wallpaper moves. */
 const DRIFT_RADIANS_PER_SECOND = (2 * Math.PI) / 60;
 
+/** Where the bottom fade starts and ends, as shares of the height from the top. */
+const FADE_FROM = 0.45;
+const FADE_TO = 0.78;
+
+/**
+ * How much shows at `y` CSS pixels from the top of a `height` box whose
+ * bottom fades out, where a phone's composer bar starts: 1 down to 45% of the
+ * height, 0 from 78%.
+ */
+export function wallpaperFade(y: number, height: number): number {
+  const t = (y / Math.max(1, height) - FADE_FROM) / (FADE_TO - FADE_FROM);
+  return t <= 0 ? 1 : t >= 1 ? 0 : 1 - t;
+}
+
+/** The bottom fade's stops, as shares of the height, for a gradient. */
+export const WALLPAPER_FADE_STOPS = [FADE_FROM, FADE_TO] as const;
+
 /**
  * How much a pattern may show at a point in CSS pixels from the centre of the
  * screen: 0 in the middle, where the title and composer sit, rising to 1 at
  * the corners of an ellipse that fits the screen.
  */
-export function wallpaperReveal(x: number, y: number, width: number, height: number): number {
+function wallpaperReveal(x: number, y: number, width: number, height: number): number {
   const rx = x / Math.max(1, width * 0.5);
   const ry = y / Math.max(1, height * 0.5);
   const edge = Math.min(1, Math.sqrt(rx * rx + ry * ry));
@@ -132,7 +147,14 @@ export type WallpaperField = {
   reveal: Float32Array;
 };
 
-export function createWallpaperField(width: number, height: number, cellWidth: number, cellHeight: number): WallpaperField {
+export function createWallpaperField(
+  width: number,
+  height: number,
+  cellWidth: number,
+  cellHeight: number,
+  /** Fade the bottom out (see `wallpaperFade`); cells it empties are left out. */
+  fade = false,
+): WallpaperField {
   const cols = Math.max(0, Math.ceil(width / cellWidth));
   const rows = Math.max(0, Math.ceil(height / cellHeight));
   const cx = width / 2;
@@ -145,6 +167,7 @@ export function createWallpaperField(width: number, height: number, cellWidth: n
     const y = row * cellHeight + cellHeight / 2 - cy;
     for (let col = 0; col < cols; col += 1) {
       const terms = staticTerms(col * cellWidth + cellWidth / 2 - cx, y, width, height);
+      if (fade) terms.reveal *= wallpaperFade(y + cy, height);
       if (terms.reveal <= 0) continue;
       cells.push(row * cols + col);
       noise.push(terms.noise);
@@ -215,6 +238,23 @@ export const pictureDensity = (r: number, g: number, b: number, a: number, inkIs
   const tone = inkIsLight ? luminance : 1 - luminance;
   return Math.min(1, Math.max(0, (tone - 0.08) / 0.84)) * (a / 255);
 };
+
+/** How far the drifting bands push a picture's tone up or down. */
+const PICTURE_DRIFT = 0.4;
+
+/**
+ * Writes each listed cell's density at `seconds` for a pattern that follows a
+ * picture: the picture's tone at that cell (from `pictureDensity`), with the
+ * field's bands drifting through it, emptied in the middle like the patterns.
+ */
+export function fillPictureWallpaper(field: WallpaperField, tones: Float32Array, seconds: number, out: Float32Array): void {
+  const shift = seconds * DRIFT_RADIANS_PER_SECOND;
+  const { phase, reveal } = field;
+  for (let i = 0; i < field.cells.length; i += 1) {
+    const value = tones[i] + (bandAt(phase[i] - shift) - 0.5) * PICTURE_DRIFT;
+    out[i] = value <= 0 ? 0 : value >= 1 ? reveal[i] : value * reveal[i];
+  }
+}
 
 export type WallpaperGrid = {
   cols: number;

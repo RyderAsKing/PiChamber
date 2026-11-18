@@ -50,7 +50,7 @@ const PORTABLE_FIELDS = new Set([
   'filesViewShowGitignored', 'messageLimit',
   'responseStyleEnabled', 'responseStylePreset', 'responseStyleCustomInstructions',
   'draftStarters', 'draftStartersVisible', 'draftStartersScheduleTaskAdded', 'draftWallpaper', 'draftWallpaperMotion',
-  'draftWallpaperImageStyle', 'draftWallpaperImageVersion',
+  'draftWallpaperPicture', 'draftWallpaperImageVersion',
   'autoCreateWorktree', 'globalBehaviorPrompt', 'skillCatalogs', 'messageStreamTransport',
 ]);
 

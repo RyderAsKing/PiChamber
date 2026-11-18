@@ -1,5 +1,5 @@
 import type { DraftStarterRef } from '@/lib/draftStarters';
-import type { Wallpaper, WallpaperImageStyle } from '@/lib/wallpaper';
+import type { Wallpaper } from '@/lib/wallpaper';
 
 type RuntimePlatform = 'web' | 'desktop';
 
@@ -644,7 +644,7 @@ export interface SettingsPayload {
   draftStartersVisible?: boolean;
   draftWallpaper?: Wallpaper;
   draftWallpaperMotion?: boolean;
-  draftWallpaperImageStyle?: WallpaperImageStyle;
+  draftWallpaperPicture?: boolean;
   draftWallpaperImageVersion?: string | null;
 
   [key: string]: unknown;

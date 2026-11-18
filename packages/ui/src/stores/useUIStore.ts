@@ -12,7 +12,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import type { TerminalShell } from '@/lib/api/types';
 import { DEFAULT_SIDEBAR_VIEW_MODE, type SidebarViewMode } from '@/lib/sidebarViewMode';
-import { DEFAULT_WALLPAPER, isWallpaper, isWallpaperImageStyle, type Wallpaper, type WallpaperImageStyle } from '@/lib/wallpaper';
+import { DEFAULT_WALLPAPER, isWallpaper, type Wallpaper } from '@/lib/wallpaper';
 import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 import {
@@ -168,8 +168,8 @@ interface UIStore {
   draftWallpaper: Wallpaper;
   /** Whether the wallpaper's pattern drifts; reduced motion keeps it still regardless. */
   draftWallpaperMotion: boolean;
-  /** How the uploaded picture shows. */
-  draftWallpaperImageStyle: WallpaperImageStyle;
+  /** Whether the uploaded picture shows behind the wallpaper, which then takes its colours. */
+  draftWallpaperPicture: boolean;
   /** Version of the server's wallpaper picture; null when there is none. */
   draftWallpaperImageVersion: string | null;
   terminalFontSize: number;
@@ -319,7 +319,7 @@ interface UIStore {
   setDraftStartersVisible: (value: boolean) => void;
   setDraftWallpaper: (value: Wallpaper) => void;
   setDraftWallpaperMotion: (value: boolean) => void;
-  setDraftWallpaperImageStyle: (value: WallpaperImageStyle) => void;
+  setDraftWallpaperPicture: (value: boolean) => void;
   setDraftWallpaperImageVersion: (value: string | null) => void;
   setTerminalFontSize: (size: number) => void;
   setTerminalShell: (shell: TerminalShell) => void;
@@ -510,7 +510,7 @@ export const useUIStore = create<UIStore>()(
         draftStartersVisible: true,
         draftWallpaper: DEFAULT_WALLPAPER,
         draftWallpaperMotion: true,
-        draftWallpaperImageStyle: 'photo',
+        draftWallpaperPicture: false,
         draftWallpaperImageVersion: null,
         isExpandedInput: false,
         shortcutOverrides: {},
@@ -1226,9 +1226,8 @@ export const useUIStore = create<UIStore>()(
           set({ draftWallpaperMotion: value });
         },
 
-        setDraftWallpaperImageStyle: (value) => {
-          if (!isWallpaperImageStyle(value)) return;
-          set({ draftWallpaperImageStyle: value });
+        setDraftWallpaperPicture: (value) => {
+          set({ draftWallpaperPicture: value === true });
         },
 
         setDraftWallpaperImageVersion: (value) => {
@@ -1992,7 +1991,7 @@ export const useUIStore = create<UIStore>()(
           draftStartersVisible: state.draftStartersVisible,
           draftWallpaper: state.draftWallpaper,
           draftWallpaperMotion: state.draftWallpaperMotion,
-          draftWallpaperImageStyle: state.draftWallpaperImageStyle,
+          draftWallpaperPicture: state.draftWallpaperPicture,
           draftWallpaperImageVersion: state.draftWallpaperImageVersion,
           shortcutOverrides: state.shortcutOverrides,
           fileEditorKeymap: state.fileEditorKeymap,

@@ -1,8 +1,8 @@
 # Wallpaper picture
 
-Holds the one picture a server shows behind the new-session screen when the
-`draftWallpaper` UI setting is `image`. How it shows (`draftWallpaperImageStyle`:
-photo, dither or ASCII) and which picture the clients expect
+Holds the one picture a server shows behind the new-session screen. Whether
+it shows (`draftWallpaperPicture`, under whichever `draftWallpaper` pattern is
+chosen, which then takes its colours) and which picture the clients expect
 (`draftWallpaperImageVersion`) are UI settings; this module only stores bytes.
 
 ## Files

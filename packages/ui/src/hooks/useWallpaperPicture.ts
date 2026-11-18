@@ -3,10 +3,12 @@ import React from 'react';
 import { loadWallpaperPicture } from '@/lib/wallpaperPicture';
 
 /**
- * The server's decoded wallpaper picture for `version`; null while it loads,
- * when there is none, when the load failed, or when `version` is null.
+ * The server's decoded wallpaper picture for `version`. `picture` is null
+ * while it loads, when there is none, when the load failed, or when `version`
+ * is null; `pending` is true only while it loads, so a caller can wait rather
+ * than draw without it and then redraw.
  */
-export function useWallpaperPicture(version: string | null): ImageBitmap | null {
+export function useWallpaperPicture(version: string | null): { picture: ImageBitmap | null; pending: boolean } {
   const [picture, setPicture] = React.useState<{ version: string; bitmap: ImageBitmap | null } | null>(null);
   React.useEffect(() => {
     if (!version) return;
@@ -16,7 +18,7 @@ export function useWallpaperPicture(version: string | null): ImageBitmap | null 
         if (!cancelled) setPicture({ version, bitmap });
       },
       (error: unknown) => {
-        // Nothing is drawn; the setting is left as it is, so a later visit retries.
+        // Drawn without it; the setting is left as it is, so a later visit retries.
         console.warn('[wallpaper] picture could not be loaded', error);
         if (!cancelled) setPicture({ version, bitmap: null });
       },
@@ -25,5 +27,7 @@ export function useWallpaperPicture(version: string | null): ImageBitmap | null 
       cancelled = true;
     };
   }, [version]);
-  return version && picture?.version === version ? picture.bitmap : null;
+  if (!version) return { picture: null, pending: false };
+  if (picture?.version !== version) return { picture: null, pending: true };
+  return { picture: picture.bitmap, pending: false };
 }

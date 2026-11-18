@@ -1,4 +1,4 @@
-import type { Wallpaper, WallpaperImageStyle } from '@/lib/wallpaper';
+import type { Wallpaper } from '@/lib/wallpaper';
 import type { ThemeMode } from '@/types/theme';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
@@ -93,13 +93,6 @@ export const WALLPAPER_OPTIONS: Array<{ value: Wallpaper; label: string }> = [
   { value: 'halftone', label: 'Halftone' },
   { value: 'strands', label: 'Strands' },
   { value: 'grain', label: 'Grain' },
-  { value: 'image', label: 'Picture' },
-];
-
-export const WALLPAPER_PICTURE_STYLE_OPTIONS: Array<{ value: WallpaperImageStyle; label: string }> = [
-  { value: 'photo', label: 'Photo' },
-  { value: 'dither', label: 'Dither' },
-  { value: 'ascii', label: 'ASCII' },
 ];
 
 export const MOBILE_LAYOUT_OPTIONS: Array<{
