@@ -166,6 +166,8 @@ interface UIStore {
   draftStartersVisible: boolean;
   /** Wallpaper behind the new-session screen. */
   draftWallpaper: Wallpaper;
+  /** Whether the wallpaper's pattern drifts; reduced motion keeps it still regardless. */
+  draftWallpaperMotion: boolean;
   terminalFontSize: number;
   terminalShell: TerminalShell;
   terminalLoginShells: TerminalShell[];
@@ -312,6 +314,7 @@ interface UIStore {
   setGlobalDraftStarters: (refs: DraftStarterRef[]) => void;
   setDraftStartersVisible: (value: boolean) => void;
   setDraftWallpaper: (value: Wallpaper) => void;
+  setDraftWallpaperMotion: (value: boolean) => void;
   setTerminalFontSize: (size: number) => void;
   setTerminalShell: (shell: TerminalShell) => void;
   setTerminalLoginShells: (shells: TerminalShell[]) => void;
@@ -500,6 +503,7 @@ export const useUIStore = create<UIStore>()(
         expandedEditorToolbar: false,
         draftStartersVisible: true,
         draftWallpaper: DEFAULT_WALLPAPER,
+        draftWallpaperMotion: true,
         isExpandedInput: false,
         shortcutOverrides: {},
         commandTriggers: [],
@@ -1208,6 +1212,10 @@ export const useUIStore = create<UIStore>()(
         setDraftWallpaper: (value) => {
           if (!isWallpaper(value)) return;
           set({ draftWallpaper: value });
+        },
+
+        setDraftWallpaperMotion: (value) => {
+          set({ draftWallpaperMotion: value });
         },
 
         setTerminalFontSize: (size) => {
@@ -1966,6 +1974,7 @@ export const useUIStore = create<UIStore>()(
           expandedEditorToolbar: state.expandedEditorToolbar,
           draftStartersVisible: state.draftStartersVisible,
           draftWallpaper: state.draftWallpaper,
+          draftWallpaperMotion: state.draftWallpaperMotion,
           shortcutOverrides: state.shortcutOverrides,
           fileEditorKeymap: state.fileEditorKeymap,
         })

@@ -152,6 +152,9 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   if (isWallpaper(candidate.draftWallpaper)) {
     result.draftWallpaper = candidate.draftWallpaper;
   }
+  if (typeof candidate.draftWallpaperMotion === 'boolean') {
+    result.draftWallpaperMotion = candidate.draftWallpaperMotion;
+  }
   if (typeof candidate.draftStartersScheduleTaskAdded === 'boolean') {
     result.draftStartersScheduleTaskAdded =
       candidate.draftStartersScheduleTaskAdded;

@@ -239,6 +239,9 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
   if (isWallpaper(settings.draftWallpaper) && settings.draftWallpaper !== store.draftWallpaper) {
     store.setDraftWallpaper(settings.draftWallpaper);
   }
+  if (typeof settings.draftWallpaperMotion === 'boolean' && settings.draftWallpaperMotion !== store.draftWallpaperMotion) {
+    store.setDraftWallpaperMotion(settings.draftWallpaperMotion);
+  }
   if (
     typeof settings.terminalFontSize === 'number' &&
     Number.isFinite(settings.terminalFontSize) &&

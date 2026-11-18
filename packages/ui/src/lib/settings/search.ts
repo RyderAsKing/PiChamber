@@ -68,6 +68,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['background', 'dither', 'ascii', 'pattern', 'new session', 'texture'],
   },
   {
+    id: 'appearance.wallpaper-motion',
+    page: 'appearance',
+    title: "Moving wallpaper",
+    description: "The wallpaper's pattern drifts slowly.",
+    keywords: ['animate', 'animation', 'motion', 'wallpaper', 'dither', 'ascii'],
+  },
+  {
     id: 'appearance.dock-badge',
     page: 'appearance',
     title: "Dock badge",

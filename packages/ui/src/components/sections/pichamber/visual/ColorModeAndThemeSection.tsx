@@ -51,6 +51,8 @@ export interface ColorModeAndThemeSectionProps {
   setDockBadgeEnabled: (enabled: boolean) => void;
   wallpaper: Wallpaper;
   onWallpaperChange: (value: Wallpaper) => void;
+  wallpaperMotion: boolean;
+  onWallpaperMotionChange: (enabled: boolean) => void;
 }
 
 export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> = ({
@@ -75,6 +77,8 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
   setDockBadgeEnabled,
   wallpaper,
   onWallpaperChange,
+  wallpaperMotion,
+  onWallpaperMotionChange,
 }) => {
   return (
     <SettingsSection title={'Color mode & theme'} divider={false} contentClassName="space-y-4">
@@ -236,6 +240,18 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
           aria-label={'Wallpaper'}
         />
       </SettingsStackedField>
+
+      {/* Always shown so search can find it; it has nothing to move under None. */}
+      <SettingsInset settingsItem="appearance.wallpaper-motion">
+        <SettingsCheckboxRow
+          checked={wallpaperMotion}
+          onChange={onWallpaperMotionChange}
+          disabled={wallpaper === 'none'}
+          label={'Moving wallpaper'}
+          info={'The pattern drifts slowly. It stays still when your system asks for reduced motion.'}
+          ariaLabel={'Moving wallpaper'}
+        />
+      </SettingsInset>
 
       {dockBadgeSupported && (
         <SettingsInset settingsItem="appearance.dock-badge">

@@ -642,6 +642,7 @@ export interface SettingsPayload {
   draftStarters?: DraftStarterRef[];
   draftStartersVisible?: boolean;
   draftWallpaper?: 'none' | 'dither' | 'ascii';
+  draftWallpaperMotion?: boolean;
 
   [key: string]: unknown;
 }

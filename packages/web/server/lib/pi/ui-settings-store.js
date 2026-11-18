@@ -49,7 +49,7 @@ const PORTABLE_FIELDS = new Set([
   'recentAgents', 'recentEfforts', 'diffLayoutPreference', 'gitChangesViewMode',
   'filesViewShowGitignored', 'messageLimit',
   'responseStyleEnabled', 'responseStylePreset', 'responseStyleCustomInstructions',
-  'draftStarters', 'draftStartersVisible', 'draftStartersScheduleTaskAdded', 'draftWallpaper',
+  'draftStarters', 'draftStartersVisible', 'draftStartersScheduleTaskAdded', 'draftWallpaper', 'draftWallpaperMotion',
   'autoCreateWorktree', 'globalBehaviorPrompt', 'skillCatalogs', 'messageStreamTransport',
 ]);
 

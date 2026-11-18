@@ -4,6 +4,8 @@ import {
   ASCII_RAMP,
   asciiFor,
   bayerThreshold,
+  createWallpaperField,
+  fillWallpaper,
   isWallpaper,
   sampleWallpaper,
   wallpaperDensity,
@@ -46,6 +48,35 @@ describe('wallpaper', () => {
 
   test('draws the same picture every time', () => {
     expect(sampleWallpaper(300, 200, 7, 13).values).toEqual(sampleWallpaper(300, 200, 7, 13).values);
+  });
+
+  test('drifts over time but keeps the middle empty', () => {
+    const still = sampleWallpaper(1200, 800, 8, 8, 0);
+    const later = sampleWallpaper(1200, 800, 8, 8, 5);
+    expect(later.values).not.toEqual(still.values);
+    const middle = 50 * 150 + 75;
+    expect(later.values[middle]).toBe(0);
+    // A full cycle comes back to the start.
+    const cycled = sampleWallpaper(1200, 800, 8, 8, 60);
+    let drift = 0;
+    for (let i = 0; i < still.values.length; i += 1) drift = Math.max(drift, Math.abs(cycled.values[i] - still.values[i]));
+    expect(drift < 0.01).toBe(true);
+  });
+
+  test('a field lists only cells that can show ink', () => {
+    const field = createWallpaperField(1200, 800, 8, 8);
+    expect(field.cells.length).toBeGreaterThan(0);
+    expect(field.cells.length).toBeLessThan(field.cols * field.rows);
+    const out = new Float32Array(field.cells.length);
+    fillWallpaper(field, 0, out);
+    for (let i = 0; i < out.length; i += 1) {
+      expect(Math.abs(out[i] - wallpaperDensity(
+        (field.cells[i] % field.cols) * 8 + 4 - 600,
+        Math.floor(field.cells[i] / field.cols) * 8 + 4 - 400,
+        1200,
+        800,
+      )) < 0.01).toBe(true);
+    }
   });
 
   test('maps density onto the character ramp', () => {

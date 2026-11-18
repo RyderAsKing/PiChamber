@@ -339,6 +339,7 @@ export const materializeAuthoritativeUiSettings = (
     wrapLinesByDefault: defaults.wrapLinesByDefault,
     draftStartersVisible: defaults.draftStartersVisible,
     draftWallpaper: defaults.draftWallpaper,
+    draftWallpaperMotion: defaults.draftWallpaperMotion,
     fontSize: defaults.fontSize,
     terminalFontSize: defaults.terminalFontSize,
     terminalShell: defaults.terminalShell,

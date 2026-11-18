@@ -1656,6 +1656,8 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
     body: JSON.stringify({
       sidebarViewMode: page.sidebarViewMode ?? 'workspace',
       draftWallpaper: page.draftWallpaper ?? 'none',
+      // Kept still so each capture shows the same frame.
+      draftWallpaperMotion: false,
     }),
   });
   if (!settings.ok) throw new Error(`${pageName}: could not set the sidebar view (${settings.status})`);

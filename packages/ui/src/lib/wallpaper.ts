@@ -53,13 +53,11 @@ const valueNoise = (x: number, y: number): number => {
   return top + (bottom - top) * v;
 };
 
-/**
- * Density in [0, 1] at a point in CSS pixels from the centre of the screen:
- * soft drifting bands, emptied around the middle where the title and
- * composer sit, so the wallpaper fades toward them. Deterministic, so the
- * same window always shows the same picture.
- */
-export function wallpaperDensity(x: number, y: number, width: number, height: number): number {
+/** The bands drift one full cycle a minute when the wallpaper moves. */
+const DRIFT_RADIANS_PER_SECOND = (2 * Math.PI) / 60;
+
+/** The parts of a point's density that never change: its noise, band phase and reveal. */
+function staticTerms(x: number, y: number, width: number, height: number) {
   const sx = x / 260;
   const sy = y / 260;
   let noise = 0;
@@ -70,17 +68,91 @@ export function wallpaperDensity(x: number, y: number, width: number, height: nu
     amplitude *= 0.5;
     frequency *= 2;
   }
-  // Bands that run on a diagonal give the noise a direction.
-  const bands = 0.5 + 0.5 * Math.sin((x * 0.6 + y) / 140 + noise * 5);
-  const field = noise * 0.55 + bands * 0.45;
-
   // 0 at the centre, 1 at the corners of an ellipse that fits the screen.
   const rx = x / Math.max(1, width * 0.5);
   const ry = y / Math.max(1, height * 0.5);
   const edge = Math.min(1, Math.sqrt(rx * rx + ry * ry));
   const reveal = smooth(Math.min(1, Math.max(0, (edge - 0.45) / 0.55)));
+  // Bands that run on a diagonal give the noise a direction.
+  return { noise, phase: (x * 0.6 + y) / 140 + noise * 5, reveal };
+}
 
-  return Math.min(1, Math.max(0, (field - 0.35) * 1.5)) * reveal;
+const combine = (noise: number, phase: number, reveal: number, shift: number): number => {
+  const bands = 0.5 + 0.5 * Math.sin(phase - shift);
+  return Math.min(1, Math.max(0, (noise * 0.55 + bands * 0.45 - 0.35) * 1.5)) * reveal;
+};
+
+/**
+ * Density in [0, 1] at a point in CSS pixels from the centre of the screen:
+ * soft bands over noise, emptied around the middle where the title and
+ * composer sit. Deterministic; `seconds` moves the bands along.
+ */
+export function wallpaperDensity(x: number, y: number, width: number, height: number, seconds = 0): number {
+  const { noise, phase, reveal } = staticTerms(x, y, width, height);
+  return combine(noise, phase, reveal, seconds * DRIFT_RADIANS_PER_SECOND);
+}
+
+/**
+ * A screen's cells with everything that does not move worked out once, so a
+ * frame costs one sine per cell that can ever show ink. Cells in the cleared
+ * middle are left out entirely.
+ */
+export type WallpaperField = {
+  cols: number;
+  rows: number;
+  /** Row-major indices of cells whose reveal is above zero. */
+  cells: Uint32Array;
+  /** Per listed cell, in the same order. */
+  noise: Float32Array;
+  phase: Float32Array;
+  reveal: Float32Array;
+};
+
+export function createWallpaperField(width: number, height: number, cellWidth: number, cellHeight: number): WallpaperField {
+  const cols = Math.max(0, Math.ceil(width / cellWidth));
+  const rows = Math.max(0, Math.ceil(height / cellHeight));
+  const cx = width / 2;
+  const cy = height / 2;
+  const cells: number[] = [];
+  const noise: number[] = [];
+  const phase: number[] = [];
+  const reveal: number[] = [];
+  for (let row = 0; row < rows; row += 1) {
+    const y = row * cellHeight + cellHeight / 2 - cy;
+    for (let col = 0; col < cols; col += 1) {
+      const terms = staticTerms(col * cellWidth + cellWidth / 2 - cx, y, width, height);
+      if (terms.reveal <= 0) continue;
+      cells.push(row * cols + col);
+      noise.push(terms.noise);
+      phase.push(terms.phase);
+      reveal.push(terms.reveal);
+    }
+  }
+  return {
+    cols,
+    rows,
+    cells: Uint32Array.from(cells),
+    noise: Float32Array.from(noise),
+    phase: Float32Array.from(phase),
+    reveal: Float32Array.from(reveal),
+  };
+}
+
+const SINE_STEPS = 4096;
+const SINE_SCALE = SINE_STEPS / (2 * Math.PI);
+/** 0.5 + 0.5 * sin over one turn; a frame looks bands up here instead of calling Math.sin. */
+const BAND_TABLE = Float32Array.from({ length: SINE_STEPS }, (_, i) => 0.5 + 0.5 * Math.sin(i / SINE_SCALE));
+
+/** Writes each listed cell's density at `seconds` into `out` (one value per listed cell). */
+export function fillWallpaper(field: WallpaperField, seconds: number, out: Float32Array): void {
+  const shift = seconds * DRIFT_RADIANS_PER_SECOND;
+  const { noise, phase, reveal } = field;
+  for (let i = 0; i < field.cells.length; i += 1) {
+    const turn = (phase[i] - shift) * SINE_SCALE;
+    const bands = BAND_TABLE[(Math.floor(turn) % SINE_STEPS + SINE_STEPS) % SINE_STEPS];
+    const value = (noise[i] * 0.55 + bands * 0.45 - 0.35) * 1.5;
+    out[i] = value <= 0 ? 0 : value >= 1 ? reveal[i] : value * reveal[i];
+  }
 }
 
 export type WallpaperGrid = {
@@ -91,21 +163,18 @@ export type WallpaperGrid = {
 };
 
 /** Samples the density at each cell centre of a `width` x `height` screen. */
-export function sampleWallpaper(width: number, height: number, cellWidth: number, cellHeight: number): WallpaperGrid {
-  const cols = Math.max(0, Math.ceil(width / cellWidth));
-  const rows = Math.max(0, Math.ceil(height / cellHeight));
-  const values = new Float32Array(cols * rows);
-  const cx = width / 2;
-  const cy = height / 2;
-  for (let row = 0; row < rows; row += 1) {
-    const y = row * cellHeight + cellHeight / 2 - cy;
-    for (let col = 0; col < cols; col += 1) {
-      values[row * cols + col] = wallpaperDensity(col * cellWidth + cellWidth / 2 - cx, y, width, height);
-    }
-  }
-  return { cols, rows, values };
+export function sampleWallpaper(width: number, height: number, cellWidth: number, cellHeight: number, seconds = 0): WallpaperGrid {
+  const field = createWallpaperField(width, height, cellWidth, cellHeight);
+  const densities = new Float32Array(field.cells.length);
+  fillWallpaper(field, seconds, densities);
+  const values = new Float32Array(field.cols * field.rows);
+  for (let i = 0; i < field.cells.length; i += 1) values[field.cells[i]] = densities[i];
+  return { cols: field.cols, rows: field.rows, values };
 }
 
+/** Index into `ASCII_RAMP` for a density; 0 is an empty cell. */
+export const asciiIndex = (density: number): number =>
+  Math.min(ASCII_RAMP.length - 1, Math.floor(density * ASCII_RAMP.length));
+
 /** The ASCII character for a density. */
-export const asciiFor = (density: number): string =>
-  ASCII_RAMP[Math.min(ASCII_RAMP.length - 1, Math.floor(density * ASCII_RAMP.length))];
+export const asciiFor = (density: number): string => ASCII_RAMP[asciiIndex(density)];

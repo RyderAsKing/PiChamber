@@ -93,6 +93,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const draftStartersVisible = useUIStore(state => state.draftStartersVisible);
     const draftWallpaper = useUIStore(state => state.draftWallpaper);
     const setDraftWallpaper = useUIStore(state => state.setDraftWallpaper);
+    const draftWallpaperMotion = useUIStore(state => state.draftWallpaperMotion);
+    const setDraftWallpaperMotion = useUIStore(state => state.setDraftWallpaperMotion);
     const setDraftStartersVisible = useUIStore(state => state.setDraftStartersVisible);
     const {
         themeMode,
@@ -160,6 +162,11 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         setDraftWallpaper(value);
         void updateDesktopSettings({ draftWallpaper: value });
     }, [setDraftWallpaper]);
+
+    const handleDraftWallpaperMotionChange = React.useCallback((enabled: boolean) => {
+        setDraftWallpaperMotion(enabled);
+        void updateDesktopSettings({ draftWallpaperMotion: enabled });
+    }, [setDraftWallpaperMotion]);
 
 
     const lightThemes = React.useMemo(
@@ -475,6 +482,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                     setDockBadgeEnabled={setDockBadgeEnabled}
                     wallpaper={draftWallpaper}
                     onWallpaperChange={handleDraftWallpaperChange}
+                    wallpaperMotion={draftWallpaperMotion}
+                    onWallpaperMotionChange={handleDraftWallpaperMotionChange}
                 />
             )}
 

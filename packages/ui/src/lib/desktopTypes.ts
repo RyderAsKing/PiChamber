@@ -152,6 +152,8 @@ export type DesktopSettings = {
   draftStartersVisible?: boolean;
   /** Wallpaper behind the new-session screen. */
   draftWallpaper?: Wallpaper;
+  /** Whether the wallpaper's pattern drifts. */
+  draftWallpaperMotion?: boolean;
   draftStartersScheduleTaskAdded?: boolean;
 };
 

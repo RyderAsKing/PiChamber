@@ -268,8 +268,9 @@ session reported those controls before any send, desktop only);
 commands, one failing: its `Worked for` line with the counts and `1 error`);
 `turn-activity-open` (the same line pressed, showing the activity rail);
 `draft-wallpaper-dither` and `draft-wallpaper-ascii` (the new-session screen
-with each wallpaper, set through the `draftWallpaper` UI setting, desktop
-only; pages without one reset it to None);
+with each wallpaper, set through the `draftWallpaper` UI setting and held
+still through `draftWallpaperMotion`, desktop only; pages without one reset
+it to None);
 `subagents-turn` (a finished scout-then-reviewer chain, a card per run);
 `subagents-run` (the reviewer's card pressed: the run on its own, in the
 Agents panel on desktop and a sheet on phones); and `subagents-panel` (the
