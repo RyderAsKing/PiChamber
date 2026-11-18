@@ -5,7 +5,7 @@ import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
 import { StringDecoder } from 'node:string_decoder';
 import {
@@ -13,6 +13,7 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   getAgentDir,
+  parseSessionEntries,
   ProjectTrustStore,
   SessionManager,
   SettingsManager,
@@ -75,6 +76,7 @@ import {
   validatePiSessionJsonlFile,
 } from './session-jsonl.js';
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
+import { createTrustAskReader } from '../sandbox/trust-ask.js';
 import {
   createSessionEngineRegistry,
   logSessionEngineError,
@@ -211,6 +213,12 @@ export function createSessionDaemon({
   credential,
   cwd,
   agentDir = getAgentDir(),
+  // Session leases key on the real Pi agent folder. A sandbox daemon runs on
+  // a shadow agent folder, so it passes the real one here; leases then match
+  // the main daemon's for the same session.
+  leaseAgentDir = agentDir,
+  // A sandbox daemon's own lease folder (session-lease.js); unset otherwise.
+  leaseScope,
   createRuntime: injectCreateRuntime,
   createServices: injectCreateServices = createAgentSessionServices,
   healthMetadata = {},
@@ -240,6 +248,12 @@ export function createSessionDaemon({
     { projectTrusted },
   ),
   createTrustStore = (settingsAgentDir = agentDir) => new ProjectTrustStore(settingsAgentDir),
+  // Folders whose trust a server reset to "ask" when their sandbox was
+  // turned off (../sandbox/trust-ask.js): never trusted automatically.
+  isTrustAskDirectory = createTrustAskReader({ dataDir: resolvePiChamberDataDir() }),
+  // Folders a sandbox daemon owns (../sandbox/sandboxed-folders.js). Only
+  // the main daemon is given the check: it never starts a runtime in one.
+  isSandboxedDirectory = () => false,
   modelConfigStore = createPiModelConfigStore({ file: join(agentDir, 'models.json') }),
   renamePersistedSession = ({ sessionFile, title, cwd: sessionCwd = cwd, agentDir: sessionAgentDir = agentDir }) => {
     const manager = SessionManager.open(sessionFile, getPiSessionDirectory({ cwd: sessionCwd, agentDir: sessionAgentDir }), sessionCwd);
@@ -302,27 +316,60 @@ export function createSessionDaemon({
   // Exclusive cross-daemon ownership of one resident session. The session
   // stays visible in listings; contention reports SESSION_IN_USE instead of
   // pretending the session is absent or idle.
-  const acquireResidentLease = async ({ cwd: leaseCwd, sessionId }) => {
+  // Lease changes for one session run one at a time, so the retry of a
+  // failed release (`sessions.release`) cannot remove a lease that an
+  // activation of the same session took in the meantime.
+  const leaseChains = new Map();
+  const withSessionLease = (sessionId, work) => {
+    const run = (leaseChains.get(sessionId) ?? Promise.resolve()).then(work);
+    const tail = run.catch(() => {});
+    leaseChains.set(sessionId, tail);
+    void tail.then(() => {
+      if (leaseChains.get(sessionId) === tail) leaseChains.delete(sessionId);
+    });
+    return run;
+  };
+  const acquireResidentLease = ({ cwd: leaseCwd, sessionId }) => {
     const owner = leaseOwner();
-    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return;
+    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return Promise.resolve();
+    return withSessionLease(sessionId, () => acquireLeaseNow({ owner, leaseCwd, sessionId }));
+  };
+  const acquireLeaseNow = async ({ owner, leaseCwd, sessionId }) => {
     let result;
     try {
-      result = await acquireSessionLease({ agentDir, cwd: leaseCwd, sessionId, owner });
+      result = await acquireSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner, scope: leaseScope });
     } catch (error) {
       throw new SessionDaemonProtocolError('SESSION_LEASE_UNAVAILABLE', 'The session ownership check is temporarily unavailable.');
     }
     if (!result.acquired) {
       throw new SessionDaemonProtocolError('SESSION_IN_USE', 'Another PiChamber instance is currently using this session.');
     }
+    unreleasedLeases.delete(sessionId);
   };
-  const releaseResidentLease = async ({ cwd: leaseCwd, sessionId }) => {
+  // Leases this daemon still holds for sessions it no longer runs, because
+  // releasing them failed. While this daemon lives, such a lease keeps every
+  // other daemon out of the session, so `sessions.release` retries it and
+  // reports the session as pending until it is gone.
+  const unreleasedLeases = new Map();
+  // `onlyUnreleased` is the retry: it does nothing (`skipped`) when the
+  // lease is no longer one left over from a failed release.
+  const releaseResidentLease = ({ cwd: leaseCwd, sessionId }, { onlyUnreleased = false } = {}) => {
     const owner = leaseOwner();
-    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return { released: false };
+    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return Promise.resolve({ released: false });
+    return withSessionLease(sessionId, () => {
+      if (onlyUnreleased && !unreleasedLeases.has(sessionId)) return { released: false, skipped: true };
+      return releaseLeaseNow({ owner, leaseCwd, sessionId });
+    });
+  };
+  const releaseLeaseNow = async ({ owner, leaseCwd, sessionId }) => {
     try {
-      return await releaseSessionLease({ agentDir, cwd: leaseCwd, sessionId, owner });
+      const result = await releaseSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner, scope: leaseScope });
+      unreleasedLeases.delete(sessionId);
+      return result;
     } catch {
       // Lease release is best-effort; a stale lease is reclaimable by the
       // next owner once this daemon pid is dead.
+      unreleasedLeases.set(sessionId, { cwd: leaseCwd, sessionId });
       return { released: false };
     }
   };
@@ -348,6 +395,19 @@ export function createSessionDaemon({
   let stopping = false;
   const knownDirectories = new Set([cwd]);
   let activeDirectory = cwd;
+  // The folder a request without one is answered for. While the active
+  // folder (or the startup folder) belongs to a sandbox daemon, this daemon
+  // answers from a folder outside every sandbox instead: starting a runtime
+  // in the project would load its extensions outside its sandbox.
+  const neutralDirectory = () => [cwd, agentDir].find((directory) => typeof directory === 'string'
+    && directory.length > 0 && !isSandboxedDirectory(directory)) ?? agentDir;
+  const outsideSandbox = (directory) => (isSandboxedDirectory(directory) ? neutralDirectory() : directory);
+  const defaultDirectory = () => outsideSandbox(activeDirectory || cwd);
+  const refuseSandboxedRuntime = (directory) => {
+    if (isSandboxedDirectory(directory)) {
+      throw new SessionDaemonProtocolError('DIRECTORY_SANDBOXED', 'The folder belongs to a sandboxed project.');
+    }
+  };
   const clients = new Set();
   // A reconnect replays only a contiguous retained suffix; otherwise it receives
   // a new authoritative snapshot before later events can arrive. The suffix is
@@ -485,6 +545,10 @@ export function createSessionDaemon({
     if (!hasPendingUserStarts(buckets)) pendingUserStartsBySession.delete(sessionId);
   };
   const shutdownRequestedBySession = new Set();
+  // Sessions in folders the server asked this daemon to release (#247):
+  // the session moves to another daemon, so it is disposed at its next idle
+  // edge instead of after the idle timeout.
+  const releaseRequestedBySession = new Set();
   const disposingSessionIds = new Set();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
@@ -496,7 +560,7 @@ export function createSessionDaemon({
 
   const skillReadClassifierFor = (activeRuntime, directory) => {
     if (!activeRuntime || typeof activeRuntime !== 'object') return undefined;
-    const classifierCwd = activeRuntime.cwd || directory || activeDirectory || cwd;
+    const classifierCwd = activeRuntime.cwd || directory || defaultDirectory();
     const cached = skillReadClassifierByRuntime.get(activeRuntime);
     if (cached?.cwd === classifierCwd) return cached.classifier;
     const loader = activeRuntime.services?.resourceLoader;
@@ -593,13 +657,13 @@ export function createSessionDaemon({
       // so skills (and other resources) never trigger the trust popup for known dirs.
       try {
         const trustStore = createTrustStore(agentDir);
-        if (trustStore.get(validated) === null && hasTrustRequiringProjectResources(validated)) {
+        if (trustStore.get(validated) === null && !isTrustAskDirectory(validated) && hasTrustRequiringProjectResources(validated)) {
           trustStore.set(validated, true);
         }
       } catch {}
       return validated;
     }
-    return activeDirectory || cwd;
+    return defaultDirectory();
   };
 
   // Listing or deleting a folder's sessions reads Pi's session store, not the
@@ -608,7 +672,7 @@ export function createSessionDaemon({
   // still be a directory, and opening or creating a session keeps the strict
   // check in `resolveDirectory`.
   const resolveSessionStoreDirectory = async (requested) => {
-    if (typeof requested !== 'string' || requested.trim().length === 0) return activeDirectory || cwd;
+    if (typeof requested !== 'string' || requested.trim().length === 0) return defaultDirectory();
     const trimmed = requested.trim();
     const normalized = trimmed === '~' ? homedir() : trimmed;
     if (!isAbsolute(normalized)) {
@@ -647,8 +711,8 @@ export function createSessionDaemon({
   // no watchers, intervals, or listeners), so dropping the reference lets GC
   // reclaim it. Retaining them only grew the daemon and fanned provider
   // refreshes out to orphan ModelRuntimes whose catalogs are never read.
-  const createFreshPromptServices = async (targetCwd = activeDirectory || cwd) => injectCreateServices({
-    cwd: targetCwd,
+  const createFreshPromptServices = async (targetCwd = defaultDirectory()) => injectCreateServices({
+    cwd: outsideSandbox(targetCwd),
     agentDir,
     resourceLoaderOptions: {
       extensionFactories: [...getBuiltinExtensionFactories(), ...pluginHost.extensionFactories(), ...internalExtensionFactories()],
@@ -667,7 +731,7 @@ export function createSessionDaemon({
   const draftSessionIds = new Set();
   const publish = (event, payload, sessionId = runtime?.session?.sessionId, directory) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
-    const targetDirectory = directory || activeDirectory || cwd;
+    const targetDirectory = directory || defaultDirectory();
     const draft = draftSessionIds.has(sessionId);
     const message = {
       protocolVersion: PROTOCOL_VERSION,
@@ -705,7 +769,7 @@ export function createSessionDaemon({
       streamEpoch,
       sequence: ++sequence,
       ...(draftSessionIds.has(sessionId) ? { draft: true } : {}),
-      payload: { sessionId, directory: directory || activeDirectory || cwd, ...payload },
+      payload: { sessionId, directory: directory || defaultDirectory(), ...payload },
     };
     const line = `${JSON.stringify(message)}\n`;
     for (const client of clients) writeLine(client, line);
@@ -772,7 +836,7 @@ export function createSessionDaemon({
     pendingInput,
     agentDir,
     theme: extensionTheme,
-    directoryForSession: (sessionId) => findRuntimeForSession(sessionId)?.cwd || activeDirectory || cwd,
+    directoryForSession: (sessionId) => findRuntimeForSession(sessionId)?.cwd || defaultDirectory(),
     redactLine: (line) => redactAttachmentPaths(line),
     describeOrigin: describeCustomOrigin,
     openerClientFor: (sessionId) => promptClientBySession.get(sessionId),
@@ -792,7 +856,7 @@ export function createSessionDaemon({
     redactAttachmentValues: (value) => redactAttachmentValues(value),
     findRuntimeBySessionId: (sessionId) => runtimeRegistry?.findBySessionId(sessionId)
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined),
-    getDefaultDirectory: () => activeDirectory || cwd,
+    getDefaultDirectory: () => defaultDirectory(),
     getSequence: () => sequence,
     protocolError: (code, message) => new SessionDaemonProtocolError(code, message),
     renderExtensionMessage: (session, message) => extensionMessageRenderer.renderMessage(session, message),
@@ -853,7 +917,7 @@ export function createSessionDaemon({
         event: 'extension.custom.frame',
         streamEpoch,
         sequence: ++sequence,
-        payload: { sessionId, directory: findRuntimeForSession(sessionId)?.cwd || activeDirectory || cwd, ...payload },
+        payload: { sessionId, directory: findRuntimeForSession(sessionId)?.cwd || defaultDirectory(), ...payload },
       });
     }
   };
@@ -923,7 +987,7 @@ export function createSessionDaemon({
     dormantSession = {
       sessionId,
       sessionFile,
-      cwd: runtime.cwd || activeDirectory || cwd,
+      cwd: runtime.cwd || defaultDirectory(),
     };
   };
 
@@ -948,7 +1012,7 @@ export function createSessionDaemon({
     const activeSession = targetRuntime?.session || runtime?.session;
     const retry = session.sessionId ? retryStateBySession.get(session.sessionId) : undefined;
     const compaction = compactionStateFor(activeSession);
-    const targetDirectory = targetRuntime?.cwd || activeDirectory || cwd;
+    const targetDirectory = targetRuntime?.cwd || defaultDirectory();
     const lastAssistant = activeSession ? projectLatestAssistantMessage(targetRuntime || runtime) : undefined;
     const model = activeSession?.model;
     const snapshotSequence = ++sequence;
@@ -1097,14 +1161,14 @@ export function createSessionDaemon({
     try {
       for (const tracked of runtimeRegistry?.listAll?.() ?? []) {
         if (typeof tracked?.session?.sessionId === 'string') {
-          leased.push({ cwd: tracked.cwd || activeDirectory || cwd, sessionId: tracked.session.sessionId });
+          leased.push({ cwd: tracked.cwd || defaultDirectory(), sessionId: tracked.session.sessionId });
         }
       }
     } catch {
       // Registry enumeration must never block teardown.
     }
     if (runtime && typeof runtime.session?.sessionId === 'string') {
-      leased.push({ cwd: runtime.cwd || activeDirectory || cwd, sessionId: runtime.session.sessionId });
+      leased.push({ cwd: runtime.cwd || defaultDirectory(), sessionId: runtime.session.sessionId });
     }
     if (runtimeRegistry) {
       const hadTrackedRuntime = runtimeRegistry.size > 0;
@@ -1147,7 +1211,7 @@ export function createSessionDaemon({
     if (ephemeralReleased) forgetEphemeralSession({ cwd: ephemeralSession.cwd, sessionId: ephemeralSession.sessionId });
   };
 
-  const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile, activate = true } = {}) => {
+  const startRuntime = async ({ cwd: runtimeCwd = defaultDirectory(), sessionFile, activate = true } = {}) => {
     if (sessionFile) await validatePiSessionJsonlFile(sessionFile);
     const canonicalRuntimeCwd = sessionFile && dormantSession?.cwd
       ? dormantSession.cwd
@@ -1157,6 +1221,7 @@ export function createSessionDaemon({
     }
     let newRuntime;
     try {
+      refuseSandboxedRuntime(canonicalRuntimeCwd);
       newRuntime = await createRuntime({ cwd: canonicalRuntimeCwd, agentDir, ...(sessionFile ? { sessionFile } : {}) });
     } catch (error) {
       if (sessionFile && dormantSession?.sessionId) {
@@ -1194,7 +1259,7 @@ export function createSessionDaemon({
     return newRuntime;
   };
 
-  const ensureRuntime = (targetCwd = activeDirectory || cwd) => {
+  const ensureRuntime = (targetCwd = defaultDirectory()) => {
     const requestedCwd = resolve(targetCwd);
     // Runtime state is owned per working directory. A request that names a
     // directory is answered by a runtime resident in that directory, never by
@@ -1223,7 +1288,7 @@ export function createSessionDaemon({
         // runtime, adopts what it starts. After idle disposal clears `runtime`,
         // `activeDirectory` still names the user's project, so reading another
         // project's catalog leaves that project and its dormant session intact.
-        activate: !runtime && requestedCwd === resolve(activeDirectory || cwd),
+        activate: !runtime && requestedCwd === resolve(defaultDirectory()),
       }).finally(() => {
         if (runtimeStartPromises.get(requestedCwd) === pendingStart) {
           runtimeStartPromises.delete(requestedCwd);
@@ -1363,7 +1428,7 @@ export function createSessionDaemon({
         ? (runtimeRegistry?.listAll?.() ?? [])
         : (runtimeRegistry?.listByDirectory?.(targetDir) ?? [])
     );
-    if (runtime && (affectsGlobal || resolve(runtime.cwd || activeDirectory || cwd) === resolve(targetDir))) {
+    if (runtime && (affectsGlobal || resolve(runtime.cwd || defaultDirectory()) === resolve(targetDir))) {
       candidates.add(runtime);
     }
     await Promise.all([...candidates].map(async (targetRuntime) => {
@@ -1434,7 +1499,7 @@ export function createSessionDaemon({
       } catch {
         assignedSessionFile = undefined;
       }
-      const targetCwd = targetRuntime.cwd || activeDirectory || cwd;
+      const targetCwd = targetRuntime.cwd || defaultDirectory();
       try {
         if (draftSessionIds.has(sessionId)) {
           // Forceful for a draft: answer its dialogs, close its surfaces,
@@ -1453,6 +1518,7 @@ export function createSessionDaemon({
         extensionToolRenderer.clearSession(sessionId);
         runningToolsBySession.delete(sessionId);
         await runtimeRegistry.dispose(targetRuntime);
+        releaseRequestedBySession.delete(sessionId);
         // Positively determine ephemerality while the resident lease is
         // still held, before any release. A stat success means persisted;
         // ENOENT means the assigned JSONL never reached disk; any other
@@ -1493,6 +1559,42 @@ export function createSessionDaemon({
     return tracked;
   };
 
+  // Let go of every resident session in `directories` (and folders inside
+  // them): idle ones are disposed now, busy ones (turn, compaction, shell
+  // command, custom surface, pending dialog) at their next idle edge. The
+  // server polls until nothing is pending, announcing each move.
+  const releaseDirectories = async (payload) => {
+    const directories = payload?.directories;
+    if (!Array.isArray(directories) || directories.length === 0 || directories.length > 64
+      || directories.some((directory) => typeof directory !== 'string' || !isAbsolute(directory))) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The folders to release are invalid.');
+    }
+    const roots = directories.map((directory) => resolve(directory));
+    const owns = (directory) => roots.some((root) => directory === root || directory.startsWith(root.endsWith(sep) ? root : `${root}${sep}`));
+    const released = [];
+    const pending = [];
+    for (const target of runtimeRegistry?.listAll() ?? []) {
+      const sessionId = target.session?.sessionId;
+      const directory = typeof target.cwd === 'string' && target.cwd.length > 0 ? resolve(target.cwd) : null;
+      if (!isValidIdleSessionId(sessionId) || !directory || !owns(directory)) continue;
+      releaseRequestedBySession.add(sessionId);
+      await disposeIdleSessionRuntime(sessionId);
+      if (runtimeRegistry.findBySessionId(sessionId) === target || unreleasedLeases.has(sessionId)) pending.push({ sessionId, directory });
+      else released.push({ sessionId, directory });
+    }
+    // Sessions disposed earlier whose lease could not be released then.
+    for (const lease of [...unreleasedLeases.values()]) {
+      const directory = typeof lease.cwd === 'string' && lease.cwd.length > 0 ? resolve(lease.cwd) : null;
+      if (!directory || !owns(directory) || runtimeRegistry?.findBySessionId(lease.sessionId)) continue;
+      if (released.some((item) => item.sessionId === lease.sessionId) || pending.some((item) => item.sessionId === lease.sessionId)) continue;
+      // Skipped means the session is being opened here again: still this
+      // daemon's, so not released.
+      const { skipped } = await releaseResidentLease(lease, { onlyUnreleased: true });
+      (skipped || unreleasedLeases.has(lease.sessionId) ? pending : released).push({ sessionId: lease.sessionId, directory });
+    }
+    return { released, pending, streamEpoch };
+  };
+
   const completeRequestedShutdown = (sessionId) => {
     if (!shutdownRequestedBySession.has(sessionId)) return false;
     void disposeIdleSessionRuntime(sessionId);
@@ -1505,7 +1607,7 @@ export function createSessionDaemon({
     const timer = setTimeout(() => {
       idleDisposeTimers.delete(sessionId);
       void disposeIdleSessionRuntime(sessionId);
-    }, idleTimeoutMs);
+    }, releaseRequestedBySession.has(sessionId) ? 0 : idleTimeoutMs);
     idleDisposeTimers.set(sessionId, timer);
   };
 
@@ -1711,7 +1813,7 @@ export function createSessionDaemon({
     }
     const sessionId = payload.sessionId;
     const title = payload.title.trim();
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const activeRuntime = runtimeRegistry?.get({ cwd: targetDir, sessionId })
       || runtimeRegistry?.findBySessionId(sessionId)
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
@@ -1738,11 +1840,13 @@ export function createSessionDaemon({
 
   // Deletion passes `allowRemovedDirectory`: a session whose folder has since
   // been removed is still found in the store. Opening keeps the strict check.
-  const findPersistedSession = async (sessionId, requestedDirectory, { allowRemovedDirectory = false } = {}) => {
+  const findPersistedSession = async (sessionId, requestedDirectory, { allowRemovedDirectory = false, readOnly = false } = {}) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
-    const resolve = allowRemovedDirectory ? resolveSessionStoreDirectory : resolveDirectory;
+    // A read-only lookup only checks the folder: `resolveDirectory` also
+    // records it and may trust it, which a transcript read must not do.
+    const resolve = allowRemovedDirectory ? resolveSessionStoreDirectory : (readOnly ? validateDirectoryPath : resolveDirectory);
     const candidateDirs = new Set();
     let requestedTargetDirectory;
     if (requestedDirectory) {
@@ -1876,6 +1980,7 @@ export function createSessionDaemon({
     await acquireResidentLease({ cwd: directory, sessionId });
     let newRuntime;
     try {
+      refuseSandboxedRuntime(directory);
       newRuntime = await createRuntime({ cwd: directory, agentDir, sessionFile: target.path });
       if (!newRuntime.cwd) newRuntime.cwd = directory;
       if (newRuntime.session?.sessionId !== sessionId && typeof newRuntime.switchSession === 'function') {
@@ -1983,7 +2088,7 @@ export function createSessionDaemon({
     return undefined;
   };
 
-  const projectMessageEntries = (activeRuntime, targetDir = activeDirectory || cwd) => {
+  const projectMessageEntries = (activeRuntime, targetDir = defaultDirectory()) => {
     const session = activeRuntime?.session;
     // Use the active branch, not the full file. `getEntries()` returns every
     // entry ever written, so a bare `branch()`/`resetLeaf()` would appear to
@@ -2276,7 +2381,7 @@ export function createSessionDaemon({
 
   const projectActiveSession = (
     activeRuntime = runtime,
-    targetDir = activeRuntime?.cwd || activeDirectory || cwd,
+    targetDir = activeRuntime?.cwd || defaultDirectory(),
     pageOptions = {},
   ) => {
     const session = activeRuntime?.session;
@@ -2341,6 +2446,51 @@ export function createSessionDaemon({
       ...(extensionSnapshot.surfaces ? { extensionSurfaces: extensionSnapshot.surfaces } : {}),
       inputState: { pending: pendingInput.summaryFor(session.sessionId) },
       bashExecutions: userBash.snapshot(session.sessionId) ?? [],
+    };
+  };
+
+  /**
+   * A transcript read straight from its JSONL file (#242, fail closed). The
+   * server asks for it when a sandboxed project's session cannot open in its
+   * sandbox: no Pi runtime, extension, or tool starts, nothing is written
+   * (an in-memory session manager over the parsed entries), and no lease is
+   * taken. The detail is metadata only: `readOnly`, idle, `lastSequence` -1,
+   * and no stream epoch, input state, extension state, or bash executions,
+   * because none of that is this daemon's to claim.
+   */
+  const readPersistedSession = async (payload) => {
+    const sessionId = payload?.sessionId;
+    const { target, directory } = await findPersistedSession(sessionId, payload?.directory || payload?.cwd, { readOnly: true });
+    const entries = parseSessionEntries(await readFile(target.path, 'utf8'));
+    const header = entries[0];
+    const createdAt = Date.parse(header?.timestamp);
+    if (header?.type !== 'session' || header.id !== sessionId || !Number.isFinite(createdAt)) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
+    }
+    const sessionManager = SessionManager.inMemory(directory, undefined, entries);
+    const session = { sessionId, sessionManager, sessionName: sessionManager.getSessionName(), isStreaming: false };
+    const allMessages = projectMessageEntries({ cwd: directory, session }, directory);
+    const page = projectMessagePage(allMessages, { before: payload?.before, limit: payload?.limit });
+    let lastAssistant;
+    for (let index = allMessages.length - 1; index >= 0 && !lastAssistant; index -= 1) {
+      if (allMessages[index]?.message?.role === 'assistant') lastAssistant = allMessages[index].message;
+    }
+    return {
+      session: {
+        id: sessionId, directory, createdAt, updatedAt: createdAt,
+        ...(session.sessionName ? { title: session.sessionName } : {}),
+        ...(lastAssistant?.model ? { model: lastAssistant.model } : {}),
+        ...(lastAssistant?.thinkingLevel ? { thinking: lastAssistant.thinkingLevel } : {}),
+        messageCount: allMessages.length,
+      },
+      messages: page.messages,
+      hasMoreBefore: page.hasMoreBefore === true,
+      ...(page.hasMoreBefore ? { beforeCursor: page.beforeCursor } : {}),
+      lastSequence: -1,
+      isStreaming: false,
+      lifecycle: 'idle',
+      readOnly: true,
+      serverNow: Date.now(),
     };
   };
 
@@ -2460,6 +2610,7 @@ export function createSessionDaemon({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
       });
     }
+    refuseSandboxedRuntime(targetCwd);
     // A draft's sessions are marked from the moment Pi assigns their ids:
     // the runtime's first session (replaced below) and the draft itself.
     const markedDraftIds = new Set();
@@ -2598,7 +2749,7 @@ export function createSessionDaemon({
     } catch {
       // A failed rebuild stays queued for a later edge; the ensure below retries startup.
     }
-    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (defaultDirectory());
     const activeRuntime = await ensureRuntime(targetDir);
     const modelRuntime = activeRuntime.session?.modelRuntime;
     const models = modelRuntime?.getModels?.();
@@ -2626,6 +2777,58 @@ export function createSessionDaemon({
     return { providers: [...providers.values()] };
   };
 
+  // Host names of signed-in providers' model endpoints: the default network
+  // allowlist of a sandboxed project. Loopback hosts are left out; a local
+  // model server is allowed per project by port.
+  // The runtime that answers a provider question for the server's sandbox
+  // manager. `exclude` names the folders of sandboxed projects: this daemon
+  // must not start (or reopen a dormant session in) a runtime there, since
+  // that would load the project's extensions outside its sandbox. A resident
+  // runtime elsewhere is used as it is; otherwise one starts in the active
+  // folder, or in the agent folder when the active folder is excluded.
+  const providerRuntime = async (exclude) => {
+    if (exclude !== undefined && (!Array.isArray(exclude) || exclude.length > 4096
+      || exclude.some((directory) => typeof directory !== 'string' || !isAbsolute(directory)))) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The folders to stay out of are invalid.');
+    }
+    const roots = (exclude ?? []).map((directory) => resolve(directory));
+    if (roots.length === 0) return ensureRuntime(defaultDirectory());
+    const excluded = (directory) => {
+      const target = resolve(directory);
+      return roots.some((root) => target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`));
+    };
+    const residents = [...(runtime ? [runtime] : []), ...(runtimeRegistry?.listAll?.() ?? [])];
+    const resident = residents.find((candidate) => typeof candidate?.cwd === 'string' && candidate.cwd.length > 0 && !excluded(candidate.cwd));
+    if (resident) return resident;
+    const target = [defaultDirectory(), agentDir].find((directory) => typeof directory === 'string' && directory.length > 0 && !excluded(directory));
+    if (!target) throw new SessionDaemonProtocolError('PROVIDER_UNAVAILABLE', 'No folder outside the sandboxed projects can answer for the providers.');
+    return ensureRuntime(target);
+  };
+
+  const listProviderHosts = async (payload) => {
+    const activeRuntime = await providerRuntime(payload?.exclude);
+    const modelRuntime = activeRuntime.session?.modelRuntime;
+    const models = modelRuntime?.getModels?.();
+    if (!Array.isArray(models)) throw new SessionDaemonProtocolError('PROVIDER_UNAVAILABLE', 'Pi did not provide a model catalog.');
+    const hosts = new Set();
+    for (const model of models) {
+      if (!model || typeof model.provider !== 'string' || typeof model.baseUrl !== 'string') continue;
+      if (modelRuntime.getProviderAuthStatus?.(model.provider)?.configured !== true) continue;
+      let hostname;
+      try {
+        const url = new URL(model.baseUrl);
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') continue;
+        hostname = url.hostname.toLowerCase();
+      } catch {
+        continue;
+      }
+      if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost')
+        || /^[\d.]+$/.test(hostname) || hostname.startsWith('[')) continue;
+      hosts.add(hostname);
+    }
+    return { hosts: [...hosts].sort() };
+  };
+
   // In-flight refreshes are shared per resolved directory, never across
   // directories, so a concurrent refresh for another project cannot return
   // this project's catalog. Refreshes for different directories still run one
@@ -2639,7 +2842,7 @@ export function createSessionDaemon({
     } catch {
       // A failed rebuild stays queued for a later edge; the catalog refresh below retries startup.
     }
-    const targetDir = resolve(await resolveDirectory(requestedDirectory));
+    const targetDir = outsideSandbox(resolve(await resolveDirectory(requestedDirectory)));
     const existing = refreshProvidersInflight.get(targetDir);
     if (existing) return existing;
     const task = refreshProvidersQueue.then(async () => {
@@ -2856,6 +3059,32 @@ export function createSessionDaemon({
     return { config, ...(deferred ? { deferred: true } : {}) };
   };
 
+  // The main daemon owns OAuth token refresh: a sandbox daemon reads
+  // auth.json through a read-only grant, so before one starts (and after a
+  // sandboxed turn failed to refresh) the server asks here. Each signed-in
+  // OAuth provider whose token expires within `minValidityMs` is refreshed
+  // through Pi under its auth lock. Only failed provider ids are reported.
+  const refreshOAuthTokens = async (payload) => {
+    const minValidityMs = payload?.minValidityMs;
+    if (!Number.isSafeInteger(minValidityMs) || minValidityMs < 0 || minValidityMs > 24 * 60 * 60_000) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The OAuth refresh window is invalid.');
+    }
+    const activeRuntime = await providerRuntime(payload?.exclude);
+    const modelRuntime = activeRuntime.session?.modelRuntime;
+    const providers = typeof modelRuntime?.getProviders === 'function' ? modelRuntime.getProviders() : [];
+    const ids = [...new Set(providers.map((provider) => provider?.id).filter((id) => typeof id === 'string' && id.length > 0))]
+      .filter((id) => modelRuntime.isUsingOAuth?.(id) === true);
+    const failed = [];
+    for (const id of ids) {
+      try {
+        await modelRuntime.getAuth(id, { minOAuthValidityMs: minValidityMs });
+      } catch {
+        failed.push(id);
+      }
+    }
+    return { checked: ids.length, failed };
+  };
+
   const providerStatus = async (providerId) => {
     if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 256) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested provider is invalid.');
@@ -3015,12 +3244,12 @@ export function createSessionDaemon({
   };
 
   const readPiSettings = (requestedDirectory) => {
-    const targetDir = requestedDirectory || activeDirectory || cwd;
+    const targetDir = requestedDirectory || defaultDirectory();
     const trustStore = createTrustStore(agentDir);
     let trust = trustStore.get(targetDir);
     // Auto-trust known PiChamber projects so the skills popup never appears.
     // `knownDirectories` tracks every dir the user explicitly added/selected.
-    if (trust === null && knownDirectories.has(targetDir) && hasTrustRequiringProjectResources(targetDir)) {
+    if (trust === null && knownDirectories.has(targetDir) && !isTrustAskDirectory(targetDir) && hasTrustRequiringProjectResources(targetDir)) {
       try {
         trustStore.set(targetDir, true);
         trust = true;
@@ -3051,7 +3280,7 @@ export function createSessionDaemon({
     if (!payload || typeof payload !== 'object' || !['global', 'project'].includes(payload.scope)) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi settings request is invalid.');
     }
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const hasModel = Object.hasOwn(payload, 'defaultModel');
     const hasThinking = Object.hasOwn(payload, 'defaultThinking');
     const hasTrust = Object.hasOwn(payload, 'trust');
@@ -3125,7 +3354,7 @@ export function createSessionDaemon({
     // that has project resources, so only a denied project is left out.
     const decision = directory ? createTrustStore(agentDir).get(directory) : null;
     return {
-      cwd: activeDirectory || cwd,
+      cwd: defaultDirectory(),
       directory,
       trusted: directory ? decision ?? !hasTrustRequiringProjectResources(directory) : false,
     };
@@ -3183,7 +3412,8 @@ export function createSessionDaemon({
   }));
 
   const resourceCatalog = async (requestedDirectory) => {
-    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    // A sandboxed project's own resources are read by its sandbox daemon.
+    const targetDir = outsideSandbox(requestedDirectory ? await resolveDirectory(requestedDirectory) : defaultDirectory());
     // A settings page may be the first caller after a turn settles without a
     // lifecycle event reaching this daemon, so give queued configuration a
     // chance to activate before reading the catalog.
@@ -3318,7 +3548,7 @@ export function createSessionDaemon({
     if (!payload || typeof payload.resourceId !== 'string' || typeof payload.content !== 'string' || payload.content.length > 200_000) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi resource update is invalid.');
     }
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const catalog = await resourceCatalog(targetDir);
     const resource = [...catalog.prompts, ...catalog.agents].find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi resource is not editable.');
@@ -3345,7 +3575,7 @@ export function createSessionDaemon({
     if (payload.location === 'project' && !payload.directory) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'Project prompt templates require an explicit directory.');
     }
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const trust = createTrustStore(agentDir).get(targetDir);
     if (payload.location === 'project' && trust !== true) throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
     const filePath = join(payload.location === 'global' ? agentDir : join(targetDir, '.pi'), 'prompts', `${payload.name}.md`);
@@ -3361,7 +3591,7 @@ export function createSessionDaemon({
 
   const deletePrompt = (payload) => transactResourceMutation(async () => {
     if (!payload || typeof payload.resourceId !== 'string') throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const catalog = await resourceCatalog(targetDir);
     const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
@@ -3437,7 +3667,7 @@ export function createSessionDaemon({
     if (hasLocation && payload.location !== 'global' && payload.location !== 'project') {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template location is invalid.');
     }
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const catalog = await resourceCatalog(targetDir);
     const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
@@ -4259,7 +4489,7 @@ export function createSessionDaemon({
         throw new SessionDaemonProtocolError('RUNTIME_DISPOSAL_FAILED', 'The Pi session runtime could not be disposed.');
       }
       const active = runtimeRegistry?.findBySessionId(sessionId);
-      let targetDir = requestedDirectory ? await resolveSessionStoreDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
+      let targetDir = requestedDirectory ? await resolveSessionStoreDirectory(requestedDirectory) : active?.cwd || defaultDirectory();
       const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
       if (active) {
         if (active.session?.isStreaming) await active.session.abort();
@@ -4314,7 +4544,7 @@ export function createSessionDaemon({
     }
   };
 
-  const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
+  const publishSessionEvent = (sessionId, event, directory = defaultDirectory()) => {
     const owningRuntime = runtimeRegistry?.get({ cwd: directory, sessionId })
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
     switch (event.type) {
@@ -4802,16 +5032,19 @@ export function createSessionDaemon({
             sessionId: getSessionState().sessionId,
             lastSequence: sequence,
             streamEpoch,
+            // Resident Pi runtimes, starting ones included. A server stops an
+            // idle project daemon only when this is zero.
+            residentSessions: (runtimeRegistry?.size ?? 0) + runtimeStartPromises.size,
             capabilities: [
               // Public stream-lifetime identification: every event, snapshot,
               // and health result carries `streamEpoch`, and session read
               // responses stamp it so clients can reject stale-epoch data.
               'events.streamEpoch',
               'runtime.claim', 'runtime.shutdown',
-              'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
+              'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.readPersisted', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.pendingInput', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.discardDraft', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
+              'sessions.setThinking', 'sessions.discardDraft', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'sessions.release', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.hosts', 'providers.oauth.refresh', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.draft', 'extensions.palette',
@@ -4946,6 +5179,16 @@ export function createSessionDaemon({
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
+      case 'providers.oauth.refresh': {
+        const result = await refreshOAuthTokens(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.hosts': {
+        const result = await listProviderHosts(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
       case 'providers.status': {
         const result = await providerStatus(message.payload?.providerId);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
@@ -5070,7 +5313,7 @@ export function createSessionDaemon({
           throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The terminal colours are invalid.');
         }
         // Pi's theme setting is global; a project's own setting is not read.
-        const settings = createSettingsManager({ cwd: activeDirectory || cwd, agentDir, projectTrusted: false });
+        const settings = createSettingsManager({ cwd: defaultDirectory(), agentDir, projectTrusted: false });
         // Unreadable settings are a failure, not the system theme: the
         // browser keeps PiChamber's colours instead of caching a wrong answer.
         if (settings.drainErrors().length > 0) throw new SessionDaemonProtocolError('PI_SETTINGS_INVALID', 'Pi settings could not be read.');
@@ -5081,7 +5324,7 @@ export function createSessionDaemon({
       }
       case 'extensions.list': {
         const requestedExtensionsDir = message.payload?.directory || message.payload?.cwd;
-        const activeRuntime = await ensureRuntime(requestedExtensionsDir ? await resolveDirectory(requestedExtensionsDir) : undefined);
+        const activeRuntime = await ensureRuntime(requestedExtensionsDir ? outsideSandbox(await resolveDirectory(requestedExtensionsDir)) : undefined);
         const extensionSession = activeRuntime.session;
         const extensionPaths = typeof extensionSession?.extensionRunner?.getExtensionPaths === 'function'
           ? extensionSession.extensionRunner.getExtensionPaths()
@@ -5155,7 +5398,7 @@ export function createSessionDaemon({
           .filter((tracked) => !draftSessionIds.has(tracked?.session?.sessionId))
           .map((tracked) => ({
             sessionId: tracked?.session?.sessionId,
-            directory: typeof tracked?.cwd === 'string' && tracked.cwd.length > 0 ? tracked.cwd : (activeDirectory || cwd),
+            directory: typeof tracked?.cwd === 'string' && tracked.cwd.length > 0 ? tracked.cwd : (defaultDirectory()),
             busy: tracked?.session?.isStreaming === true
               || tracked?.session?.isCompacting === true
               || activeSessionInputs.has(tracked),
@@ -5182,6 +5425,15 @@ export function createSessionDaemon({
           result: target
             ? { published: true, sessionId: target.sessionId, attributed: target.attributed }
             : { published: false },
+        });
+        return;
+      }
+      case 'sessions.release': {
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: await releaseDirectories(message.payload),
         });
         return;
       }
@@ -5242,6 +5494,15 @@ export function createSessionDaemon({
           ...detail,
           hasMoreBefore: detail.hasMoreBefore === true,
         });
+        return;
+      }
+      case 'sessions.readPersisted': {
+        const detail = await readPersistedSession(message.payload);
+        const frame = { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: detail };
+        if (Buffer.byteLength(JSON.stringify(frame)) > MAX_FRAME_BYTES) {
+          throw new SessionDaemonProtocolError('DAEMON_RESPONSE_TOO_LARGE', 'The daemon response exceeds the IPC frame limit.');
+        }
+        writeFrame(socket, frame);
         return;
       }
       case 'sessions.rename': {
@@ -5652,6 +5913,7 @@ export function createSessionDaemon({
       toolPartialBySession.clear();
       completedToolTimings.clear();
       shutdownRequestedBySession.clear();
+      releaseRequestedBySession.clear();
       sendGenerationBySession.clear();
       settledSendGenerationBySession.clear();
       runningToolsBySession.clear();

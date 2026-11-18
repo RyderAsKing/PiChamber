@@ -31,6 +31,18 @@ describe('plugin daemon sync', () => {
     expect(request).toHaveBeenLastCalledWith('plugins.configure', config);
   });
 
+  it('builds a scoped hook\'s config with its scope', async () => {
+    const buildConfig = vi.fn(async (scope) => ({ plugins: [], scope: scope ?? null }));
+    const sync = createPluginDaemonSync({ buildConfig, logger: { warn: vi.fn() } });
+    const request = vi.fn(async () => ({}));
+    await sync.onDaemonReady({ health: { streamEpoch: 'main' }, request });
+    await sync.onDaemonReadyFor({ roots: ['/work/night'] })({ health: { streamEpoch: 'sandbox' }, request });
+    expect(request.mock.calls).toEqual([
+      ['plugins.configure', { plugins: [], scope: null }],
+      ['plugins.configure', { plugins: [], scope: { roots: ['/work/night'] } }],
+    ]);
+  });
+
   it('shares one push between concurrent requests', async () => {
     const gate = deferred();
     const sync = createPluginDaemonSync({ buildConfig: async () => ({ plugins: [] }) });

@@ -9,6 +9,7 @@ import { useSession } from '@/sync/sync-context';
 import { MobileSessionMetadataButton } from './MobileSessionMetadata';
 import { MobileSessionSwitcher } from './MobileSessionSwitcher';
 import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
+import { SessionSandboxMark } from '@/components/session/SessionSandboxMark';
 
 export const MobileHeader: React.FC<{
   onOpenSessions: () => void;
@@ -100,6 +101,7 @@ export const MobileHeader: React.FC<{
           >
             <span className="flex min-w-0 items-center gap-1">
               <span className="block min-w-0 truncate typography-ui-label text-foreground">{primaryLabel}</span>
+              {currentSessionId && !isNewSessionDraftOpen ? <SessionSandboxMark sessionId={currentSessionId} /> : null}
               {/* Discoverability: the chevron marks the title as a disclosure
                   trigger and flips while the switcher is open. */}
               <Icon

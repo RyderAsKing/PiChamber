@@ -9,6 +9,7 @@ import type { PiComposerControl, PiSessionCreateInput, PiSessionEvent } from '@/
 type DraftListener = { onEvent: (event: PiSessionEvent) => void; onReset: () => void };
 const listeners = new Set<DraftListener>();
 const calls: Array<[string, unknown]> = [];
+const runDirectories: Array<string | undefined> = [];
 let capabilities = ['sessions.discardDraft'];
 let healthState = 'ready';
 // Controls of created sessions in the (fake) shared session store.
@@ -53,8 +54,9 @@ mock.module('@/lib/pi/client', () => ({
     setSessionThinking: async (input: unknown) => {
       calls.push(['thinking', input]);
     },
-    runExtensionControl: async (input: { sessionId: string; id: string; value?: unknown }) => {
+    runExtensionControl: async (input: { sessionId: string; id: string; value?: unknown }, scope?: { directory?: string }) => {
       calls.push(['run', input]);
+      runDirectories.push(scope?.directory);
       return runImpl(input);
     },
   },
@@ -144,6 +146,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 beforeEach(() => {
   resetDraftRuntimeForTests();
   calls.length = 0;
+  runDirectories.length = 0;
   toasts.length = 0;
   capabilities = ['sessions.discardDraft'];
   healthState = 'ready';
@@ -277,6 +280,8 @@ describe('draft runtime', () => {
     pending.resolve(detail('pi-draft'));
     await started;
     expect(calls.find(([name]) => name === 'run')).toEqual(['run', { sessionId: 'pi-draft', id: 'mode', value: 'balance', clientId: 'tab-1' }]);
+    // The draft's folder routes it: nothing is on disk for the server to read.
+    expect(runDirectories).toEqual(['/work']);
     expect(typeof useDraftRuntimeStore.getState().picks?.values.mode?.sentAt).toBe('number');
     emit(event('extension.control', { control: mode('balance') }));
     expect(useDraftRuntimeStore.getState().picks).toBeNull();

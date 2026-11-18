@@ -2,10 +2,12 @@ import simpleGit from 'simple-git';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createRequire } from 'module';
 import { resolvePiChamberDataPath } from '../pichamber-data-dir.js';
+import { createWorktreeIdStore, ownWorktreeId } from '../pi/sandbox/worktree-ids.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -1506,12 +1508,75 @@ export async function continueIntegrate(stateInput = {}) {
   return { kind: 'success', moved: state.remainingCommits.length };
 }
 
+const PICHAMBER_ID_FILE_MAX_BYTES = 256;
+
+// Sandboxed code can write `.git`, so the id file is never followed through a
+// symlink: it is read only as a small regular file, and replaced by renaming a
+// new file over it (rename swaps a symlink itself, it does not follow it).
+const readPiChamberIdFile = async (idFile) => {
+  const info = await fsp.lstat(idFile).catch(() => null);
+  if (!info?.isFile() || info.size > PICHAMBER_ID_FILE_MAX_BYTES) return '';
+  const handle = await fsp.open(idFile, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0)).catch(() => null);
+  if (!handle) return '';
+  try {
+    const buffer = Buffer.alloc(PICHAMBER_ID_FILE_MAX_BYTES + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return bytesRead > PICHAMBER_ID_FILE_MAX_BYTES ? '' : buffer.toString('utf8', 0, bytesRead).trim();
+  } catch {
+    return '';
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+};
+
+const writePiChamberIdFile = async (idFile, projectId) => {
+  const info = await fsp.lstat(idFile).catch((error) => (error?.code === 'ENOENT' ? null : undefined));
+  // A symlink is replaced itself by the rename below; anything else that is
+  // not a regular file (a directory, a device) is left alone.
+  if (info === undefined || (info && !info.isFile() && !info.isSymbolicLink())) return;
+  const temp = `${idFile}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
+  try {
+    await fsp.writeFile(temp, projectId, { encoding: 'utf8', flag: 'wx', mode: 0o644 });
+    await fsp.rename(temp, idFile);
+  } catch {
+    await fsp.rm(temp, { force: true }).catch(() => undefined);
+  }
+};
+
+// The id a sandboxed project was first seen with. Its sandbox owns and is
+// granted `worktree/<that id>` only, and the sandboxed agent can rewrite the
+// id file, so a remembered id stands whatever the file says: a worktree
+// created under another id would be outside the sandbox, or inside another
+// project's. An unreadable record throws rather than trust the file.
+const rememberedPiChamberProjectIds = async (primaryWorktree) => {
+  const ids = await createWorktreeIdStore({ file: resolvePiChamberDataPath(['pi', 'sandbox', 'worktree-ids.json']) }).read();
+  const root = path.resolve(primaryWorktree);
+  const real = await fsp.realpath(root).catch(() => root);
+  return {
+    own: ids.get(root) ?? ids.get(real) ?? null,
+    // Ids remembered for other projects: their sandboxes are granted those
+    // folders, so this project's worktrees must not be filed there.
+    others: new Set([...ids].filter(([other]) => other !== root && other !== real).map(([, id]) => id)),
+  };
+};
+
+// The worktree folder id of a project nothing is remembered for. A clone of
+// a repository whose folder a sandboxed project holds gets its own instead.
+const unsharedPiChamberProjectId = (primaryWorktree, id, others) => (
+  others.has(id) ? ownWorktreeId(primaryWorktree) : id
+);
+
 const ensurePiChamberProjectId = async (primaryWorktree) => {
+  const { own: remembered, others } = await rememberedPiChamberProjectIds(primaryWorktree);
+  if (remembered) return remembered;
   const gitDir = path.join(primaryWorktree, '.git');
   const idFile = path.join(gitDir, 'pichamber');
-  const existing = await fsp.readFile(idFile, 'utf8').then((value) => value.trim()).catch(() => '');
-  if (existing) {
-    return existing;
+  const existing = await readPiChamberIdFile(idFile);
+  // The id names a folder under the data directory, and an agent working in
+  // the repository can write this file: only a commit hash is taken from it.
+  // Anything else is replaced by the id derived below.
+  if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(existing)) {
+    return unsharedPiChamberProjectId(primaryWorktree, existing, others);
   }
 
   const rootsResult = await runGitCommandOrThrow(
@@ -1532,9 +1597,9 @@ const ensurePiChamberProjectId = async (primaryWorktree) => {
   }
 
   await fsp.mkdir(gitDir, { recursive: true }).catch(() => undefined);
-  await fsp.writeFile(idFile, projectId, 'utf8').catch(() => undefined);
+  await writePiChamberIdFile(idFile, projectId);
 
-  return projectId;
+  return unsharedPiChamberProjectId(primaryWorktree, projectId, others);
 };
 
 const resolveWorktreeProjectContext = async (directory) => {

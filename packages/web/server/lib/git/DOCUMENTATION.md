@@ -24,6 +24,10 @@ This module provides Git repository operations for the web server runtime, inclu
   any git config previously written into repositories are left untouched on
   disk.
 
+## Sandbox
+
+Only Pi session daemons (the agent) run in the sandbox. PiChamber's own Git panel, terminal, browser and GitHub features, and worktree hooks and start commands, run outside it with the user's access, so git config, hooks or filters an agent writes into the repo can run when the user or the Git panel runs git. This is a known, accepted trade-off. Git runs the same for every folder, sandboxed project or not. One exception is the worktree folder id: for a project the sandbox manager has remembered an id for (`../pi/sandbox/worktree-ids.js`), new worktrees are filed under that id, not the one in `.git/pichamber`, which the sandboxed agent can rewrite; an unreadable record fails the worktree operation. A project nothing is remembered for is kept out of folders remembered for other projects: when its id (a second clone of the same repository has the same one) is remembered for another root, its worktrees are filed under an id of its own (`ownWorktreeId`), so they never land in a folder a sandbox is granted.
+
 ## Public API
 
 The following functions are exported and used by the web server:

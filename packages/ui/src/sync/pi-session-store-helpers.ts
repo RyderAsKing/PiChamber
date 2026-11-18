@@ -71,6 +71,16 @@ export const isInvalidSessionError = (error: unknown): error is PiRequestError =
 export const isSessionInUseError = (error: unknown): error is PiRequestError =>
   error instanceof PiRequestError && error.code === 'SESSION_IN_USE';
 
+/**
+ * Refusals that concern one session and say nothing about the connection:
+ * another PiChamber instance holds it (`SESSION_IN_USE`), or its project is
+ * sandboxed and the sandbox cannot start (`SANDBOX_UNAVAILABLE`). A load that
+ * fails this way fails that chat only; the runtime stays connected.
+ */
+export const isSessionScopedRefusal = (error: unknown): error is PiRequestError =>
+  error instanceof PiRequestError
+  && (error.code === 'SESSION_IN_USE' || error.code === 'SANDBOX_UNAVAILABLE');
+
 export const isSessionRuntimeConflictError = (
   error: unknown
 ): error is PiRequestError =>

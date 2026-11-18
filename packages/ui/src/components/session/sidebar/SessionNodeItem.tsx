@@ -16,6 +16,7 @@ import { SessionActivityDuration } from '@/components/session/SessionActivityDur
 import { SessionUnreadDot } from './SessionUnreadDot';
 import { SessionNeedsInputIndicator } from './SessionNeedsInputIndicator';
 import { formatNeedsInputLabel } from './sessionAttention';
+import { SessionSandboxMark } from '@/components/session/SessionSandboxMark';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
@@ -595,6 +596,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     >
                       {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
                     </div>
+                    <SessionSandboxMark sessionId={session.id} className={cn(!isTree && 'mt-0.5')} />
                     {isPinnedSession ? <Icon name="star-fill" className={cn("h-3 w-3 text-primary shrink-0", !isTree && "mt-1")} /> : null}
                     {/* Reserves the title-line width of the trailing status, which is
                         positioned over the row so the details line can use the full width. */}

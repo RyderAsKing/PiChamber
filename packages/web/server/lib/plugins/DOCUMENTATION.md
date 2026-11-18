@@ -128,6 +128,11 @@ When it pushes (`daemon-sync.js`):
 - The last 32 epochs are remembered, so a daemon pool is configured per
   daemon as each is reached. A change probes the profile daemon only; others
   pick it up on their next request.
+- A sandboxed project's daemon gets its hook from
+  `onDaemonReadyFor({ roots })`, the folders it owns. Its config is
+  `daemonConfig({ roots })`: `projects` keeps only folders at or below those
+  roots, so sandboxed code never learns where other projects live.
+  `sessions` holds opaque ids and values and is sent whole.
 
 ## Bundled plugins
 

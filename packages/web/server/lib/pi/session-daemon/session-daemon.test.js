@@ -1140,6 +1140,145 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('lists the hosts of signed-in providers for a sandbox allowlist, without paths or credentials', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-hosts-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-1');
+    const signedIn = new Set(['anthropic', 'local']);
+    session.modelRuntime.getModels = () => [
+      { provider: 'anthropic', id: 'a', baseUrl: 'https://api.anthropic.com' },
+      { provider: 'anthropic', id: 'b', baseUrl: 'https://API.anthropic.com/v1' },
+      { provider: 'openai', id: 'c', baseUrl: 'https://api.openai.com/v1' },
+      { provider: 'local', id: 'd', baseUrl: 'http://127.0.0.1:8080/v1' },
+      { provider: 'local', id: 'e', baseUrl: 'not a url' },
+      { provider: 'local', id: 'f' },
+    ];
+    session.modelRuntime.getProviderAuthStatus = (providerId) => ({ configured: signedIn.has(providerId) });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    // Loopback hosts are reached by port, never by host name, so they are
+    // left out; the user allows a local server's port per project.
+    await expect(client.request('providers.hosts')).resolves.toMatchObject({ result: { hosts: ['api.anthropic.com'] } });
+    await client.close();
+  });
+
+  it('answers provider questions for sandboxes without starting a runtime in a sandboxed folder', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-hosts-exclude-'));
+    const agentDir = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-hosts-agent-'));
+    const endpoint = testDaemonEndpoint(root);
+    const started = [];
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      // The daemon's own folder is a sandboxed project.
+      cwd: root,
+      agentDir,
+      createRuntime: async (options) => {
+        started.push(options.cwd);
+        const session = new FakeSession(`pi-session-${started.length}`);
+        session.modelRuntime.getModels = () => [{ provider: 'anthropic', id: 'a', baseUrl: 'https://api.anthropic.com' }];
+        session.modelRuntime.getProviderAuthStatus = () => ({ configured: true });
+        session.modelRuntime.getProviders = () => [];
+        return new FakeRuntime({ cwd: options.cwd, session });
+      },
+      listSessions: async () => [],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('providers.hosts', { exclude: [root] })).resolves.toMatchObject({ result: { hosts: ['api.anthropic.com'] } });
+    await expect(client.request('providers.oauth.refresh', { minValidityMs: 0, exclude: [root] })).resolves.toMatchObject({ result: { checked: 0, failed: [] } });
+    expect(started).toEqual([agentDir]);
+    await client.close();
+  });
+
+  it('never starts a runtime in a folder a sandbox daemon owns', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-sandboxed-folder-'));
+    const other = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-sandboxed-other-'));
+    const agentDir = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-sandboxed-agent-'));
+    const endpoint = testDaemonEndpoint(other);
+    const started = [];
+    let sandboxed = false;
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      agentDir,
+      isSandboxedDirectory: (directory) => sandboxed && (directory === root || directory.startsWith(`${root}/`)),
+      createRuntime: async (options) => {
+        started.push(options.cwd);
+        const session = new FakeSession(`pi-session-${started.length}`);
+        session.modelRuntime.getModels = () => [];
+        session.modelRuntime.getProviders = () => [];
+        return new FakeRuntime({ cwd: options.cwd, session });
+      },
+      listSessions: async () => [],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    // The user selected the project, then turned its sandbox on.
+    await client.request('projects.select', { directory: root });
+    sandboxed = true;
+    // A request without a folder is answered from outside the project.
+    await client.request('providers.list');
+    await client.request('extensions.list', { directory: root });
+    await client.request('providers.refresh', { directory: root });
+    expect(started).toEqual([agentDir]);
+    // A session in the project is the sandbox daemon's to run.
+    // (The test client drops its connection on an error frame.)
+    await expect(client.request('sessions.create', { cwd: root })).rejects.toThrow('Daemon connection closed');
+    expect(started).toEqual([agentDir]);
+    // Other folders are unaffected, and so is the project once it is off.
+    const next = connectClient(endpoint);
+    await next.authenticate();
+    await next.request('sessions.create', { cwd: other });
+    sandboxed = false;
+    await next.request('sessions.create', { cwd: root });
+    expect(started).toEqual([agentDir, other, root]);
+    await next.close();
+  });
+
+  it('refreshes OAuth tokens near expiry for sandbox daemons, reporting only provider ids that failed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-oauth-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-1');
+    const refreshed = [];
+    session.modelRuntime.getProviders = () => [{ id: 'anthropic' }, { id: 'openai-codex' }, { id: 'openai' }];
+    session.modelRuntime.isUsingOAuth = (providerId) => providerId !== 'openai';
+    session.modelRuntime.getAuth = async (providerId, overrides) => {
+      refreshed.push([providerId, overrides]);
+      if (providerId === 'openai-codex') throw new Error('OAuth refresh failed for openai-codex: secret-token');
+      return { auth: { apiKey: 'secret' } };
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const response = await client.request('providers.oauth.refresh', { minValidityMs: 1_800_000 });
+    expect(response.result).toEqual({ checked: 2, failed: ['openai-codex'] });
+    expect(JSON.stringify(response)).not.toContain('secret');
+    expect(refreshed).toEqual([
+      ['anthropic', { minOAuthValidityMs: 1_800_000 }],
+      ['openai-codex', { minOAuthValidityMs: 1_800_000 }],
+    ]);
+    await client.close();
+  });
+
   it('handles every session command with path-selected identities and preserves busy-session configuration on rejection', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
@@ -1473,6 +1612,32 @@ describe('Pi session daemon spike', () => {
       payload: { sessionId: 'pi-session-oversized', directory: root },
     })).rejects.toMatchObject({ code: 'DAEMON_RESPONSE_TOO_LARGE' });
   }, 30_000);
+
+  it('does not auto-trust a folder whose trust was reset when its sandbox was turned off', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-trust-ask-'));
+    const asked = join(root, 'was-sandboxed');
+    const other = join(root, 'other');
+    const agentDir = join(root, 'agent');
+    const endpoint = testDaemonEndpoint(root);
+    // Project config that needs trust (a sandboxed agent could have written it).
+    await Promise.all([mkdir(join(asked, '.pi'), { recursive: true }), mkdir(join(other, '.pi'), { recursive: true }), mkdir(agentDir)]);
+    await Promise.all([writeFile(join(asked, '.pi', 'settings.json'), '{}'), writeFile(join(other, '.pi', 'settings.json'), '{}')]);
+    daemon = createSessionDaemon({
+      endpoint, credential, cwd: root, agentDir,
+      isTrustAskDirectory: (directory) => directory === asked,
+      createRuntime: async () => ({ session: new FakeSession(), async dispose() {} }),
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('settings.set', { scope: 'project', directory: asked, trust: null }))
+      .resolves.toMatchObject({ result: { project: { trusted: false, requiresTrust: true } } });
+    await expect(client.request('settings.get', { directory: asked })).resolves.toMatchObject({ result: { project: { trusted: false, requiresTrust: true } } });
+    // Other known projects keep PiChamber's automatic trust.
+    await expect(client.request('settings.set', { scope: 'project', directory: other, trust: null }))
+      .resolves.toMatchObject({ result: { project: { trusted: true } } });
+    await client.close();
+  });
 
   it('keeps Pi global/project defaults and trust decisions authoritative', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));
@@ -3806,6 +3971,68 @@ describe('Pi session daemon spike', () => {
       await safeClose(clientA);
       await safeClose(clientB);
       await daemonB.stop();
+    }
+  });
+  it('keys leases on the real agent folder, so a sandbox daemon on a shadow folder and the main daemon exclude each other', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-lease-shadow-'));
+    const endpointA = join(root, 'a.sock');
+    const endpointB = join(root, 'b.sock');
+    const agentDir = join(root, 'agent');
+    const shadowDir = join(root, 'shadow');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(shadowDir, { recursive: true });
+    const file1 = join(root, 'session-1.jsonl');
+    await writeFile(file1, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    const session1 = new FakeSession('session-1', file1);
+    const createRuntime = async () => new FakeRuntime({ cwd: root, session: session1 });
+    const listSessions = async () => [
+      { path: file1, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+    ];
+    daemon = createSessionDaemon({
+      endpoint: endpointA,
+      credential,
+      cwd: root,
+      agentDir,
+      profileKey: 'web-p3000',
+      serverInstanceId: 'server-a',
+      daemonId: 'daemon-a',
+      createRuntime,
+      listSessions,
+    });
+    const sandboxDaemon = createSessionDaemonImpl({
+      endpoint: endpointB,
+      credential,
+      cwd: root,
+      agentDir: shadowDir,
+      leaseAgentDir: agentDir,
+      profileKey: 'web-p3000-sbx-abc-def',
+      serverInstanceId: 'server-a',
+      daemonId: 'daemon-b',
+      createRuntime,
+      listSessions,
+    });
+    let clientA;
+    let clientB;
+    try {
+      await daemon.start();
+      await sandboxDaemon.start();
+      clientA = connectClient(endpointA);
+      await clientA.authenticate();
+      clientB = connectClient(endpointB);
+      await clientB.authenticate();
+      await expect(clientA.request('sessions.open', { sessionId: 'session-1' })).resolves.toMatchObject({
+        result: { session: { id: 'session-1' } },
+      });
+      clientB.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId: 'contended', command: 'sessions.open', payload: { sessionId: 'session-1' } })}\n`);
+      await expect(clientB.next((message) => message.kind === 'error'))
+        .resolves.toMatchObject({ error: { code: 'SESSION_IN_USE' } });
+    } finally {
+      for (const client of [clientA, clientB]) {
+        try {
+          if (client && !client.socket.destroyed) await Promise.race([client.close(), new Promise((r) => setTimeout(r, 1_000))]);
+        } catch {}
+      }
+      await sandboxDaemon.stop();
     }
   });
 });

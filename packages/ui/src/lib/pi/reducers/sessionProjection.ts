@@ -286,6 +286,8 @@ export const hydrateSessionFromDetail = (
     beforeCursor?: string;
     isStreaming?: boolean;
     lifecycle?: PiSessionLifecycleState;
+    readOnly?: true;
+    readOnlyReason?: string;
     command?: string;
     retry?: PiRetryInfo;
     /** Server wall clock sampled for the timestamps in this detail. */
@@ -342,6 +344,9 @@ export const hydrateSessionFromDetail = (
   const clientNow = Date.now();
   const session = getOrCreateSession(state, detail.session.id, detail.session.directory);
   session.lastSequence = detail.lastSequence;
+  if (detail.readOnly === true) {
+    session.readOnly = typeof detail.readOnlyReason === 'string' ? { reason: detail.readOnlyReason } : {};
+  }
   session.hasMoreBefore = detail.hasMoreBefore === true;
   session.beforeCursor = detail.hasMoreBefore === true && typeof detail.beforeCursor === 'string'
     ? detail.beforeCursor

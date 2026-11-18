@@ -7,9 +7,11 @@ import { Icon } from '@/components/icon/Icon';
 import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
-import { SettingsSection } from '@/components/sections/shared/SettingsSection';
+import { SETTINGS_HELPER_CLASS, SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { ProjectCard } from '@/components/sections/projects/ProjectCard';
 import { ProjectSettingsPanel } from '@/components/sections/projects/ProjectSettingsPanel';
+import { SandboxingSection } from '@/components/sections/projects/SandboxingSection';
+import { useProjectSandboxStore } from '@/stores/useProjectSandboxStore';
 import { useDeviceInfo } from '@/lib/device';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -24,6 +26,28 @@ export const ProjectsPage: React.FC = () => {
   const setSelectedId = useUIStore((state) => state.setSettingsProjectsSelectedId);
 
   const [projectQuery, setProjectQuery] = React.useState('');
+  const sandboxes = useProjectSandboxStore((state) => state.projects);
+  const sandboxesStatus = useProjectSandboxStore((state) => state.projectsStatus);
+  const loadSandboxes = useProjectSandboxStore((state) => state.loadProjects);
+
+  React.useEffect(() => {
+    if (sandboxesStatus === 'idle') void loadSandboxes();
+  }, [loadSandboxes, sandboxesStatus]);
+
+  // A project added after the store loaded has no sandbox state yet: reload
+  // once per set of unknown ids, so one the server never reports cannot loop.
+  const unknownIds = projects.filter((p) => !sandboxes[p.id]).map((p) => p.id).sort().join('\n');
+  const attemptedUnknownRef = React.useRef('');
+  React.useEffect(() => {
+    if (!unknownIds) {
+      attemptedUnknownRef.current = '';
+      return;
+    }
+    if (sandboxesStatus === 'ready' && attemptedUnknownRef.current !== unknownIds) {
+      attemptedUnknownRef.current = unknownIds;
+      void loadSandboxes();
+    }
+  }, [unknownIds, sandboxesStatus, loadSandboxes]);
 
   const handleAddProject = React.useCallback(() => {
     sessionEvents.requestDirectoryDialog();
@@ -124,6 +148,7 @@ export const ProjectsPage: React.FC = () => {
             </Button>
           </div>
         </SettingsSection>
+        <SandboxingSection />
       </SettingsPageLayout>
     );
   }
@@ -166,6 +191,12 @@ export const ProjectsPage: React.FC = () => {
       }
     >
       <SettingsSection divider={false} settingsItem="projects.browse">
+        {sandboxesStatus === 'failed' ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <p className={SETTINGS_HELPER_CLASS}>Sandbox state could not be loaded.</p>
+            <Button variant="outline" size="xs" onClick={() => void loadSandboxes()}>Try again</Button>
+          </div>
+        ) : null}
         {filteredProjects.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
             <p className="typography-meta text-muted-foreground">No projects match “{projectQuery}”.</p>
@@ -176,11 +207,12 @@ export const ProjectsPage: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @3xl:grid-cols-3">
             {filteredProjects.map((project) => (
-              <ProjectCard key={project.id} project={project} onSelect={setSelectedId} />
+              <ProjectCard key={project.id} project={project} sandbox={sandboxes[project.id]} onSelect={setSelectedId} />
             ))}
           </div>
         )}
       </SettingsSection>
+      <SandboxingSection />
     </SettingsPageLayout>
   );
 };

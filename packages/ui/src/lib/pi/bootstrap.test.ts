@@ -146,6 +146,52 @@ describe("bootstrapPiDirectory", () => {
     expect(result.errors).toHaveLength(0)
   })
 
+  test("leaves a project-stream detail to the store, even a read-only one with no epoch", async () => {
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: ["sessions.list", "events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
+    })
+    mockCreatePiEventStream.mockReturnValueOnce({
+      dispose: () => undefined,
+      reconnect: () => undefined,
+      eventsUrl: "ws://test/events",
+    } as never)
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions" && call.init?.method === "GET") {
+        return jsonResponse({
+          sessions: [{ session: { id: "s1", directory: "/work", sandboxed: true }, updatedAt: 1_000 }],
+          streamEpoch: "epoch-test-1",
+        })
+      }
+      if (url.pathname === "/api/pi/sessions/s1" && call.init?.method === "GET") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work", sandboxed: true },
+          messages: [],
+          lastSequence: -1,
+          isStreaming: false,
+          lifecycle: "idle",
+          readOnly: true,
+          stream: "project-a",
+        })
+      }
+      return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
+    })
+
+    const { bootstrapPiDirectory } = await import("./bootstrap")
+    const result = await bootstrapPiDirectory({
+      directory: "/work",
+      selectedSessionId: "s1",
+      onEvent: () => undefined,
+    }, dependencies)
+    expect(result.phase).not.toBe("failed")
+    expect(result.reducerState.bySession.has("s1")).toBe(false)
+    expect(result.stream).not.toBeNull()
+    expect(result.errors.map((entry) => entry.phase)).toEqual(["session-hydrate"])
+  })
+
   test("reuses first-attach health and session-list results", async () => {
     mockCreatePiEventStream.mockReturnValueOnce({
       dispose: () => undefined,

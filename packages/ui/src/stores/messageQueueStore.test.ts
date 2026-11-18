@@ -289,6 +289,19 @@ describe("durable delivery attempts", () => {
     expect(JSON.stringify(stored)).not.toContain("timeout")
   })
 
+  test("a send refused before it ran drops the attempt without a failure label", () => {
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
+    useMessageQueueStore.getState().addToQueue(target, { content: "first" })
+    const [first] = useMessageQueueStore.getState().getQueueForTarget(target)
+    useMessageQueueStore.getState().markDeliveryAttempt(target, first.id, "followUp")
+
+    useMessageQueueStore.getState().releaseRefusedSend(target, first.id)
+    const stored = useMessageQueueStore.getState().getQueueForTarget(target)[0]
+    expect(stored?.deliveryAttempt).toBe(undefined)
+    expect(stored?.sendFailed).toBe(undefined)
+    expect(useMessageQueueStore.getState().getAutoSendCandidate(target)?.id).toBe(first.id)
+  })
+
   test("unconfirmed error retains the attempt for reload hold", () => {
     const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })

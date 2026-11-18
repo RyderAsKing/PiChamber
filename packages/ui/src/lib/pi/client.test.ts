@@ -535,6 +535,16 @@ describe("send retry safety", () => {
     expect(recordedCalls()).toHaveLength(1)
   })
 
+  test("a sandbox that cannot start is a definite rejection that keeps its reason", async () => {
+    installFetchMock(() => jsonResponse({ error: { code: "SANDBOX_UNAVAILABLE", reason: "NO_LANDLOCK" } }, { status: 503 }))
+    const client = new PiService()
+    const error = await client.sendPrompt({ sessionId: "s1", text: "hi", operationId: "op-1" }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(PiRequestError)
+    expect(error).toMatchObject({ code: "SANDBOX_UNAVAILABLE", status: 503, reason: "NO_LANDLOCK" })
+    // No receipt lookup and no retry: nothing was accepted.
+    expect(recordedCalls()).toHaveLength(1)
+  })
+
   test("operation payload mismatch stays definite", async () => {
     installFetchMock(() => jsonResponse({ error: { code: "OPERATION_PAYLOAD_MISMATCH" } }, { status: 409 }))
     const client = new PiService()
@@ -881,5 +891,55 @@ describe("getExtensionPalette", () => {
   test("rejects a failed request instead of returning no colours", async () => {
     installFetchMock(() => jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 }))
     await expect(piClient.getExtensionPalette({ background: "#ffffff", foreground: "#000000", palette: Array(16).fill("#000000") })).rejects.toThrow()
+  })
+})
+
+describe("PiService project sandboxes", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  const nonoAvailable = { id: "nono", available: true, version: "0.82.0" }
+  const projectState = {
+    projectId: "p1",
+    mode: "nono",
+    launcher: "nono",
+    availability: { state: "unavailable", reason: "NO_LANDLOCK" },
+    allowHosts: ["registry.npmjs.org"],
+    allowLocalPorts: [5432],
+    extraFolders: [],
+  }
+
+  test("reads and rechecks launcher status", async () => {
+    installFetchMock(() => jsonResponse({ launchers: [nonoAvailable] }))
+    const service = new PiService()
+    expect(await service.getSandboxStatus()).toEqual({ launchers: [nonoAvailable] })
+    expect(await service.recheckSandbox()).toEqual({ launchers: [nonoAvailable] })
+    expect(recordedCalls().map((call) => [new URL(call.url, "http://localhost").pathname, call.init?.method]))
+      .toEqual([["/api/pi/sandbox", "GET"], ["/api/pi/sandbox/recheck", "POST"]])
+  })
+
+  test("lists project sandboxes and saves one project's setting", async () => {
+    installFetchMock((call) => call.init?.method === "PUT"
+      ? jsonResponse({ project: projectState })
+      : jsonResponse({ projects: [projectState] }))
+    const service = new PiService()
+    expect(await service.listProjectSandboxes()).toEqual({ projects: [projectState] })
+    const setting = { mode: "nono" as const, allowHosts: ["registry.npmjs.org"], allowLocalPorts: [5432], extraFolders: [] }
+    expect(await service.setProjectSandbox("p 1", setting)).toEqual(projectState)
+    const put = recordedCalls()[1]
+    expect(new URL(put.url, "http://localhost").pathname).toBe("/api/pi/sandbox/projects/p%201")
+    expect(JSON.parse(put.init?.body as string)).toEqual(setting)
+  })
+
+  test("a sandbox that cannot start fails with its reason and is not retried", async () => {
+    installFetchMock(() => jsonResponse(
+      { error: { code: "SANDBOX_UNAVAILABLE", message: "Sandbox unavailable", reason: "NO_LANDLOCK" } },
+      { status: 503 },
+    ))
+    const error = await new PiService().listProjectSandboxes().catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(PiRequestError)
+    expect(error).toMatchObject({ code: "SANDBOX_UNAVAILABLE", reason: "NO_LANDLOCK", status: 503 })
+    expect(recordedCalls()).toHaveLength(1)
   })
 })

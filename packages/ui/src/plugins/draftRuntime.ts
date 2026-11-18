@@ -458,7 +458,7 @@ const drainPicks = async (): Promise<void> => {
     try {
       const { ran } = await piClient.runExtensionControl(
         { sessionId, id, ...(pick.value !== undefined ? { value: pick.value } : {}), clientId: getTabClientId() },
-        { runtimeKey: entry.runtimeKey },
+        { directory: entry.directory, runtimeKey: entry.runtimeKey },
       );
       if (ran && control.kind !== 'action') continue;
       if (!ran && control.kind !== 'action') {
@@ -566,6 +566,7 @@ export const applyDraftControlPicks = async (
   draftId: string,
   sessionId: string,
   adoptedSessionId: string | null = null,
+  directory?: string,
 ): Promise<void> => {
   const picks = draftPicksFor(draftId);
   const adopted = adoptedSessionId !== null && adoptedSessionId === sessionId;
@@ -582,7 +583,7 @@ export const applyDraftControlPicks = async (
     try {
       const { ran } = await piClient.runExtensionControl(
         { sessionId, id, ...(value !== undefined ? { value } : {}), clientId: getTabClientId() },
-        { runtimeKey: getRuntimeKey() },
+        { ...(directory ? { directory } : {}), runtimeKey: getRuntimeKey() },
       );
       if (ran) continue;
       const after = sessionControl(sessionId, id);

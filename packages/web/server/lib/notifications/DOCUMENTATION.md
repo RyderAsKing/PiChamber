@@ -7,8 +7,12 @@ model OpenCode questions, permissions, subagents, or tool completion, and it
 sends nothing off the machine: there is no push delivery, no registered
 routes, and no hosted relay.
 
-`pi-notification-watcher.js` maintains one server-owned subscription to the Pi
-session daemon. A live `busy` or `retry` lifecycle, or an assistant start,
+`pi-notification-watcher.js` maintains one server-owned subscription per live
+Pi session daemon in the daemon pool (`../pi/session-daemon/daemon-pool.js`).
+It subscribes to daemons registered later, closes the subscription of a
+daemon that is removed, and starts over with a fresh cursor when a key's
+runtime is replaced. One tracker sees every daemon's events; session ids are
+unique across daemons because a session is leased to one daemon at a time. A live `busy` or `retry` lifecycle, or an assistant start,
 opens a turn. The first terminal `idle` emits a completion notification and
 the first `session.error` or terminal `error` emits an error notification.
 Duplicate terminal boundaries do nothing. Bootstrap snapshots seed activity but
@@ -46,5 +50,7 @@ in place and no migration runs.
 
 ## Failure behavior
 
-The watcher reconnects to the daemon with its sequence and stream epoch, so
-replayed terminal events remain deduplicated by the active-turn state.
+The watcher reconnects each daemon with that daemon's own sequence and
+stream epoch, so replayed terminal events remain deduplicated by the
+active-turn state. A daemon that fails retries alone; the others keep
+delivering.

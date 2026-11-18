@@ -22,6 +22,7 @@ import { useTerminalSessionStream } from './terminal/useTerminalSessionStream';
 import { useTerminalInputHandling } from './terminal/useTerminalInputHandling';
 import { useTerminalTabsManager } from './terminal/useTerminalTabsManager';
 import { createPortal } from 'react-dom';
+import { TerminalSandboxNote } from '@/components/views/terminal/TerminalSandboxNote';
 
 type TerminalViewProps = {
   visible?: boolean;
@@ -497,6 +498,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
       </div>
       ) : null}
 
+      <TerminalSandboxNote directory={effectiveDirectory} />
       <div className="relative flex-1 overflow-hidden" style={{ backgroundColor: xtermTheme.background }}>
         <div className="h-full w-full box-border pl-4 pr-1.5 pt-3 pb-4">
           {shouldRenderViewport && effectiveDirectory && directoryTerminalState

@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { useDeviceInfo } from '@/lib/device';
 import { toast } from '@/components/ui';
 import type { PiSessionTreeNode } from '@/lib/pi/protocol';
+import { describeSandboxSendError } from '@/lib/pi/sandboxText';
 
 interface TimelineDialogProps {
     open: boolean;
@@ -311,7 +312,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
             await onFork(selected.message.info.id);
             onOpenChange(false);
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to fork');
+            toast.error(describeSandboxSendError(error) ?? (error instanceof Error ? error.message : 'Failed to fork'));
         }
     }, [filteredMessages, isStreaming, onFork, onOpenChange, selectedIndex]);
 
