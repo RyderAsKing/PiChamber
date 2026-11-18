@@ -1328,6 +1328,28 @@ const PAGES = {
     settledScript: `Boolean(document.querySelector('[data-draft-wallpaper="ascii"]'))`,
     viewports: ['desktop'],
   },
+  // The same screen with each of the other patterns.
+  ...Object.fromEntries(['contours', 'halftone', 'strands', 'grain'].map((wallpaper) => [`draft-wallpaper-${wallpaper}`, {
+    path: '/',
+    readyText: ['Add folder'],
+    draftWallpaper: wallpaper,
+    settledScript: `Boolean(document.querySelector('[data-draft-wallpaper="${wallpaper}"]'))`,
+    viewports: ['desktop'],
+  }])),
+  'settings-wallpaper': {
+    // Appearance at Wallpaper: a preview tile per pattern, the Picture tile
+    // asking for one, and the picture and motion rows under them.
+    path: '/?settings=appearance',
+    readyText: ['Moving wallpaper'],
+    draftWallpaper: 'contours',
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const group = document.querySelector('[data-settings-item="appearance.wallpaper"]');
+      if (!group || group.querySelectorAll('canvas').length < 6) return false;
+      group.scrollIntoView({ block: 'start' });
+      return true;
+    })()`,
+  },
   'composer-controls-sheet': {
     // Phones: the composer controls sheet from the button beside Send, with
     // a chip for every mode and a switch for Plan.

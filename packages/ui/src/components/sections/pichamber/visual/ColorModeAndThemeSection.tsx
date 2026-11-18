@@ -24,9 +24,9 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
-import type { Wallpaper } from '@/lib/wallpaper';
 import type { Theme, ThemeMode } from '@/types/theme';
-import { MOBILE_LAYOUT_OPTIONS, THEME_MODE_OPTIONS, WALLPAPER_OPTIONS } from './visualSettingsConstants';
+import { MOBILE_LAYOUT_OPTIONS, THEME_MODE_OPTIONS } from './visualSettingsConstants';
+import { WallpaperSettings } from './WallpaperSettings';
 import { ColorModePreview, ThemeSwatch } from './ThemePreview';
 
 export interface ColorModeAndThemeSectionProps {
@@ -49,10 +49,6 @@ export interface ColorModeAndThemeSectionProps {
   dockBadgeSupported: boolean;
   dockBadgeEnabled: boolean;
   setDockBadgeEnabled: (enabled: boolean) => void;
-  wallpaper: Wallpaper;
-  onWallpaperChange: (value: Wallpaper) => void;
-  wallpaperMotion: boolean;
-  onWallpaperMotionChange: (enabled: boolean) => void;
 }
 
 export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> = ({
@@ -75,10 +71,6 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
   dockBadgeSupported,
   dockBadgeEnabled,
   setDockBadgeEnabled,
-  wallpaper,
-  onWallpaperChange,
-  wallpaperMotion,
-  onWallpaperMotionChange,
 }) => {
   return (
     <SettingsSection title={'Color mode & theme'} divider={false} contentClassName="space-y-4">
@@ -228,30 +220,7 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
         </SettingsInfoHint>
       </div>
 
-      <SettingsStackedField
-        label={'Wallpaper'}
-        info={'A still pattern behind the new-session screen, drawn in the theme\'s text colour and faded toward the composer.'}
-        settingsItem="appearance.wallpaper"
-      >
-        <SettingsChipGroup
-          value={wallpaper}
-          options={WALLPAPER_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-          onChange={onWallpaperChange}
-          aria-label={'Wallpaper'}
-        />
-      </SettingsStackedField>
-
-      {/* Always shown so search can find it; it has nothing to move under None. */}
-      <SettingsInset settingsItem="appearance.wallpaper-motion">
-        <SettingsCheckboxRow
-          checked={wallpaperMotion}
-          onChange={onWallpaperMotionChange}
-          disabled={wallpaper === 'none'}
-          label={'Moving wallpaper'}
-          info={'The pattern drifts slowly. It stays still when your system asks for reduced motion.'}
-          ariaLabel={'Moving wallpaper'}
-        />
-      </SettingsInset>
+      <WallpaperSettings />
 
       {dockBadgeSupported && (
         <SettingsInset settingsItem="appearance.dock-badge">

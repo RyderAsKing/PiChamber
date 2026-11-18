@@ -267,10 +267,14 @@ session reported those controls before any send, desktop only);
 `turn-activity` (a seeded turn that read, searched, edited and ran two
 commands, one failing: its `Worked for` line with the counts and `1 error`);
 `turn-activity-open` (the same line pressed, showing the activity rail);
-`draft-wallpaper-dither` and `draft-wallpaper-ascii` (the new-session screen
-with each wallpaper, set through the `draftWallpaper` UI setting and held
-still through `draftWallpaperMotion`, desktop only; pages without one reset
-it to None);
+`draft-wallpaper-dither`, `draft-wallpaper-ascii`,
+`draft-wallpaper-contours`, `draft-wallpaper-halftone`,
+`draft-wallpaper-strands`, and `draft-wallpaper-grain` (the new-session
+screen with each pattern, set through the `draftWallpaper` UI setting and
+held still through `draftWallpaperMotion`, desktop only; pages without one
+reset it to None); `settings-wallpaper` (Appearance at Wallpaper: a preview
+tile per pattern, the Picture tile, and the picture and motion rows; the
+seed has no picture, so the Picture tile asks for one, desktop only);
 `subagents-turn` (a finished scout-then-reviewer chain, a card per run);
 `subagents-run` (the reviewer's card pressed: the run on its own, in the
 Agents panel on desktop and a sheet on phones); and `subagents-panel` (the

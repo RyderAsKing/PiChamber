@@ -1,4 +1,5 @@
 import type { DraftStarterRef } from '@/lib/draftStarters';
+import type { Wallpaper, WallpaperImageStyle } from '@/lib/wallpaper';
 
 type RuntimePlatform = 'web' | 'desktop';
 
@@ -641,8 +642,10 @@ export interface SettingsPayload {
   mobileKeyboardMode?: 'native' | 'resize-content';
   draftStarters?: DraftStarterRef[];
   draftStartersVisible?: boolean;
-  draftWallpaper?: 'none' | 'dither' | 'ascii';
+  draftWallpaper?: Wallpaper;
   draftWallpaperMotion?: boolean;
+  draftWallpaperImageStyle?: WallpaperImageStyle;
+  draftWallpaperImageVersion?: string | null;
 
   [key: string]: unknown;
 }

@@ -5,7 +5,7 @@ import { isTerminalShell } from '@/lib/terminalShell';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { normalizePwaName } from '@/lib/pwaKeys';
 import { isSidebarViewMode } from '@/lib/sidebarViewMode';
-import { isWallpaper } from '@/lib/wallpaper';
+import { isWallpaper, isWallpaperImageStyle, isWallpaperImageVersion } from '@/lib/wallpaper';
 import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { sanitizeCommandTriggers } from '@/lib/pi/command-triggers';
 import {
@@ -154,6 +154,13 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   }
   if (typeof candidate.draftWallpaperMotion === 'boolean') {
     result.draftWallpaperMotion = candidate.draftWallpaperMotion;
+  }
+  if (isWallpaperImageStyle(candidate.draftWallpaperImageStyle)) {
+    result.draftWallpaperImageStyle = candidate.draftWallpaperImageStyle;
+  }
+  // null is a saved "no picture", so it is kept rather than dropped.
+  if (candidate.draftWallpaperImageVersion === null || isWallpaperImageVersion(candidate.draftWallpaperImageVersion)) {
+    result.draftWallpaperImageVersion = candidate.draftWallpaperImageVersion;
   }
   if (typeof candidate.draftStartersScheduleTaskAdded === 'boolean') {
     result.draftStartersScheduleTaskAdded =

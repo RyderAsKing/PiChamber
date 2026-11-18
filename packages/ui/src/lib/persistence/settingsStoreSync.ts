@@ -3,7 +3,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useMessageQueueStore, type FollowUpBehavior, isFollowUpBehavior, normalizeFollowUpBehavior } from '@/stores/messageQueueStore';
 import { isTerminalShell } from '@/lib/terminalShell';
 import { isSidebarViewMode } from '@/lib/sidebarViewMode';
-import { isWallpaper } from '@/lib/wallpaper';
+import { isWallpaper, isWallpaperImageStyle, isWallpaperImageVersion } from '@/lib/wallpaper';
 import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
@@ -241,6 +241,15 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
   }
   if (typeof settings.draftWallpaperMotion === 'boolean' && settings.draftWallpaperMotion !== store.draftWallpaperMotion) {
     store.setDraftWallpaperMotion(settings.draftWallpaperMotion);
+  }
+  if (isWallpaperImageStyle(settings.draftWallpaperImageStyle) && settings.draftWallpaperImageStyle !== store.draftWallpaperImageStyle) {
+    store.setDraftWallpaperImageStyle(settings.draftWallpaperImageStyle);
+  }
+  if (
+    (settings.draftWallpaperImageVersion === null || isWallpaperImageVersion(settings.draftWallpaperImageVersion))
+    && settings.draftWallpaperImageVersion !== store.draftWallpaperImageVersion
+  ) {
+    store.setDraftWallpaperImageVersion(settings.draftWallpaperImageVersion);
   }
   if (
     typeof settings.terminalFontSize === 'number' &&

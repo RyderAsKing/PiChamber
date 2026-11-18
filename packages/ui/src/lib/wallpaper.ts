@@ -1,11 +1,12 @@
 /**
- * The new-session screen's wallpaper: none, an ordered dither, or ASCII
- * characters, both drawn from the same static field in the theme's ink.
+ * The new-session screen's wallpaper: none, a pattern drawn from one shared
+ * field in the theme's ink (dither, ASCII, contours, halftone, strands,
+ * grain), or the server's uploaded picture.
  *
- * Persisted server-side as the `draftWallpaper` UI setting so every client of
- * a server shows the same screen.
+ * Persisted server-side as the `draftWallpaper*` UI settings so every client
+ * of a server shows the same screen.
  */
-const WALLPAPERS = ['none', 'dither', 'ascii'] as const;
+const WALLPAPERS = ['none', 'dither', 'ascii', 'contours', 'halftone', 'strands', 'grain', 'image'] as const;
 
 export type Wallpaper = (typeof WALLPAPERS)[number];
 
@@ -13,6 +14,22 @@ export const DEFAULT_WALLPAPER: Wallpaper = 'none';
 
 export const isWallpaper = (value: unknown): value is Wallpaper =>
   typeof value === 'string' && (WALLPAPERS as readonly string[]).includes(value);
+
+/** Whether a wallpaper can drift. Grain and pictures always hold still. */
+export const wallpaperCanMove = (wallpaper: Wallpaper): boolean =>
+  wallpaper !== 'none' && wallpaper !== 'grain' && wallpaper !== 'image';
+
+const IMAGE_STYLES = ['photo', 'dither', 'ascii'] as const;
+
+/** How an uploaded picture shows: as itself, dimmed, or drawn as dither or ASCII. */
+export type WallpaperImageStyle = (typeof IMAGE_STYLES)[number];
+
+export const isWallpaperImageStyle = (value: unknown): value is WallpaperImageStyle =>
+  typeof value === 'string' && (IMAGE_STYLES as readonly string[]).includes(value);
+
+/** The server names each picture by a 16-hex-digit hash of its bytes. */
+export const isWallpaperImageVersion = (value: unknown): value is string =>
+  typeof value === 'string' && /^[0-9a-f]{16}$/.test(value);
 
 /** Size of one dither dot and one ASCII character cell, in CSS pixels. */
 export const DITHER_CELL_PX = 3;
@@ -143,17 +160,103 @@ const SINE_SCALE = SINE_STEPS / (2 * Math.PI);
 /** 0.5 + 0.5 * sin over one turn; a frame looks bands up here instead of calling Math.sin. */
 const BAND_TABLE = Float32Array.from({ length: SINE_STEPS }, (_, i) => 0.5 + 0.5 * Math.sin(i / SINE_SCALE));
 
+const bandAt = (angle: number): number => {
+  const turn = Math.floor(angle * SINE_SCALE);
+  return BAND_TABLE[((turn % SINE_STEPS) + SINE_STEPS) % SINE_STEPS];
+};
+
 /** Writes each listed cell's density at `seconds` into `out` (one value per listed cell). */
 export function fillWallpaper(field: WallpaperField, seconds: number, out: Float32Array): void {
   const shift = seconds * DRIFT_RADIANS_PER_SECOND;
   const { noise, phase, reveal } = field;
   for (let i = 0; i < field.cells.length; i += 1) {
-    const turn = (phase[i] - shift) * SINE_SCALE;
-    const bands = BAND_TABLE[(Math.floor(turn) % SINE_STEPS + SINE_STEPS) % SINE_STEPS];
-    const value = (noise[i] * 0.55 + bands * 0.45 - 0.35) * 1.5;
+    const value = (noise[i] * 0.55 + bandAt(phase[i] - shift) * 0.45 - 0.35) * 1.5;
     out[i] = value <= 0 ? 0 : value >= 1 ? reveal[i] : value * reveal[i];
   }
 }
+
+/**
+ * Writes each listed cell's field height at `seconds`, before clamping and
+ * without the cleared middle, so contour lines stay continuous where the
+ * pattern fades out. Roughly in [0.1, 0.9].
+ */
+export function fillWallpaperHeight(field: WallpaperField, seconds: number, out: Float32Array): void {
+  const shift = seconds * DRIFT_RADIANS_PER_SECOND;
+  const { noise, phase } = field;
+  for (let i = 0; i < field.cells.length; i += 1) out[i] = noise[i] * 0.55 + bandAt(phase[i] - shift) * 0.45;
+}
+
+/**
+ * Writes the direction, in radians, a strand at each listed cell points:
+ * set by the noise, and swaying with the bands as they drift.
+ */
+export function fillWallpaperFlow(field: WallpaperField, seconds: number, out: Float32Array): void {
+  const shift = seconds * DRIFT_RADIANS_PER_SECOND;
+  const { noise, phase } = field;
+  for (let i = 0; i < field.cells.length; i += 1) out[i] = noise[i] * 4 * Math.PI + (bandAt(phase[i] - shift) - 0.5) * 1.2;
+}
+
+/** Contour heights drawn by the contour wallpaper. */
+export const CONTOUR_LEVELS: readonly number[] = [0.3, 0.36, 0.42, 0.48, 0.54, 0.6, 0.66, 0.72];
+
+/**
+ * Marching squares over a row-major grid of heights; NaN marks a point with
+ * no value, and squares that touch one are skipped. Calls `segment` with
+ * each piece of the `level` line, in grid units (point (c, r) is at c, r),
+ * and the index of the square's top-left point.
+ */
+export function traceContour(
+  heights: Float32Array,
+  cols: number,
+  rows: number,
+  level: number,
+  segment: (x1: number, y1: number, x2: number, y2: number, square: number) => void,
+): void {
+  for (let r = 0; r < rows - 1; r += 1) {
+    const top = r * cols;
+    const bottom = top + cols;
+    for (let c = 0; c < cols - 1; c += 1) {
+      const a = heights[top + c];
+      const b = heights[top + c + 1];
+      const d = heights[bottom + c];
+      const e = heights[bottom + c + 1];
+      // NaN fails every comparison, so a missing corner never draws.
+      if (!(a === a && b === b && d === d && e === e)) continue;
+      const mask = (a > level ? 8 : 0) | (b > level ? 4 : 0) | (e > level ? 2 : 0) | (d > level ? 1 : 0);
+      if (mask === 0 || mask === 15) continue;
+      // Where the line crosses each edge of the square.
+      const nx = c + (level - a) / (b - a);
+      const ey = r + (level - b) / (e - b);
+      const sx = c + (level - d) / (e - d);
+      const wy = r + (level - a) / (d - a);
+      switch (mask) {
+        case 1: case 14: segment(c, wy, sx, r + 1, top + c); break;
+        case 2: case 13: segment(sx, r + 1, c + 1, ey, top + c); break;
+        case 3: case 12: segment(c, wy, c + 1, ey, top + c); break;
+        case 4: case 11: segment(nx, r, c + 1, ey, top + c); break;
+        case 6: case 9: segment(nx, r, sx, r + 1, top + c); break;
+        case 7: case 8: segment(c, wy, nx, r, top + c); break;
+        case 5: segment(c, wy, nx, r, top + c); segment(sx, r + 1, c + 1, ey, top + c); break;
+        case 10: segment(nx, r, c + 1, ey, top + c); segment(c, wy, sx, r + 1, top + c); break;
+        default: break;
+      }
+    }
+  }
+}
+
+/** A fixed random value in [0, 1] for a pixel, for grain. */
+export const grainAt = (x: number, y: number): number => hash(x, y);
+
+/**
+ * How lit a picture's pixel is in the theme's ink. Light ink (dark themes)
+ * draws the picture's bright parts, dark ink its dark parts, so the picture
+ * reads the right way round in both. Transparent pixels stay empty.
+ */
+export const pictureDensity = (r: number, g: number, b: number, a: number, inkIsLight: boolean): number => {
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const tone = inkIsLight ? luminance : 1 - luminance;
+  return Math.min(1, Math.max(0, (tone - 0.08) / 0.84)) * (a / 255);
+};
 
 export type WallpaperGrid = {
   cols: number;

@@ -3,7 +3,7 @@ import type { CommandTrigger } from '@/lib/pi/command-triggers';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { SidebarViewMode } from '@/lib/sidebarViewMode';
-import type { Wallpaper } from '@/lib/wallpaper';
+import type { Wallpaper, WallpaperImageStyle } from '@/lib/wallpaper';
 
 export type ManagedRemoteTunnelPreset = {
   id: string;
@@ -154,6 +154,10 @@ export type DesktopSettings = {
   draftWallpaper?: Wallpaper;
   /** Whether the wallpaper's pattern drifts. */
   draftWallpaperMotion?: boolean;
+  /** How the uploaded picture shows: as itself, or drawn as dither or ASCII. */
+  draftWallpaperImageStyle?: WallpaperImageStyle;
+  /** Version of the server's wallpaper picture; null when there is none. */
+  draftWallpaperImageVersion?: string | null;
   draftStartersScheduleTaskAdded?: boolean;
 };
 
