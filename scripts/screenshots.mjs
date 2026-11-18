@@ -1329,7 +1329,7 @@ const PAGES = {
     viewports: ['desktop'],
   },
   // The same screen with each of the other patterns.
-  ...Object.fromEntries(['contours', 'halftone', 'strands', 'grain'].map((wallpaper) => [`draft-wallpaper-${wallpaper}`, {
+  ...Object.fromEntries(['halftone', 'strands', 'grain'].map((wallpaper) => [`draft-wallpaper-${wallpaper}`, {
     path: '/',
     readyText: ['Add folder'],
     draftWallpaper: wallpaper,
@@ -1341,7 +1341,7 @@ const PAGES = {
     // asking for one, and the picture and motion rows under them.
     path: '/?settings=appearance',
     readyText: ['Moving wallpaper'],
-    draftWallpaper: 'contours',
+    draftWallpaper: 'halftone',
     viewports: ['desktop'],
     settledScript: `(() => {
       const group = document.querySelector('[data-settings-item="appearance.wallpaper"]');

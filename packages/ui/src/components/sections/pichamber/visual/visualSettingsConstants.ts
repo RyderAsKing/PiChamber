@@ -90,7 +90,6 @@ export const WALLPAPER_OPTIONS: Array<{ value: Wallpaper; label: string }> = [
   { value: 'none', label: 'None' },
   { value: 'dither', label: 'Dither' },
   { value: 'ascii', label: 'ASCII' },
-  { value: 'contours', label: 'Contours' },
   { value: 'halftone', label: 'Halftone' },
   { value: 'strands', label: 'Strands' },
   { value: 'grain', label: 'Grain' },

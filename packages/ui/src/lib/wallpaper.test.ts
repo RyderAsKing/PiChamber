@@ -4,7 +4,6 @@ import {
   ASCII_RAMP,
   asciiFor,
   bayerThreshold,
-  CONTOUR_LEVELS,
   createWallpaperField,
   fillWallpaper,
   fillWallpaperHeight,
@@ -12,7 +11,6 @@ import {
   isWallpaperImageStyle,
   isWallpaperImageVersion,
   pictureDensity,
-  traceContour,
   wallpaperCanMove,
   sampleWallpaper,
   wallpaperDensity,
@@ -20,11 +18,13 @@ import {
 
 describe('wallpaper', () => {
   test('accepts only the known wallpapers, picture styles and versions', () => {
-    expect(['none', 'dither', 'ascii', 'contours', 'halftone', 'strands', 'grain', 'image'].every(isWallpaper)).toBe(true);
+    expect(['none', 'dither', 'ascii', 'halftone', 'strands', 'grain', 'image'].every(isWallpaper)).toBe(true);
     expect(isWallpaper('stars')).toBe(false);
+    // Contours was tried and removed; a saved value falls back to the default.
+    expect(isWallpaper('contours')).toBe(false);
     expect(isWallpaper(undefined)).toBe(false);
     expect(['photo', 'dither', 'ascii'].every(isWallpaperImageStyle)).toBe(true);
-    expect(isWallpaperImageStyle('contours')).toBe(false);
+    expect(isWallpaperImageStyle('halftone')).toBe(false);
     expect(isWallpaperImageVersion('0123456789abcdef')).toBe(true);
     expect(isWallpaperImageVersion('0123456789ABCDEF')).toBe(false);
     expect(isWallpaperImageVersion('../etc/passwd')).toBe(false);
@@ -32,7 +32,7 @@ describe('wallpaper', () => {
   });
 
   test('only patterns move; grain and pictures hold still', () => {
-    expect(['dither', 'ascii', 'contours', 'halftone', 'strands'].every((w) => wallpaperCanMove(w as never))).toBe(true);
+    expect(['dither', 'ascii', 'halftone', 'strands'].every((w) => wallpaperCanMove(w as never))).toBe(true);
     expect(wallpaperCanMove('none')).toBe(false);
     expect(wallpaperCanMove('grain')).toBe(false);
     expect(wallpaperCanMove('image')).toBe(false);
@@ -99,34 +99,12 @@ describe('wallpaper', () => {
     }
   });
 
-  test('contour heights span the contour levels', () => {
-    const field = createWallpaperField(1600, 1000, 6, 6);
+  test('the field height keeps varying where the clamped density is solid', () => {
+    // Halftone sizes its dots by height, so it needs a spread, not a plateau.
+    const field = createWallpaperField(1600, 1000, 8, 8);
     const heights = new Float32Array(field.cells.length);
     fillWallpaperHeight(field, 0, heights);
-    const min = Math.min(...heights);
-    const max = Math.max(...heights);
-    expect(min < CONTOUR_LEVELS[0]).toBe(true);
-    expect(max > CONTOUR_LEVELS[CONTOUR_LEVELS.length - 1]).toBe(true);
-  });
-
-  test('traces a contour where the heights cross the level, and nowhere else', () => {
-    // A ramp rising left to right across a 3x2 grid crosses 0.5 between columns 0 and 1.
-    const ramp = Float32Array.from([0, 1, 1, 0, 1, 1]);
-    const segments: number[][] = [];
-    traceContour(ramp, 3, 2, 0.5, (...points) => segments.push(points));
-    // The last value names the square: its top-left point.
-    expect(segments).toEqual([[0.5, 0, 0.5, 1, 0]]);
-
-    const flat = new Float32Array(6).fill(0.2);
-    let count = 0;
-    traceContour(flat, 3, 2, 0.5, () => { count += 1; });
-    expect(count).toBe(0);
-
-    // A missing point skips every square that touches it.
-    const holed = Float32Array.from([0, 1, Number.NaN, 0, 1, 1]);
-    const kept: number[][] = [];
-    traceContour(holed, 3, 2, 0.5, (...points) => kept.push(points));
-    expect(kept).toEqual([[0.5, 0, 0.5, 1, 0]]);
+    expect(Math.max(...heights) - Math.min(...heights) > 0.4).toBe(true);
   });
 
   test('draws a picture the right way round for the ink', () => {

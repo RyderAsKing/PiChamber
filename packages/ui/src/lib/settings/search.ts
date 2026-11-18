@@ -65,7 +65,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     page: 'appearance',
     title: "Wallpaper",
     description: "A pattern or your own picture behind the new-session screen.",
-    keywords: ['background', 'dither', 'ascii', 'contours', 'halftone', 'strands', 'grain', 'pattern', 'new session', 'texture'],
+    keywords: ['background', 'dither', 'ascii', 'halftone', 'strands', 'grain', 'pattern', 'new session', 'texture'],
   },
   {
     id: 'appearance.wallpaper-picture',

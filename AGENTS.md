@@ -268,8 +268,8 @@ session reported those controls before any send, desktop only);
 commands, one failing: its `Worked for` line with the counts and `1 error`);
 `turn-activity-open` (the same line pressed, showing the activity rail);
 `draft-wallpaper-dither`, `draft-wallpaper-ascii`,
-`draft-wallpaper-contours`, `draft-wallpaper-halftone`,
-`draft-wallpaper-strands`, and `draft-wallpaper-grain` (the new-session
+`draft-wallpaper-halftone`, `draft-wallpaper-strands`, and
+`draft-wallpaper-grain` (the new-session
 screen with each pattern, set through the `draftWallpaper` UI setting and
 held still through `draftWallpaperMotion`, desktop only; pages without one
 reset it to None); `settings-wallpaper` (Appearance at Wallpaper: a preview

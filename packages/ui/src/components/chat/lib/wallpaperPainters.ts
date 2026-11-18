@@ -1,7 +1,6 @@
 import {
   ASCII_CELL,
   ASCII_RAMP,
-  CONTOUR_LEVELS,
   DITHER_CELL_PX,
   asciiIndex,
   bayerThreshold,
@@ -11,7 +10,7 @@ import {
   fillWallpaperHeight,
   grainAt,
   pictureDensity,
-  traceContour,
+  wallpaperReveal,
   type Wallpaper,
   type WallpaperImageStyle,
 } from '@/lib/wallpaper';
@@ -21,7 +20,7 @@ type Ink = { r: number; g: number; b: number };
 export type WallpaperPainter = {
   /** Draws the frame at `seconds`. */
   draw: (seconds: number) => void;
-  /** Time between frames when moving; heavier patterns draw less often. */
+  /** Time between frames when moving. */
   frameMs: number;
 };
 
@@ -42,30 +41,31 @@ export type PainterOptions = {
 const INK_ALPHA = {
   dither: { light: 0.11, dark: 0.13 },
   ascii: { light: 0.15, dark: 0.18 },
-  contours: { light: 0.2, dark: 0.24 },
   halftone: { light: 0.13, dark: 0.16 },
   strands: { light: 0.22, dark: 0.26 },
   grain: { light: 0.09, dark: 0.11 },
   photo: { light: 0.3, dark: 0.26 },
+  /** Under a picture's dither or ASCII, the photo itself shows this much. */
+  pictureBase: { light: 0.2, dark: 0.18 },
+  /** The picture's dots or characters, in its own colours. */
+  pictureEffect: { light: 0.6, dark: 0.55 },
 } as const;
 
 /** Moving patterns draw this often; the drift is slow, so more buys nothing. */
 const FRAME_MS = 1000 / 6;
-/** Contours trace every line each frame, so they draw a little less often. */
-const CONTOUR_FRAME_MS = 1000 / 4;
 
 const HALFTONE_CELL_PX = 8;
+/** How much of a picture's effect is left in the cleared middle. */
+const PICTURE_EFFECT_MIDDLE = 0.25;
 const HALFTONE_LEVELS = 8;
 const STRAND_CELL_PX = 12;
-const CONTOUR_CELL_PX = 6;
 
 const deviceScale = (): number => Math.min(2, window.devicePixelRatio || 1);
 
 const inkStyle = (ink: Ink, alpha: number): string => `rgb(${ink.r} ${ink.g} ${ink.b} / ${alpha})`;
 
 /** Whether the canvas holds one pixel per cell and is scaled up crisply by CSS. */
-export const isPixelatedWallpaper = (wallpaper: Wallpaper, pictureStyle: WallpaperImageStyle): boolean =>
-  wallpaper === 'dither' || wallpaper === 'grain' || (wallpaper === 'image' && pictureStyle === 'dither');
+export const isPixelatedWallpaper = (wallpaper: Wallpaper): boolean => wallpaper === 'dither' || wallpaper === 'grain';
 
 /** Cells and their density over time, from the shared field or from a picture. */
 type DensitySource = {
@@ -92,17 +92,10 @@ const coverCrop = (picture: ImageBitmap, width: number, height: number) => {
   return { sx: 0, sy: (picture.height - sh) / 2, sw: picture.width, sh };
 };
 
-const pictureSource = (
-  picture: ImageBitmap,
-  width: number,
-  height: number,
-  cellWidth: number,
-  cellHeight: number,
-  inkIsLight: boolean,
-): DensitySource | null => {
+/** The picture averaged down to one RGBA pixel per cell, cropped to cover the screen. */
+const samplePicture = (picture: ImageBitmap, width: number, height: number, cellWidth: number, cellHeight: number) => {
   const cols = Math.ceil(width / cellWidth);
   const rows = Math.ceil(height / cellHeight);
-  // The browser averages the picture down to one pixel per cell.
   const sample = document.createElement('canvas');
   sample.width = cols;
   sample.height = rows;
@@ -112,13 +105,7 @@ const pictureSource = (
   context.imageSmoothingQuality = 'high';
   const crop = coverCrop(picture, width, height);
   context.drawImage(picture, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, cols, rows);
-  const data = context.getImageData(0, 0, cols, rows).data;
-  const densities = new Float32Array(cols * rows);
-  for (let i = 0; i < densities.length; i += 1) {
-    densities[i] = pictureDensity(data[i * 4], data[i * 4 + 1], data[i * 4 + 2], data[i * 4 + 3], inkIsLight);
-  }
-  const cells = Uint32Array.from({ length: cols * rows }, (_, i) => i);
-  return { cols, rows, cells, fill: (_seconds, out) => out.set(densities) };
+  return { cols, rows, data: context.getImageData(0, 0, cols, rows).data };
 };
 
 function ditherPainter(canvas: HTMLCanvasElement, source: DensitySource, ink: Ink, alpha: number): WallpaperPainter | null {
@@ -284,53 +271,6 @@ function strandsPainter(canvas: HTMLCanvasElement, width: number, height: number
   };
 }
 
-/** Contour lines fade in through this many steps of the reveal. */
-const CONTOUR_FADE_STEPS = 4;
-
-function contoursPainter(canvas: HTMLCanvasElement, width: number, height: number, ink: Ink, alpha: number): WallpaperPainter | null {
-  const field = createWallpaperField(width, height, CONTOUR_CELL_PX, CONTOUR_CELL_PX);
-  const scale = deviceScale();
-  canvas.width = Math.ceil(width * scale);
-  canvas.height = Math.ceil(height * scale);
-  const context = canvas.getContext('2d');
-  if (!context || field.cols === 0 || field.rows === 0) return null;
-  // Lines fade by the same reveal as the other patterns, in a few steps: a
-  // stroke per step is far cheaper than masking the whole canvas each frame.
-  const fade = new Uint8Array(field.cols * field.rows);
-  for (let i = 0; i < field.cells.length; i += 1) {
-    fade[field.cells[i]] = Math.min(CONTOUR_FADE_STEPS, Math.ceil(field.reveal[i] * CONTOUR_FADE_STEPS));
-  }
-  const heights = new Float32Array(field.cells.length);
-  const grid = new Float32Array(field.cols * field.rows).fill(Number.NaN);
-  const step = CONTOUR_CELL_PX * scale;
-  const offset = step / 2;
-  let paths: Array<Path2D | null> = [];
-  const segment = (x1: number, y1: number, x2: number, y2: number, square: number) => {
-    const path = paths[fade[square]];
-    if (!path) return;
-    path.moveTo(x1 * step + offset, y1 * step + offset);
-    path.lineTo(x2 * step + offset, y2 * step + offset);
-  };
-  return {
-    frameMs: CONTOUR_FRAME_MS,
-    draw: (seconds) => {
-      fillWallpaperHeight(field, seconds, heights);
-      for (let i = 0; i < heights.length; i += 1) grid[field.cells[i]] = heights[i];
-      // Index 0 (no reveal) stays without a path, so those pieces are dropped.
-      paths = [null, ...Array.from({ length: CONTOUR_FADE_STEPS }, () => new Path2D())];
-      for (const level of CONTOUR_LEVELS) traceContour(grid, field.cols, field.rows, level, segment);
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.lineWidth = scale;
-      context.lineJoin = 'round';
-      for (let f = 1; f <= CONTOUR_FADE_STEPS; f += 1) {
-        context.strokeStyle = inkStyle(ink, alpha * (f / CONTOUR_FADE_STEPS));
-        const path = paths[f];
-        if (path) context.stroke(path);
-      }
-    },
-  };
-}
-
 function grainPainter(canvas: HTMLCanvasElement, width: number, height: number, ink: Ink, alpha: number): WallpaperPainter | null {
   // One canvas pixel per CSS pixel; the grain is drawn once and never moves.
   canvas.width = Math.max(0, Math.round(width));
@@ -382,6 +322,106 @@ function photoPainter(canvas: HTMLCanvasElement, width: number, height: number, 
 }
 
 /**
+ * A picture drawn as dither or ASCII that keeps its colours: the photo shows
+ * faintly underneath, and each dot or character takes the colour of the part
+ * of the photo it sits on. Where a cell lights up follows the same rule as
+ * the patterns, so it still reads the right way round on light and dark
+ * themes. Drawn once; pictures never move.
+ */
+function pictureEffectPainter(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+  picture: ImageBitmap,
+  style: 'dither' | 'ascii',
+  variant: 'light' | 'dark',
+): WallpaperPainter | null {
+  const cell = style === 'dither' ? { width: DITHER_CELL_PX, height: DITHER_CELL_PX } : ASCII_CELL;
+  const sample = samplePicture(picture, width, height, cell.width, cell.height);
+  if (!sample) return null;
+  const { cols, rows, data } = sample;
+  const scale = deviceScale();
+  canvas.width = Math.ceil(width * scale);
+  canvas.height = Math.ceil(height * scale);
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  const inkIsLight = variant === 'dark';
+
+  // Each cell's colour where it lights up, transparent where it does not.
+  const colours = document.createElement('canvas');
+  colours.width = cols;
+  colours.height = rows;
+  const coloursContext = colours.getContext('2d');
+  if (!coloursContext) return null;
+  const image = coloursContext.createImageData(cols, rows);
+  const asciiLevels = new Uint8Array(cols * rows);
+  for (let i = 0; i < cols * rows; i += 1) {
+    const at = i * 4;
+    const density = pictureDensity(data[at], data[at + 1], data[at + 2], data[at + 3], inkIsLight);
+    const lit = style === 'dither'
+      ? density > bayerThreshold(i % cols, Math.floor(i / cols))
+      : (asciiLevels[i] = asciiIndex(density)) > 0;
+    if (!lit) continue;
+    // The photo itself stays whole; only its dots or characters thin out
+    // around the title and composer, so they stay readable.
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const reveal = wallpaperReveal((col + 0.5) * cell.width - width / 2, (row + 0.5) * cell.height - height / 2, width, height);
+    image.data[at] = data[at];
+    image.data[at + 1] = data[at + 1];
+    image.data[at + 2] = data[at + 2];
+    image.data[at + 3] = Math.round(255 * (PICTURE_EFFECT_MIDDLE + (1 - PICTURE_EFFECT_MIDDLE) * reveal));
+  }
+  coloursContext.putImageData(image, 0, 0);
+
+  const cellW = cell.width * scale;
+  const cellH = cell.height * scale;
+  let effect: HTMLCanvasElement = colours;
+  if (style === 'ascii') {
+    // Characters in white, then tinted by the colour grid laid over them.
+    const glyphs = document.createElement('canvas');
+    glyphs.width = canvas.width;
+    glyphs.height = canvas.height;
+    const glyphContext = glyphs.getContext('2d');
+    if (!glyphContext) return null;
+    const family = getComputedStyle(canvas).getPropertyValue('--font-mono').trim() || 'monospace';
+    glyphContext.font = `${11 * scale}px ${family}`;
+    glyphContext.textAlign = 'center';
+    glyphContext.textBaseline = 'middle';
+    glyphContext.fillStyle = '#fff';
+    for (let i = 0; i < asciiLevels.length; i += 1) {
+      if (asciiLevels[i] === 0) continue;
+      glyphContext.fillText(ASCII_RAMP[asciiLevels[i]], ((i % cols) + 0.5) * cellW, (Math.floor(i / cols) + 0.5) * cellH);
+    }
+    glyphContext.globalCompositeOperation = 'source-in';
+    glyphContext.imageSmoothingEnabled = false;
+    glyphContext.drawImage(colours, 0, 0, cols * cellW, rows * cellH);
+    effect = glyphs;
+  }
+
+  const crop = coverCrop(picture, width, height);
+  return {
+    frameMs: FRAME_MS,
+    draw: () => {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      context.globalAlpha = INK_ALPHA.pictureBase[variant];
+      context.drawImage(picture, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
+      context.globalAlpha = INK_ALPHA.pictureEffect[variant];
+      if (effect === colours) {
+        // One canvas pixel per dot, kept square and crisp at the screen's scale.
+        context.imageSmoothingEnabled = false;
+        context.drawImage(colours, 0, 0, cols * cellW, rows * cellH);
+      } else {
+        context.drawImage(effect, 0, 0);
+      }
+      context.globalAlpha = 1;
+    },
+  };
+}
+
+/**
  * Builds the painter for one wallpaper at one size and theme. Everything that
  * does not change between frames is worked out here, once.
  */
@@ -397,21 +437,13 @@ export function createWallpaperPainter(options: PainterOptions): WallpaperPainte
       return halftonePainter(canvas, width, height, ink, INK_ALPHA.halftone[variant]);
     case 'strands':
       return strandsPainter(canvas, width, height, ink, INK_ALPHA.strands[variant]);
-    case 'contours':
-      return contoursPainter(canvas, width, height, ink, INK_ALPHA.contours[variant]);
     case 'grain':
       return grainPainter(canvas, width, height, ink, INK_ALPHA.grain[variant]);
     case 'image': {
       const { picture, pictureStyle = 'photo' } = options;
       if (!picture) return null;
       if (pictureStyle === 'photo') return photoPainter(canvas, width, height, picture, INK_ALPHA.photo[variant]);
-      const inkIsLight = variant === 'dark';
-      if (pictureStyle === 'dither') {
-        const source = pictureSource(picture, width, height, DITHER_CELL_PX, DITHER_CELL_PX, inkIsLight);
-        return source ? ditherPainter(canvas, source, ink, INK_ALPHA.dither[variant]) : null;
-      }
-      const source = pictureSource(picture, width, height, ASCII_CELL.width, ASCII_CELL.height, inkIsLight);
-      return source ? asciiPainter(canvas, width, height, source, ink, INK_ALPHA.ascii[variant]) : null;
+      return pictureEffectPainter(canvas, width, height, picture, pictureStyle, variant);
     }
     default:
       return null;

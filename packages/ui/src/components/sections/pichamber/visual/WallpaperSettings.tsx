@@ -135,7 +135,7 @@ export const WallpaperSettings: React.FC = () => {
       <SettingsInset settingsItem="appearance.wallpaper-picture">
         <SettingsFieldRow
           label={'Picture'}
-          info={'Your own picture, stored on this server. Show it as it is, dimmed, or drawn as dither or ASCII in the theme\'s text colour.'}
+          info={'Your own picture, stored on this server. Show it dimmed, or as dither or ASCII in the picture\'s own colours.'}
         >
           <SettingsChipGroup<WallpaperImageStyle>
             value={pictureStyle}

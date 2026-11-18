@@ -32,7 +32,7 @@ function usePrefersReducedMotion(): boolean {
 /**
  * Wallpaper behind the new-session screen, in the theme's ink (or the
  * server's picture), hidden from assistive technology. When it moves, its
- * pattern drifts at 4 to 6 frames a second; the browser stops the loop in
+ * pattern drifts at 6 frames a second; the browser stops the loop in
  * hidden tabs, and reduced motion keeps it still. Nothing renders when the
  * setting is None, or for a picture that is missing or still loading.
  */
@@ -152,7 +152,7 @@ export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
       className={cn('pointer-events-none h-full w-full select-none', className)}
       style={{
         maskImage: fade ? 'linear-gradient(to bottom, black 45%, transparent 78%)' : undefined,
-        imageRendering: isPixelatedWallpaper(wallpaper, pictureStyle) ? 'pixelated' : undefined,
+        imageRendering: isPixelatedWallpaper(wallpaper) ? 'pixelated' : undefined,
       }}
     />
   );

@@ -1,12 +1,11 @@
 /**
  * The new-session screen's wallpaper: none, a pattern drawn from one shared
- * field in the theme's ink (dither, ASCII, contours, halftone, strands,
- * grain), or the server's uploaded picture.
+ * field in the theme's ink (dither, ASCII, halftone, strands, grain), or the server's uploaded picture.
  *
  * Persisted server-side as the `draftWallpaper*` UI settings so every client
  * of a server shows the same screen.
  */
-const WALLPAPERS = ['none', 'dither', 'ascii', 'contours', 'halftone', 'strands', 'grain', 'image'] as const;
+const WALLPAPERS = ['none', 'dither', 'ascii', 'halftone', 'strands', 'grain', 'image'] as const;
 
 export type Wallpaper = (typeof WALLPAPERS)[number];
 
@@ -73,6 +72,18 @@ const valueNoise = (x: number, y: number): number => {
 /** The bands drift one full cycle a minute when the wallpaper moves. */
 const DRIFT_RADIANS_PER_SECOND = (2 * Math.PI) / 60;
 
+/**
+ * How much a pattern may show at a point in CSS pixels from the centre of the
+ * screen: 0 in the middle, where the title and composer sit, rising to 1 at
+ * the corners of an ellipse that fits the screen.
+ */
+export function wallpaperReveal(x: number, y: number, width: number, height: number): number {
+  const rx = x / Math.max(1, width * 0.5);
+  const ry = y / Math.max(1, height * 0.5);
+  const edge = Math.min(1, Math.sqrt(rx * rx + ry * ry));
+  return smooth(Math.min(1, Math.max(0, (edge - 0.45) / 0.55)));
+}
+
 /** The parts of a point's density that never change: its noise, band phase and reveal. */
 function staticTerms(x: number, y: number, width: number, height: number) {
   const sx = x / 260;
@@ -85,11 +96,7 @@ function staticTerms(x: number, y: number, width: number, height: number) {
     amplitude *= 0.5;
     frequency *= 2;
   }
-  // 0 at the centre, 1 at the corners of an ellipse that fits the screen.
-  const rx = x / Math.max(1, width * 0.5);
-  const ry = y / Math.max(1, height * 0.5);
-  const edge = Math.min(1, Math.sqrt(rx * rx + ry * ry));
-  const reveal = smooth(Math.min(1, Math.max(0, (edge - 0.45) / 0.55)));
+  const reveal = wallpaperReveal(x, y, width, height);
   // Bands that run on a diagonal give the noise a direction.
   return { noise, phase: (x * 0.6 + y) / 140 + noise * 5, reveal };
 }
@@ -177,8 +184,7 @@ export function fillWallpaper(field: WallpaperField, seconds: number, out: Float
 
 /**
  * Writes each listed cell's field height at `seconds`, before clamping and
- * without the cleared middle, so contour lines stay continuous where the
- * pattern fades out. Roughly in [0.1, 0.9].
+ * without the cleared middle. Roughly in [0.1, 0.9].
  */
 export function fillWallpaperHeight(field: WallpaperField, seconds: number, out: Float32Array): void {
   const shift = seconds * DRIFT_RADIANS_PER_SECOND;
@@ -194,54 +200,6 @@ export function fillWallpaperFlow(field: WallpaperField, seconds: number, out: F
   const shift = seconds * DRIFT_RADIANS_PER_SECOND;
   const { noise, phase } = field;
   for (let i = 0; i < field.cells.length; i += 1) out[i] = noise[i] * 4 * Math.PI + (bandAt(phase[i] - shift) - 0.5) * 1.2;
-}
-
-/** Contour heights drawn by the contour wallpaper. */
-export const CONTOUR_LEVELS: readonly number[] = [0.3, 0.36, 0.42, 0.48, 0.54, 0.6, 0.66, 0.72];
-
-/**
- * Marching squares over a row-major grid of heights; NaN marks a point with
- * no value, and squares that touch one are skipped. Calls `segment` with
- * each piece of the `level` line, in grid units (point (c, r) is at c, r),
- * and the index of the square's top-left point.
- */
-export function traceContour(
-  heights: Float32Array,
-  cols: number,
-  rows: number,
-  level: number,
-  segment: (x1: number, y1: number, x2: number, y2: number, square: number) => void,
-): void {
-  for (let r = 0; r < rows - 1; r += 1) {
-    const top = r * cols;
-    const bottom = top + cols;
-    for (let c = 0; c < cols - 1; c += 1) {
-      const a = heights[top + c];
-      const b = heights[top + c + 1];
-      const d = heights[bottom + c];
-      const e = heights[bottom + c + 1];
-      // NaN fails every comparison, so a missing corner never draws.
-      if (!(a === a && b === b && d === d && e === e)) continue;
-      const mask = (a > level ? 8 : 0) | (b > level ? 4 : 0) | (e > level ? 2 : 0) | (d > level ? 1 : 0);
-      if (mask === 0 || mask === 15) continue;
-      // Where the line crosses each edge of the square.
-      const nx = c + (level - a) / (b - a);
-      const ey = r + (level - b) / (e - b);
-      const sx = c + (level - d) / (e - d);
-      const wy = r + (level - a) / (d - a);
-      switch (mask) {
-        case 1: case 14: segment(c, wy, sx, r + 1, top + c); break;
-        case 2: case 13: segment(sx, r + 1, c + 1, ey, top + c); break;
-        case 3: case 12: segment(c, wy, c + 1, ey, top + c); break;
-        case 4: case 11: segment(nx, r, c + 1, ey, top + c); break;
-        case 6: case 9: segment(nx, r, sx, r + 1, top + c); break;
-        case 7: case 8: segment(c, wy, nx, r, top + c); break;
-        case 5: segment(c, wy, nx, r, top + c); segment(sx, r + 1, c + 1, ey, top + c); break;
-        case 10: segment(nx, r, c + 1, ey, top + c); segment(c, wy, sx, r + 1, top + c); break;
-        default: break;
-      }
-    }
-  }
 }
 
 /** A fixed random value in [0, 1] for a pixel, for grain. */
