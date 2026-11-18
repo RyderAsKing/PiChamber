@@ -109,12 +109,16 @@ describe('wallpaper', () => {
   });
 
   test('a faded field empties the bottom and keeps the top', () => {
-    expect(wallpaperFade(0, 1000)).toBe(1);
-    expect(wallpaperFade(450, 1000)).toBe(1);
-    expect(Math.abs(wallpaperFade(615, 1000) - 0.5) < 1e-9).toBe(true);
-    expect(wallpaperFade(780, 1000)).toBe(0);
+    expect(wallpaperFade(0, 1000, 'bottom')).toBe(1);
+    expect(wallpaperFade(450, 1000, 'bottom')).toBe(1);
+    expect(Math.abs(wallpaperFade(615, 1000, 'bottom') - 0.5) < 1e-9).toBe(true);
+    expect(wallpaperFade(780, 1000, 'bottom')).toBe(0);
+    // An open session keeps it to the top, well above the messages.
+    expect(wallpaperFade(100, 1000, 'session')).toBe(1);
+    expect(wallpaperFade(550, 1000, 'session')).toBe(0);
+    expect(wallpaperFade(990, 1000, 'none')).toBe(1);
     const plain = createWallpaperField(1600, 1000, 8, 8);
-    const faded = createWallpaperField(1600, 1000, 8, 8, true);
+    const faded = createWallpaperField(1600, 1000, 8, 8, 'bottom');
     const lastRow = (field: typeof plain) => Math.floor(field.cells[field.cells.length - 1] / field.cols);
     expect(lastRow(plain)).toBe(plain.rows - 1);
     expect(lastRow(faded) * 8 < 780).toBe(true);

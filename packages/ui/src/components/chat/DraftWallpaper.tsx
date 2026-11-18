@@ -4,7 +4,7 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useWallpaperPicture } from '@/hooks/useWallpaperPicture';
 import { parseColor } from '@/lib/theme/contrast';
 import { cn } from '@/lib/utils';
-import { wallpaperCanMove, type Wallpaper } from '@/lib/wallpaper';
+import { wallpaperCanMove, type Wallpaper, type WallpaperFade } from '@/lib/wallpaper';
 import { useUIStore } from '@/stores/useUIStore';
 
 import { createWallpaperPainter, isPixelatedWallpaper, paintPictureBackdrop, wallpaperCanvasSize } from './lib/wallpaperPainters';
@@ -29,6 +29,17 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+/** The chosen wallpaper and, if it is turned on, the server's picture. */
+function useWallpaperChoice() {
+  const wallpaper = useUIStore((state) => state.draftWallpaper);
+  const showPicture = useUIStore((state) => state.draftWallpaperPicture);
+  const pictureVersion = useUIStore((state) => state.draftWallpaperImageVersion);
+  const { picture, pending } = useWallpaperPicture(showPicture ? pictureVersion : null);
+  // Nothing while the picture loads, rather than the pattern without it and then with it.
+  const empty = pending || (wallpaper === 'none' && !picture);
+  return { wallpaper, picture, empty };
+}
+
 /**
  * Wallpaper behind the new-session screen, hidden from assistive technology:
  * a pattern in the theme's ink, or with the server's picture turned on, the
@@ -37,14 +48,11 @@ function usePrefersReducedMotion(): boolean {
  * reduced motion keeps it still. Nothing renders while the picture loads; if
  * it cannot load, the pattern is drawn without it.
  */
-export const DraftWallpaper: React.FC<{ fade: boolean }> = ({ fade }) => {
-  const wallpaper = useUIStore((state) => state.draftWallpaper);
+export const DraftWallpaper: React.FC<{ fade: WallpaperFade }> = ({ fade }) => {
+  const { wallpaper, picture, empty } = useWallpaperChoice();
   const motion = useUIStore((state) => state.draftWallpaperMotion);
-  const showPicture = useUIStore((state) => state.draftWallpaperPicture);
-  const pictureVersion = useUIStore((state) => state.draftWallpaperImageVersion);
-  const { picture, pending } = useWallpaperPicture(showPicture ? pictureVersion : null);
   const reducedMotion = usePrefersReducedMotion();
-  if (pending || (wallpaper === 'none' && !picture)) return null;
+  if (empty) return null;
   return (
     <WallpaperCanvas
       wallpaper={wallpaper}
@@ -61,12 +69,33 @@ export const DraftWallpaper: React.FC<{ fade: boolean }> = ({ fade }) => {
   );
 };
 
+/**
+ * The same wallpaper at the top of an open session, when turned on: fainter,
+ * faded out well above the messages and composer, and always still, so a
+ * session never spends a frame on it while you read or it works.
+ */
+export const SessionWallpaper: React.FC = () => {
+  const enabled = useUIStore((state) => state.draftWallpaperInSessions);
+  const { wallpaper, picture, empty } = useWallpaperChoice();
+  if (!enabled || empty) return null;
+  return (
+    <WallpaperCanvas
+      wallpaper={wallpaper}
+      picture={picture}
+      moving={false}
+      className="absolute inset-0 -z-10"
+      sizeTo="window"
+      fade="session"
+    />
+  );
+};
+
 type WallpaperCanvasProps = {
   wallpaper: Wallpaper;
   picture?: ImageBitmap | null;
   moving: boolean;
   className?: string;
-  fade?: boolean;
+  fade?: WallpaperFade;
   /**
    * What the drawing covers. `window` draws for the whole window and centres
    * it on the box, so the box can change size (sidebars, panels) without a
@@ -157,7 +186,7 @@ export const WallpaperCanvas: React.FC<WallpaperCanvasProps> = ({
   picture = null,
   moving,
   className,
-  fade = false,
+  fade = 'none',
   sizeTo = 'box',
 }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);

@@ -37,6 +37,8 @@ export const WallpaperSettings: React.FC = () => {
   const motion = useUIStore((state) => state.draftWallpaperMotion);
   const setMotion = useUIStore((state) => state.setDraftWallpaperMotion);
   const showPicture = useUIStore((state) => state.draftWallpaperPicture);
+  const inSessions = useUIStore((state) => state.draftWallpaperInSessions);
+  const setInSessions = useUIStore((state) => state.setDraftWallpaperInSessions);
   const setShowPicture = useUIStore((state) => state.setDraftWallpaperPicture);
   const pictureVersion = useUIStore((state) => state.draftWallpaperImageVersion);
   const setPictureVersion = useUIStore((state) => state.setDraftWallpaperImageVersion);
@@ -145,6 +147,21 @@ export const WallpaperSettings: React.FC = () => {
           disabled={!pictureVersion || busy !== null}
           label={'Show behind the pattern'}
           ariaLabel={'Show picture behind the pattern'}
+        />
+      </SettingsInset>
+
+      {/* Always shown so search can find it; with nothing chosen there is nothing to show. */}
+      <SettingsInset settingsItem="appearance.wallpaper-sessions">
+        <SettingsCheckboxRow
+          checked={inSessions}
+          onChange={(enabled) => {
+            setInSessions(enabled);
+            void updateDesktopSettings({ draftWallpaperInSessions: enabled });
+          }}
+          disabled={wallpaper === 'none' && !(showPicture && pictureVersion)}
+          label={'Show in open sessions'}
+          info={'Also show the wallpaper at the top of open sessions: fainter, faded out above the messages, and always still.'}
+          ariaLabel={'Show wallpaper in open sessions'}
         />
       </SettingsInset>
 

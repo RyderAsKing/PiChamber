@@ -645,6 +645,7 @@ export interface SettingsPayload {
   draftWallpaper?: Wallpaper;
   draftWallpaperMotion?: boolean;
   draftWallpaperPicture?: boolean;
+  draftWallpaperInSessions?: boolean;
   draftWallpaperImageVersion?: string | null;
 
   [key: string]: unknown;

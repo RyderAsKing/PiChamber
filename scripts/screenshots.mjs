@@ -1336,6 +1336,16 @@ const PAGES = {
     settledScript: `Boolean(document.querySelector('[data-draft-wallpaper="${wallpaper}"]'))`,
     viewports: ['desktop'],
   }])),
+  'session-wallpaper': {
+    // The demo session with Show in open sessions on: the Halftone
+    // wallpaper, still and faint, at the top, faded out above the messages.
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    draftWallpaper: 'halftone',
+    draftWallpaperInSessions: true,
+    settledScript: `Boolean(document.querySelector('[data-draft-wallpaper="halftone"] canvas'))`,
+    viewports: ['desktop'],
+  },
   'settings-wallpaper': {
     // Appearance at Wallpaper: a preview tile per pattern, and the picture
     // and motion rows under them; the seed has no picture, so only Choose works.
@@ -1679,6 +1689,7 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
       sidebarViewMode: page.sidebarViewMode ?? 'workspace',
       draftWallpaper: page.draftWallpaper ?? 'none',
       draftWallpaperPicture: false,
+      draftWallpaperInSessions: page.draftWallpaperInSessions ?? false,
       // Kept still so each capture shows the same frame.
       draftWallpaperMotion: false,
     }),

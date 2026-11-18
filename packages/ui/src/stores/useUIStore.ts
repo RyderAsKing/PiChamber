@@ -170,6 +170,8 @@ interface UIStore {
   draftWallpaperMotion: boolean;
   /** Whether the uploaded picture shows behind the wallpaper, which then takes its colours. */
   draftWallpaperPicture: boolean;
+  /** Whether the wallpaper also shows, still and faint, at the top of open sessions. */
+  draftWallpaperInSessions: boolean;
   /** Version of the server's wallpaper picture; null when there is none. */
   draftWallpaperImageVersion: string | null;
   terminalFontSize: number;
@@ -320,6 +322,7 @@ interface UIStore {
   setDraftWallpaper: (value: Wallpaper) => void;
   setDraftWallpaperMotion: (value: boolean) => void;
   setDraftWallpaperPicture: (value: boolean) => void;
+  setDraftWallpaperInSessions: (value: boolean) => void;
   setDraftWallpaperImageVersion: (value: string | null) => void;
   setTerminalFontSize: (size: number) => void;
   setTerminalShell: (shell: TerminalShell) => void;
@@ -511,6 +514,7 @@ export const useUIStore = create<UIStore>()(
         draftWallpaper: DEFAULT_WALLPAPER,
         draftWallpaperMotion: true,
         draftWallpaperPicture: false,
+        draftWallpaperInSessions: false,
         draftWallpaperImageVersion: null,
         isExpandedInput: false,
         shortcutOverrides: {},
@@ -1228,6 +1232,10 @@ export const useUIStore = create<UIStore>()(
 
         setDraftWallpaperPicture: (value) => {
           set({ draftWallpaperPicture: value === true });
+        },
+
+        setDraftWallpaperInSessions: (value) => {
+          set({ draftWallpaperInSessions: value === true });
         },
 
         setDraftWallpaperImageVersion: (value) => {
@@ -1992,6 +2000,7 @@ export const useUIStore = create<UIStore>()(
           draftWallpaper: state.draftWallpaper,
           draftWallpaperMotion: state.draftWallpaperMotion,
           draftWallpaperPicture: state.draftWallpaperPicture,
+          draftWallpaperInSessions: state.draftWallpaperInSessions,
           draftWallpaperImageVersion: state.draftWallpaperImageVersion,
           shortcutOverrides: state.shortcutOverrides,
           fileEditorKeymap: state.fileEditorKeymap,

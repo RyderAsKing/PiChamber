@@ -61,7 +61,7 @@ import {
     hasBlockingChatOverlay,
 } from './chatContainerNavigation';
 import { DraftWelcome } from './DraftWelcome';
-import { DraftWallpaper } from './DraftWallpaper';
+import { DraftWallpaper, SessionWallpaper } from './DraftWallpaper';
 import { ChatViewport } from './ChatViewport';
 import { sandboxReasonText } from '@/lib/pi/sandboxText';
 import { SessionReadOnlyNote } from './SessionReadOnlyNote';
@@ -499,7 +499,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 				{isDesktopExpandedInput ? null : (
 					// On phones the composer is an opaque bar along the bottom, so the
 					// wallpaper fades out above it rather than stopping on a hard line.
-					<DraftWallpaper fade={useCompactDraftLayout} />
+					<DraftWallpaper fade={useCompactDraftLayout ? 'bottom' : 'none'} />
 				)}
 				{useCompactDraftLayout && !isDesktopExpandedInput ? <DraftWelcome /> : null}
 				<div
@@ -619,7 +619,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 	}
 
 	return (
-		<div data-composer-bound className="relative flex min-w-0 flex-1 flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+		// `isolate` keeps the session wallpaper under the timeline without a
+		// transform (see the draft view above).
+		<div data-composer-bound className="relative isolate flex min-w-0 flex-1 flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+			{isDesktopExpandedInput ? null : <SessionWallpaper />}
 			<ChatViewport
 				currentSessionId={currentSessionId}
                 currentSessionKey={currentSessionKey ?? currentSessionId}

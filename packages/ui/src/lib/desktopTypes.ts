@@ -156,6 +156,8 @@ export type DesktopSettings = {
   draftWallpaperMotion?: boolean;
   /** Whether the uploaded picture shows behind the wallpaper, which then takes its colours. */
   draftWallpaperPicture?: boolean;
+  /** Whether the wallpaper also shows, still and faint, at the top of open sessions. */
+  draftWallpaperInSessions?: boolean;
   /** Version of the server's wallpaper picture; null when there is none. */
   draftWallpaperImageVersion?: string | null;
   draftStartersScheduleTaskAdded?: boolean;

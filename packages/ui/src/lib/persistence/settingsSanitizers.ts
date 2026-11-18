@@ -158,6 +158,9 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   if (typeof candidate.draftWallpaperPicture === 'boolean') {
     result.draftWallpaperPicture = candidate.draftWallpaperPicture;
   }
+  if (typeof candidate.draftWallpaperInSessions === 'boolean') {
+    result.draftWallpaperInSessions = candidate.draftWallpaperInSessions;
+  }
   // null is a saved "no picture", so it is kept rather than dropped.
   if (candidate.draftWallpaperImageVersion === null || isWallpaperImageVersion(candidate.draftWallpaperImageVersion)) {
     result.draftWallpaperImageVersion = candidate.draftWallpaperImageVersion;

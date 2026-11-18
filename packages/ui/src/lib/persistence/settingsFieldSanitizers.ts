@@ -341,6 +341,7 @@ export const materializeAuthoritativeUiSettings = (
     draftWallpaper: defaults.draftWallpaper,
     draftWallpaperMotion: defaults.draftWallpaperMotion,
     draftWallpaperPicture: defaults.draftWallpaperPicture,
+    draftWallpaperInSessions: defaults.draftWallpaperInSessions,
     draftWallpaperImageVersion: defaults.draftWallpaperImageVersion,
     fontSize: defaults.fontSize,
     terminalFontSize: defaults.terminalFontSize,

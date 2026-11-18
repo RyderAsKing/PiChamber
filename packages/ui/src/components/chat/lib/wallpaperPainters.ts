@@ -14,6 +14,7 @@ import {
   pictureDensity,
   wallpaperFade,
   WALLPAPER_FADE_STOPS,
+  type WallpaperFade,
   type Wallpaper,
 } from '@/lib/wallpaper';
 
@@ -36,8 +37,8 @@ export type PainterOptions = {
   wallpaper: Exclude<Wallpaper, 'none'>;
   /** The decoded picture: the pattern takes its colours, and its shape for dither, ASCII and halftone. */
   picture?: ImageBitmap | null;
-  /** Fade the bottom out, drawn into the canvas (see `wallpaperFade`). */
-  fade?: boolean;
+  /** Fade toward the bottom, drawn into the canvas (see `wallpaperFade`). */
+  fade?: WallpaperFade;
 };
 
 /** How much ink a lit cell takes. Dark themes need a touch more to show. */
@@ -105,7 +106,7 @@ type CellColours = { canvas: HTMLCanvasElement; data: Uint8ClampedArray };
 
 const WHITE: Ink = { r: 255, g: 255, b: 255 };
 
-const fieldSource = (width: number, height: number, cellWidth: number, cellHeight: number, fade: boolean): DensitySource => {
+const fieldSource = (width: number, height: number, cellWidth: number, cellHeight: number, fade: WallpaperFade): DensitySource => {
   const field = createWallpaperField(width, height, cellWidth, cellHeight, fade);
   return { cols: field.cols, rows: field.rows, cells: field.cells, fill: (seconds, out) => fillWallpaper(field, seconds, out) };
 };
@@ -153,7 +154,7 @@ const pictureSource = (
   height: number,
   cellWidth: number,
   cellHeight: number,
-  fade: boolean,
+  fade: WallpaperFade,
   picture: ImageBitmap,
   inkIsLight: boolean,
 ): (DensitySource & { colours: CellColours }) | null => {
@@ -302,7 +303,7 @@ function asciiPainter(
  * Halftone sizes its dots by the field's height rather than its clamped
  * density, so dot sizes keep varying where the other patterns are solid.
  */
-const heightSource = (width: number, height: number, cell: number, fade: boolean): DensitySource => {
+const heightSource = (width: number, height: number, cell: number, fade: WallpaperFade): DensitySource => {
   const field = createWallpaperField(width, height, cell, cell, fade);
   return {
     cols: field.cols,
@@ -321,7 +322,7 @@ function halftonePainter(
   height: number,
   ink: Ink,
   alpha: number,
-  fade: boolean,
+  fade: WallpaperFade,
   picture?: (DensitySource & { colours: CellColours }) | null,
 ) {
   const source = picture ?? heightSource(width, height, HALFTONE_CELL_PX, fade);
@@ -343,7 +344,7 @@ function strandsPainter(
   height: number,
   ink: Ink,
   alpha: number,
-  fade: boolean,
+  fade: WallpaperFade,
   colours?: CellColours | null,
 ): WallpaperPainter | null {
   const field = createWallpaperField(width, height, STRAND_CELL_PX, STRAND_CELL_PX, fade);
@@ -427,7 +428,7 @@ function grainPainter(
   height: number,
   ink: Ink,
   alpha: number,
-  fade: boolean,
+  fade: WallpaperFade,
   picture?: ImageBitmap | null,
 ): WallpaperPainter | null {
   // One canvas pixel per CSS pixel; the grain is drawn once and never moves.
@@ -443,7 +444,7 @@ function grainPainter(
     const halfW = canvas.width / 2;
     const halfH = canvas.height / 2;
     for (let y = 0; y < canvas.height; y += 1) {
-      const fadeAt = fade ? wallpaperFade(y, canvas.height) : 1;
+      const fadeAt = wallpaperFade(y, canvas.height, fade);
       if (fadeAt <= 0) break;
       const ry = (y - halfH) / halfH;
       for (let x = 0; x < canvas.width; x += 1) {
@@ -464,11 +465,11 @@ function grainPainter(
   return { frameMs: FRAME_MS, draw };
 }
 
-/** Fades the bottom of a finished, still frame out, matching `wallpaperFade`. */
-const fadeBottom = (context: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
+/** Fades a finished, still frame out toward the bottom, matching `wallpaperFade`. */
+const fadeBottom = (context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, fade: Exclude<WallpaperFade, 'none'>) => {
   const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
-  gradient.addColorStop(WALLPAPER_FADE_STOPS[0], '#000');
-  gradient.addColorStop(WALLPAPER_FADE_STOPS[1], 'transparent');
+  gradient.addColorStop(WALLPAPER_FADE_STOPS[fade][0], '#000');
+  gradient.addColorStop(WALLPAPER_FADE_STOPS[fade][1], 'transparent');
   context.globalCompositeOperation = 'destination-in';
   context.fillStyle = gradient;
   context.fillRect(0, 0, canvas.width, canvas.height);
@@ -487,9 +488,9 @@ export function paintPictureBackdrop(options: {
   picture: ImageBitmap;
   variant: 'light' | 'dark';
   underPattern: boolean;
-  fade?: boolean;
+  fade?: WallpaperFade;
 }): void {
-  const { canvas, width, height, picture, variant, underPattern, fade = false } = options;
+  const { canvas, width, height, picture, variant, underPattern, fade = 'none' } = options;
   if (width <= 0 || height <= 0) return;
   const scale = deviceScale();
   canvas.width = Math.ceil(width * scale);
@@ -501,7 +502,7 @@ export function paintPictureBackdrop(options: {
   context.imageSmoothingQuality = 'high';
   context.drawImage(picture, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
   context.globalAlpha = 1;
-  if (fade) fadeBottom(context, canvas);
+  if (fade !== 'none') fadeBottom(context, canvas, fade);
 }
 
 /**
@@ -509,7 +510,7 @@ export function paintPictureBackdrop(options: {
  * does not change between frames is worked out here, once.
  */
 export function createWallpaperPainter(options: PainterOptions): WallpaperPainter | null {
-  const { canvas, width, height, variant, wallpaper, fade = false, picture = null } = options;
+  const { canvas, width, height, variant, wallpaper, fade = 'none', picture = null } = options;
   if (width <= 0 || height <= 0) return null;
   // With a picture, patterns are drawn in white at the picture's strength and coloured from it.
   const ink = picture ? WHITE : options.ink;

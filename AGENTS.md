@@ -274,7 +274,9 @@ screen with each pattern, set through the `draftWallpaper` UI setting and
 held still through `draftWallpaperMotion`, desktop only; pages without one
 reset it to None); `settings-wallpaper` (Appearance at Wallpaper: a preview
 tile per pattern, and the picture and motion rows; the seed has no
-picture, so only its Choose button works, desktop only);
+picture, so only its Choose button works, desktop only); `session-wallpaper`
+(the demo session with Show in open sessions on: Halftone, still and faint,
+at the top, faded out above the messages, desktop only);
 `subagents-turn` (a finished scout-then-reviewer chain, a card per run);
 `subagents-run` (the reviewer's card pressed: the run on its own, in the
 Agents panel on desktop and a sheet on phones); and `subagents-panel` (the

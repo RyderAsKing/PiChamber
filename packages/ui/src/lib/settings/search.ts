@@ -75,6 +75,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['image', 'photo', 'upload', 'background', 'wallpaper', 'custom', 'show behind the pattern'],
   },
   {
+    id: 'appearance.wallpaper-sessions',
+    page: 'appearance',
+    title: "Show in open sessions",
+    description: "Also show the wallpaper at the top of open sessions, fainter and still.",
+    keywords: ['wallpaper', 'background', 'session', 'chat', 'picture', 'everywhere'],
+  },
+  {
     id: 'appearance.wallpaper-motion',
     page: 'appearance',
     title: "Moving wallpaper",

@@ -70,22 +70,29 @@ const valueNoise = (x: number, y: number): number => {
 /** The bands drift one full cycle a minute when the wallpaper moves. */
 const DRIFT_RADIANS_PER_SECOND = (2 * Math.PI) / 60;
 
-/** Where the bottom fade starts and ends, as shares of the height from the top. */
-const FADE_FROM = 0.45;
-const FADE_TO = 0.78;
+/**
+ * How a wallpaper fades out toward the bottom. `bottom` is for the phone
+ * layout, whose composer is a bar along the bottom; `session` keeps it to the
+ * top of an open session, well clear of the messages and composer.
+ */
+export type WallpaperFade = 'none' | 'bottom' | 'session';
+
+/** Where each fade starts and ends, as shares of the height from the top. */
+export const WALLPAPER_FADE_STOPS: Record<Exclude<WallpaperFade, 'none'>, readonly [number, number]> = {
+  bottom: [0.45, 0.78],
+  session: [0.12, 0.55],
+};
 
 /**
- * How much shows at `y` CSS pixels from the top of a `height` box whose
- * bottom fades out, where a phone's composer bar starts: 1 down to 45% of the
- * height, 0 from 78%.
+ * How much shows at `y` CSS pixels from the top of a `height` box with the
+ * given fade: 1 above its first stop, 0 below its second, linear between.
  */
-export function wallpaperFade(y: number, height: number): number {
-  const t = (y / Math.max(1, height) - FADE_FROM) / (FADE_TO - FADE_FROM);
+export function wallpaperFade(y: number, height: number, fade: WallpaperFade): number {
+  if (fade === 'none') return 1;
+  const [from, to] = WALLPAPER_FADE_STOPS[fade];
+  const t = (y / Math.max(1, height) - from) / (to - from);
   return t <= 0 ? 1 : t >= 1 ? 0 : 1 - t;
 }
-
-/** The bottom fade's stops, as shares of the height, for a gradient. */
-export const WALLPAPER_FADE_STOPS = [FADE_FROM, FADE_TO] as const;
 
 /**
  * How much a pattern may show at a point in CSS pixels from the centre of the
@@ -152,8 +159,8 @@ export function createWallpaperField(
   height: number,
   cellWidth: number,
   cellHeight: number,
-  /** Fade the bottom out (see `wallpaperFade`); cells it empties are left out. */
-  fade = false,
+  /** Fade toward the bottom (see `wallpaperFade`); cells it empties are left out. */
+  fade: WallpaperFade = 'none',
 ): WallpaperField {
   const cols = Math.max(0, Math.ceil(width / cellWidth));
   const rows = Math.max(0, Math.ceil(height / cellHeight));
@@ -167,7 +174,10 @@ export function createWallpaperField(
     const y = row * cellHeight + cellHeight / 2 - cy;
     for (let col = 0; col < cols; col += 1) {
       const terms = staticTerms(col * cellWidth + cellWidth / 2 - cx, y, width, height);
-      if (fade) terms.reveal *= wallpaperFade(y + cy, height);
+      // An open session has no title or composer in the middle to keep clear,
+      // only messages below, so its fade alone decides what shows.
+      if (fade === 'session') terms.reveal = wallpaperFade(y + cy, height, fade);
+      else if (fade !== 'none') terms.reveal *= wallpaperFade(y + cy, height, fade);
       if (terms.reveal <= 0) continue;
       cells.push(row * cols + col);
       noise.push(terms.noise);

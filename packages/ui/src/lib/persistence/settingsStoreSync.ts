@@ -245,6 +245,9 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
   if (typeof settings.draftWallpaperPicture === 'boolean' && settings.draftWallpaperPicture !== store.draftWallpaperPicture) {
     store.setDraftWallpaperPicture(settings.draftWallpaperPicture);
   }
+  if (typeof settings.draftWallpaperInSessions === 'boolean' && settings.draftWallpaperInSessions !== store.draftWallpaperInSessions) {
+    store.setDraftWallpaperInSessions(settings.draftWallpaperInSessions);
+  }
   if (
     (settings.draftWallpaperImageVersion === null || isWallpaperImageVersion(settings.draftWallpaperImageVersion))
     && settings.draftWallpaperImageVersion !== store.draftWallpaperImageVersion
