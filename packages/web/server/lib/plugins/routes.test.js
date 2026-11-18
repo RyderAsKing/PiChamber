@@ -160,6 +160,15 @@ describe('plugin routes', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('names the npm packages of the bundled plugins', async () => {
+    const file = join(await mkdtemp(join(tmpdir(), 'pichamber-plugin-config-')), 'plugins.json');
+    const service = createPluginService({ store: createPluginStore({ file }) });
+    expect((await service.bundledPackageNames()).sort()).toEqual([
+      '@pi-chamber/plugin-subagents',
+      '@pi-chamber/plugin-visuals',
+    ]);
+  });
+
   it('builds the daemon config from enabled plugins only', async () => {
     const file = join(await mkdtemp(join(tmpdir(), 'pichamber-plugin-config-')), 'plugins.json');
     const service = createPluginService({ store: createPluginStore({ file }) });

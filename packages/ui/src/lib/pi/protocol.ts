@@ -1632,6 +1632,13 @@ export interface PiExtensionConfigPackage {
   installed: boolean;
   /** The settings entry narrows what the package loads. */
   filtered: boolean;
+  /** From the installed package's own package.json; absent when unreadable. */
+  name?: string;
+  version?: string;
+  /** The package has a `pichamber` block: it supports PiChamber's own UI. */
+  pichamber?: boolean;
+  /** An npm source that names a version; Pi never updates it. */
+  pinned?: boolean;
 }
 
 export interface PiExtensionConfigItem {
@@ -1736,6 +1743,8 @@ export interface PiPluginView {
   description: string;
   icon?: string;
   version: string;
+  /** What the plugin is about (package keywords), to match a marketplace search. */
+  keywords?: string[];
   bundled: boolean;
   enabled: boolean;
   /** Values resolved for the requested directory: project over global over default. */
@@ -2017,3 +2026,67 @@ export const isPiEvent = (value: unknown): value is PiSessionEvent => {
     && (PI_EVENT_KINDS as readonly string[]).includes(candidate.name)
   );
 };
+
+// ----- Marketplace (server routes /api/pi/marketplace/*) --------------------
+
+/** One npm package as the marketplace lists it. */
+export interface PiMarketplacePackage {
+  name: string;
+  version?: string;
+  description?: string;
+  keywords: string[];
+  /** The first maintainer's npm name. */
+  publisher?: string;
+  /** When the latest version was published (ISO). */
+  date?: string;
+  weeklyDownloads?: number;
+  /** The package's keywords say it supports PiChamber. Confirmed on its page. */
+  pichamberKeyword: boolean;
+  links: { npm: string; repository?: string; homepage?: string };
+  /** Featured only: why it is picked. */
+  note?: string;
+  /** Featured only: npm did not answer for it, so only its name and note are known. */
+  unavailable?: boolean;
+}
+
+export interface PiMarketplaceSearchResponse {
+  packages: PiMarketplacePackage[];
+  /** How many Pi packages there are; only without search text. */
+  total?: number;
+  /** Offset of the next page, `null` at the end. */
+  nextFrom: number | null;
+}
+
+export interface PiMarketplaceFeaturedResponse {
+  packages: PiMarketplacePackage[];
+  updated: string | null;
+  source: 'remote' | 'builtin';
+}
+
+/** A package's own page: what its latest manifest says. */
+export interface PiMarketplacePackageDetail extends PiMarketplacePackage {
+  license?: string;
+  /** Resource types its `pi` block adds. */
+  contains: Array<'extensions' | 'skills' | 'prompts' | 'themes'>;
+  /** It has a `pichamber` block: confirmed PiChamber support. */
+  pichamber: boolean;
+  /** It carries Pi's `pi-package` keyword. */
+  isPiPackage: boolean;
+}
+
+export interface PiMarketplaceVersionsResponse {
+  /** Latest version per name; a name npm did not answer for is left out. */
+  versions: Record<string, string>;
+}
+
+export interface PiExtensionPackageInstall {
+  /** An npm package name, no version. */
+  name: string;
+  scope: 'user' | 'project';
+  directory?: string;
+}
+
+export interface PiExtensionPackageInstallResponse extends PiExtensionConfigResponse {
+  /** List id of the package just installed. */
+  installedId?: string;
+}

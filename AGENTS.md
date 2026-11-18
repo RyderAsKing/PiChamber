@@ -204,8 +204,25 @@ machine without Landlock those pages show the unavailable states.
 The seed turns on the bundled Visuals and
 Sub-agents plugins and adds two backdated sessions for them:
 `settings-plugins` (Settings → Extensions & Plugins with both on, desktop
-only); `settings-extensions` (the same page at Pi extensions, Global: the
-seed's local `review-kit` package with one extension off, the demo
+only);
+`settings-marketplace` (Browse from that page's header: the featured picks
+and popular packages, desktop only); `settings-marketplace-search` (Browse
+searching `subagent`: the native Sub-agents plugin with its switch above the
+npm results, desktop only); `settings-marketplace-mobile` (the same search on
+a phone, from the composer sheet's Plugin settings, mobile only);
+`settings-marketplace-package` (the seeded npm package's page, opened from
+its name under Packages: enhanced for PiChamber, with Update to 1.3.0,
+desktop only); `settings-marketplace-install` (the
+Install dialog on a package page; nothing is installed, desktop only). The
+marketplace pages read a made-up npm registry the script serves on port 4778
+(`DEMO_NPM_PORT`): start the dev server with
+`PICHAMBER_NPM_REGISTRY_URL=http://127.0.0.1:4778`,
+`PICHAMBER_NPM_DOWNLOADS_URL=http://127.0.0.1:4778`, and
+`PICHAMBER_FEATURED_URL=off`; the seed writes the featured list into the data
+directory; `settings-extensions` (the same page at Pi extensions, Global: the
+seed's npm package `@acme/pi-review-gate`, one release behind the demo
+registry, with its Enhanced tag and Update; its local `review-kit` package
+with one extension off; the demo
 extensions, and Pi's built-ins); `settings-extensions-project` (Pi
 extensions on This project, each extension with the project's own choice);
 `settings-extensions-remove` (the package's Remove dialog; nothing is
@@ -256,7 +273,8 @@ Desktop captures report a mouse, so `hover:` styles apply; a page's
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,
-`PICHAMBER_HMR_API_PORT`) and capture each with its own label.
+`PICHAMBER_HMR_API_PORT`) and its own `XDG_RUNTIME_DIR` (otherwise the two share a daemon
+socket and the second answers DAEMON_ENDPOINT_UNVERIFIED) and capture each with its own label.
 
 ## Pull Request Handoff
 

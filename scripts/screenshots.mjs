@@ -34,6 +34,9 @@ Environment:
   THEME      light or dark (default: light)
   DEMO_SITE_PORT  Port of the demo site the browser-page and browser-downloads pages load (default: 4777);
              if it cannot start, that page fails and the others still capture
+  DEMO_NPM_PORT   Port of the demo npm registry the marketplace pages read (default: 4778); start the
+             dev server with PICHAMBER_NPM_REGISTRY_URL and PICHAMBER_NPM_DOWNLOADS_URL set to
+             http://127.0.0.1:<port> and PICHAMBER_FEATURED_URL=off
 
 Pages: ${'%PAGES%'}`;
 
@@ -55,6 +58,82 @@ const DEMO_REPLY = 'autosave default changed to true';
 // A stand-in for a project's dev server, served by this script on a fixed
 // port while browser pages are captured.
 const DEMO_SITE_PORT = Number(process.env.DEMO_SITE_PORT || 4777);
+
+// A stand-in for npm's public registry, so the marketplace pages never reach
+// npm and always show the same packages. Every name is made up.
+const DEMO_NPM_PORT = Number(process.env.DEMO_NPM_PORT || 4778);
+const demoNpmPackage = (name, version, description, keywords, extra = {}) => ({
+  name,
+  version,
+  description,
+  keywords: ['pi-package', ...keywords],
+  date: '2026-11-02T10:00:00.000Z',
+  license: 'MIT',
+  maintainers: [{ username: extra.maintainer ?? 'demo-dev' }],
+  links: { repository: `https://github.com/demo-dev/${name.replace(/^@[^/]+\//, '')}` },
+  pi: extra.pi ?? { extensions: ['./index.ts'] },
+  ...(extra.pichamber ? { pichamber: { apiVersion: 1 } } : {}),
+  downloads: extra.downloads ?? 120,
+});
+const DEMO_NPM_PACKAGES = [
+  demoNpmPackage('pi-web-reader', '2.4.1', 'Search the web and read pages as clean markdown, with citations the agent can quote.', ['web', 'search', 'fetch'], { downloads: 18_400, maintainer: 'lena-k' }),
+  demoNpmPackage('@acme/pi-review-gate', '1.3.0', 'Ask before risky shell commands, with a review panel in PiChamber and a prompt in the terminal.', ['pichamber-plugin', 'review', 'permissions', 'safety'], { downloads: 2_150, maintainer: 'acme-tools', pichamber: true }),
+  demoNpmPackage('pi-todo-board', '0.9.3', 'A todo list the agent keeps up to date as it works, with a /todos command.', ['todo', 'tasks', 'planning'], { downloads: 7_830, maintainer: 'mo-ellis' }),
+  demoNpmPackage('pi-lint-lens', '1.1.0', 'Runs your linters after each edit and hands the agent the errors it introduced.', ['lint', 'eslint', 'diagnostics'], { downloads: 5_020, pi: { extensions: ['./index.ts'], skills: ['./skills'] } }),
+  demoNpmPackage('pi-team-agents', '0.4.2', 'Send tasks to parallel subagents with their own models and context.', ['subagent', 'agents', 'parallel'], { downloads: 1_260, maintainer: 'quill-labs' }),
+  demoNpmPackage('pi-commit-coach', '3.0.0', 'Writes commit messages from the staged diff in your project\'s style.', ['git', 'commit'], { downloads: 940 }),
+  demoNpmPackage('@acme/pi-theme-dusk', '1.0.2', 'A low-contrast dark theme for Pi in the terminal.', ['theme'], { downloads: 310, maintainer: 'acme-tools', pi: { themes: ['./themes'] } }),
+];
+const DEMO_FEATURED = {
+  version: 1,
+  // Newer than any built-in list, so the seeded cache is the one shown.
+  updated: '2099-01-01',
+  featured: [
+    { name: 'pi-web-reader', note: 'Gives the agent the web, with sources.' },
+    { name: '@acme/pi-review-gate', note: 'Review risky commands before they run.' },
+    { name: 'pi-todo-board' },
+  ],
+  hidden: [],
+};
+
+// npm's search, latest-manifest, and weekly-downloads endpoints over the
+// packages above. Search keeps packages with the asked keyword and puts the
+// ones that match the text first, as npm does.
+const serveDemoNpm = (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  const send = (status, body) => {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  const strip = ({ downloads, ...pkg }) => pkg;
+  if (url.pathname === '/-/v1/search') {
+    const text = url.searchParams.get('text') ?? '';
+    const keywords = [...text.matchAll(/keywords:(\S+)/g)].map((match) => match[1]);
+    const words = text.replace(/keywords:\S+/g, ' ').toLowerCase().split(/\s+/).filter(Boolean);
+    const haystack = (pkg) => [pkg.name, pkg.description, ...pkg.keywords].join(' ').toLowerCase();
+    const listed = DEMO_NPM_PACKAGES
+      .filter((pkg) => keywords.every((keyword) => pkg.keywords.includes(keyword)))
+      .map((pkg) => ({ pkg, hit: words.length === 0 || words.some((word) => haystack(pkg).includes(word)) }))
+      .sort((a, b) => Number(b.hit) - Number(a.hit) || b.pkg.downloads - a.pkg.downloads);
+    const from = Number(url.searchParams.get('from') ?? 0);
+    const size = Number(url.searchParams.get('size') ?? 20);
+    return send(200, {
+      total: listed.length,
+      objects: listed.slice(from, from + size).map(({ pkg }) => ({ package: strip(pkg), downloads: { weekly: pkg.downloads } })),
+    });
+  }
+  const downloads = url.pathname.match(/^\/downloads\/point\/last-week\/(.+)$/);
+  if (downloads) {
+    const pkg = DEMO_NPM_PACKAGES.find((entry) => entry.name === decodeURIComponent(downloads[1]));
+    return pkg ? send(200, { downloads: pkg.downloads, package: pkg.name }) : send(404, { error: 'not found' });
+  }
+  const latest = url.pathname.match(/^\/(.+)\/latest$/);
+  if (latest) {
+    const pkg = DEMO_NPM_PACKAGES.find((entry) => entry.name === decodeURIComponent(latest[1]));
+    return pkg ? send(200, strip(pkg)) : send(404, { error: 'not found' });
+  }
+  return send(404, { error: 'not found' });
+};
 const DEMO_SITE_TITLE = 'Acme dashboard';
 const DEMO_SITE_HTML = `<!doctype html><html><head><title>${DEMO_SITE_TITLE}</title>
 <style>body{margin:0;font:15px system-ui,sans-serif;color:#1f2933;background:#f5f7fa}
@@ -877,8 +956,145 @@ const PAGES = {
     // plugin with its switch and what it adds to the agent, then the start of
     // Pi's extensions.
     path: '/?settings=plugins',
-    readyText: ['Visuals', 'Sub-agents', 'Built in'],
+    readyText: ['Visuals', 'Sub-agents', 'Native'],
     viewports: ['desktop'],
+  },
+  'settings-marketplace': {
+    // Browse from the Extensions & Plugins header: the featured picks, then
+    // popular Pi packages, from the demo npm registry.
+    path: '/?settings=plugins',
+    readyText: ['Visuals'],
+    demoNpm: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      if (!document.body.innerText.includes('Popular')) {
+        if (!window.__browseAsked) {
+          window.__browseAsked = true;
+          document.querySelector('[data-settings-item="plugins.browse"]')?.click();
+        }
+        return false;
+      }
+      return ['Featured', 'pi-web-reader', 'pi-commit-coach'].every((t) => document.body.innerText.includes(t));
+    })()`,
+  },
+  'settings-marketplace-search': {
+    // A search for "subagent": Sub-agents ships with PiChamber, so it shows
+    // first with its switch, above the npm results.
+    path: '/?settings=plugins',
+    readyText: ['Visuals'],
+    demoNpm: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const input = document.querySelector('input[aria-label="Search Pi packages"]');
+      if (!input) {
+        if (!window.__browseAsked) {
+          window.__browseAsked = true;
+          document.querySelector('[data-settings-item="plugins.browse"]')?.click();
+        }
+        return false;
+      }
+      if (input.value !== 'subagent') {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'subagent');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return false;
+      }
+      return ['Built into PiChamber', 'pi-team-agents'].every((t) => document.body.innerText.includes(t));
+    })()`,
+  },
+  'settings-marketplace-package': {
+    // A package's page, opened from its name under Packages: the seeded
+    // npm package, enhanced for PiChamber and one release behind, with
+    // Update, what it adds, About, and Links.
+    path: '/?settings=plugins',
+    readyText: ['Visuals'],
+    demoNpm: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      if (document.body.innerText.includes('What it adds to Pi')) {
+        return ['Maintainer', 'acme-tools', 'Source code'].every((t) => document.body.innerText.includes(t));
+      }
+      const open = document.querySelector('button[aria-label="@acme/pi-review-gate details"]');
+      if (open) {
+        if (!window.__packageAsked) {
+          window.__packageAsked = true;
+          open.click();
+        }
+        return false;
+      }
+      if (!window.__browseAsked) {
+        window.__browseAsked = true;
+        document.querySelector('[data-settings-item="plugins.browse"]')?.click();
+      }
+      return false;
+    })()`,
+  },
+  'settings-marketplace-mobile': {
+    // Browse on a phone, searching "subagent": reached from the composer
+    // sheet's Plugin settings, since a phone has no settings link to open.
+    path: VISUALS_SESSION_PATH,
+    readyText: [VISUALS_REPLY],
+    viewports: ['mobile'],
+    demoNpm: true,
+    settledScript: `(() => {
+      const input = document.querySelector('input[aria-label="Search Pi packages"]');
+      if (input) {
+        if (input.value !== 'subagent') {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'subagent');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.blur();
+          return false;
+        }
+        return ['Built into PiChamber', 'pi-team-agents'].every((t) => document.body.innerText.includes(t));
+      }
+      const browse = document.querySelector('[data-settings-item="plugins.browse"]');
+      if (browse) {
+        if (!window.__browseAsked) {
+          window.__browseAsked = true;
+          browse.click();
+        }
+        return false;
+      }
+      // One press each: the sheet's button, then its settings link.
+      const link = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Plugin settings');
+      if (link && !window.__settingsAsked) {
+        window.__settingsAsked = true;
+        link.click();
+      } else if (!link && !window.__sheetAsked) {
+        window.__sheetAsked = true;
+        document.querySelector('button[aria-label^="Composer controls"]')?.click();
+      }
+      return false;
+    })()`,
+  },
+  'settings-marketplace-install': {
+    // Install on a package page: the dialog says what installing means and
+    // asks where to load it. Nothing is installed.
+    path: '/?settings=plugins',
+    readyText: ['Visuals'],
+    demoNpm: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      // The settings window is a dialog too: wait for the install one's title.
+      if (document.body.innerText.includes('Install pi-web-reader?')) return true;
+      const install = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Install'
+        && document.body.innerText.includes('What it adds to Pi'));
+      if (install) {
+        if (!window.__installAsked) {
+          window.__installAsked = true;
+          install.click();
+        }
+        return false;
+      }
+      const open = document.querySelector('button[aria-label="pi-web-reader details"]');
+      if (open && !window.__packageAsked) {
+        window.__packageAsked = true;
+        open.click();
+      } else if (!open && !window.__browseAsked) {
+        window.__browseAsked = true;
+        document.querySelector('[data-settings-item="plugins.browse"]')?.click();
+      }
+      return false;
+    })()`,
   },
   'settings-extensions': {
     // The same page at Pi extensions, Global: the seed's local package with
@@ -1647,8 +1863,21 @@ const writeDemoPackage = async (home) => {
   for (const name of ['checklist.ts', 'release-notes.ts']) {
     await writeFile(join(root, 'extensions', name), 'export default function () {}\n');
   }
+  // An npm package one release behind the demo registry, as if `pi install`
+  // had put it in Pi's npm folder: Packages shows it with Update to 1.3.0 and
+  // the Enhanced tag. Its extension does nothing.
+  const gate = join(home, '.pi', 'agent', 'npm', 'node_modules', '@acme', 'pi-review-gate');
+  await mkdir(gate, { recursive: true });
+  await writeFile(join(gate, 'package.json'), `${JSON.stringify({
+    name: '@acme/pi-review-gate', version: '1.2.0', keywords: ['pi-package', 'pichamber-plugin'],
+    pi: { extensions: ['./index.ts'] }, pichamber: { apiVersion: 1 },
+  }, null, 2)}\n`);
+  await writeFile(join(gate, 'index.ts'), 'export default function () {}\n');
   await writeFile(join(home, '.pi', 'agent', 'settings.json'), `${JSON.stringify({
-    packages: [{ source: '../../.pi-packages/review-kit', extensions: ['-extensions/release-notes.ts'] }],
+    packages: [
+      'npm:@acme/pi-review-gate',
+      { source: '../../.pi-packages/review-kit', extensions: ['-extensions/release-notes.ts'] },
+    ],
   }, null, 2)}\n`);
 };
 
@@ -2065,6 +2294,9 @@ const seed = async (dir) => {
     activeProjectId: id,
     lastDirectory: repo,
   }, null, 2)}\n`);
+  // The marketplace's featured list, as if just fetched from the repository.
+  await mkdir(join(data, 'pi'), { recursive: true });
+  await writeFile(join(data, 'pi', 'featured.json'), JSON.stringify({ fetchedAt: Date.now(), list: DEMO_FEATURED }));
   await writeDemoSession(home, repo);
   await writeDemoExtension(home);
   await writePluginSessions(home, data, repo);
@@ -2073,7 +2305,9 @@ const seed = async (dir) => {
   for (const name of ['api-gateway', 'design-notes', 'sandbox']) {
     await mkdir(join(home, 'code', name), { recursive: true });
   }
-  console.log(`Seeded ${repo}\nStart the dev server with HOME=${home} PICHAMBER_DATA_DIR=${data}`);
+  console.log(`Seeded ${repo}\nStart the dev server with HOME=${home} PICHAMBER_DATA_DIR=${data}`
+    + `\nFor the marketplace pages add PICHAMBER_NPM_REGISTRY_URL=http://127.0.0.1:${DEMO_NPM_PORT}`
+    + ` PICHAMBER_NPM_DOWNLOADS_URL=http://127.0.0.1:${DEMO_NPM_PORT} PICHAMBER_FEATURED_URL=off`);
 };
 
 const main = async () => {
@@ -2110,6 +2344,7 @@ const main = async () => {
 
   let client;
   let demoSite;
+  let demoNpm;
   const failed = [];
   try {
     let target;
@@ -2144,7 +2379,26 @@ const main = async () => {
       }
     }
 
+    let demoNpmError = null;
+    if (pageNames.some((name) => PAGES[name].demoNpm)) {
+      demoNpm = createHttpServer(serveDemoNpm);
+      try {
+        await new Promise((resolveListen, reject) => {
+          demoNpm.once('error', reject);
+          demoNpm.listen(DEMO_NPM_PORT, '127.0.0.1', resolveListen);
+        });
+      } catch (error) {
+        demoNpm = null;
+        demoNpmError = `the demo npm registry could not start on port ${DEMO_NPM_PORT} (${error instanceof Error ? error.message : error}); set DEMO_NPM_PORT to a free port`;
+      }
+    }
+
     for (const name of pageNames) {
+      if (PAGES[name].demoNpm && demoNpmError) {
+        console.error(`${name}: ${demoNpmError}`);
+        failed.push(name);
+        continue;
+      }
       if (PAGES[name].browserAddress && demoSiteError) {
         console.error(`${name}: ${demoSiteError}`);
         failed.push(name);
@@ -2162,6 +2416,7 @@ const main = async () => {
     // The server browser keeps its page, and so its connection, open.
     demoSite?.closeAllConnections();
     demoSite?.close();
+    demoNpm?.close();
     chrome.kill('SIGTERM');
     await rm(profileDir, { recursive: true, force: true }).catch(() => {});
   }

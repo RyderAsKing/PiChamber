@@ -55,6 +55,7 @@ export const createPluginService = ({
       description: manifest.description,
       icon: manifest.icon,
       version: manifest.version,
+      keywords: manifest.keywords ?? [],
       bundled: manifest.bundled,
       enabled: isPluginEnabled(manifest, snapshot),
       state: resolvePluginState(manifest, snapshot, directory),
@@ -173,5 +174,10 @@ export const createPluginService = ({
     return { plugins: configured };
   };
 
-  return { list, setEnabled, setState, sessionState, setSessionState, forgetSession, daemonConfig };
+  /** npm names of the bundled plugins, so the marketplace never lists them. */
+  const bundledPackageNames = async () => [...(await plugins()).values()]
+    .filter((manifest) => manifest.bundled && manifest.packageName)
+    .map((manifest) => manifest.packageName);
+
+  return { list, setEnabled, setState, sessionState, setSessionState, forgetSession, daemonConfig, bundledPackageNames };
 };

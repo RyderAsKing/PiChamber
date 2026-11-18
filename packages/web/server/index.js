@@ -21,6 +21,10 @@ import { createPiDaemonPool } from './lib/pi/session-daemon/daemon-pool.js';
 import { createPluginService } from './lib/plugins/service.js';
 import { createPluginDaemonSync } from './lib/plugins/daemon-sync.js';
 import { registerPluginRoutes } from './lib/plugins/routes.js';
+import { createFeaturedSource, DEFAULT_FEATURED_URL } from './lib/marketplace/featured.js';
+import { createNpmRegistry } from './lib/marketplace/npm-registry.js';
+import { registerMarketplaceRoutes } from './lib/marketplace/routes.js';
+import { createMarketplaceService } from './lib/marketplace/service.js';
 import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
 import { detectLinuxDistribution } from './lib/server/linux-distribution.js';
 import { createPiNotificationWatcher } from './lib/notifications/pi-notification-watcher.js';
@@ -312,6 +316,24 @@ export async function startWebUiServer(options = {}) {
     },
   });
   registerPluginRoutes(app, { service: pluginService, onChange: pluginDaemonSync.changed });
+  // Marketplace: npm search and the featured list (lib/marketplace/DOCUMENTATION.md).
+  // PICHAMBER_NPM_REGISTRY_URL / PICHAMBER_NPM_DOWNLOADS_URL point it at a
+  // mirror or a test fixture; PICHAMBER_FEATURED_URL=off stops refreshing the
+  // featured list from the repository.
+  const featuredUrlSetting = process.env.PICHAMBER_FEATURED_URL;
+  registerMarketplaceRoutes(app, {
+    service: createMarketplaceService({
+      registry: createNpmRegistry({
+        ...(process.env.PICHAMBER_NPM_REGISTRY_URL ? { registryUrl: process.env.PICHAMBER_NPM_REGISTRY_URL } : {}),
+        ...(process.env.PICHAMBER_NPM_DOWNLOADS_URL ? { downloadsUrl: process.env.PICHAMBER_NPM_DOWNLOADS_URL } : {}),
+      }),
+      featuredSource: createFeaturedSource({
+        cachePath: dataPath(path.join('pi', 'featured.json')),
+        remoteUrl: featuredUrlSetting === 'off' ? null : featuredUrlSetting || DEFAULT_FEATURED_URL,
+      }),
+      bundledPackageNames: () => pluginService.bundledPackageNames(),
+    }),
+  });
   // Cloudflare Tunnel external access (managed-remote and managed-local modes).
   const requireTunnelAuth = (req, res, next) => uiAuthController.requireAuth(req, res, next);
   app.get('/api/pichamber/tunnel/status', requireTunnelAuth, async (_req, res) => {

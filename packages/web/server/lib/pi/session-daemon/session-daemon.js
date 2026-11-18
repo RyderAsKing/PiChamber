@@ -3340,8 +3340,8 @@ export function createSessionDaemon({
     };
   };
 
-  // `pi config` / `pi list` / `pi remove` for extensions (extension-config.js).
-  // Writes share the resource mutation queue and the shared Pi config lock,
+  // `pi config` / `pi list` / `pi install` / `pi update` / `pi remove` for
+  // extensions (extension-config.js). Writes share the resource mutation queue and the shared Pi config lock,
   // read trust inside the lock, and recreate resident runtimes afterwards.
   const extensionConfigService = createExtensionConfig({ agentDir, createSettingsManager });
   const extensionConfigTarget = async (payload) => {
@@ -3378,16 +3378,55 @@ export function createSessionDaemon({
     const target = await extensionConfigTarget(payload);
     return extensionConfigService.list(target, liveExtensionReplacements(target));
   };
+  // Recreates resident runtimes after a change and answers with the fresh
+  // list. Runs inside the resource mutation queue.
+  const answerExtensionConfigChange = async (target) => {
+    const deferred = activeRuntimes().length > 0 ? await scheduleRuntimeRecreation() : false;
+    const result = await extensionConfigService.list(target, liveExtensionReplacements(target));
+    return deferred ? { ...result, deferred: true } : result;
+  };
   const mutateExtensionConfig = (payload, write) => transactResourceMutation(async () => {
     const target = await withSharedPiConfigLock(async () => {
       const resolved = await extensionConfigTarget(payload);
       await write(resolved);
       return resolved;
     });
-    const deferred = activeRuntimes().length > 0 ? await scheduleRuntimeRecreation() : false;
-    const result = await extensionConfigService.list(target, liveExtensionReplacements(target));
-    return deferred ? { ...result, deferred: true } : result;
+    return answerExtensionConfigChange(target);
   });
+  // `pi install` / `pi update` run npm or git for minutes, so they never hold
+  // the shared Pi config lock (other writers give up after 5 s) or the
+  // resource mutation queue. They queue here instead: one package download
+  // at a time per daemon. Only the settings write afterwards takes the lock.
+  let packageInstallTail = Promise.resolve();
+  const serializePackageInstall = (operation) => {
+    const pending = packageInstallTail.then(operation);
+    packageInstallTail = pending.catch(() => {});
+    return pending;
+  };
+  const installExtensionPackage = async (payload) => {
+    let target = await extensionConfigTarget(payload);
+    let answer;
+    const { installedId } = await extensionConfigService.installPackage(target, payload, {
+      serializeInstall: serializePackageInstall,
+      resolveTarget: () => extensionConfigTarget(payload),
+      withWriteLock: (write) => transactResourceMutation(async () => {
+        await withSharedPiConfigLock(async () => {
+          target = await extensionConfigTarget(payload);
+          await write(target);
+        });
+        answer = await answerExtensionConfigChange(target);
+      }),
+    });
+    return { ...answer, installedId };
+  };
+  const updateExtensionPackage = async (payload) => {
+    const target = await extensionConfigTarget(payload);
+    await extensionConfigService.updatePackage(target, payload, {
+      serializeInstall: serializePackageInstall,
+      resolveTarget: () => extensionConfigTarget(payload),
+    });
+    return transactResourceMutation(async () => answerExtensionConfigChange(await extensionConfigTarget(payload)));
+  };
 
   const resourceId = (kind, filePath) => `${kind}:${createHash('sha256').update(filePath).digest('base64url')}`;
 
@@ -5049,6 +5088,7 @@ export function createSessionDaemon({
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.draft', 'extensions.palette',
               'extensions.config.list', 'extensions.config.set', 'extensions.packages.remove',
+              'extensions.packages.install', 'extensions.packages.update',
               'openUrl.publish', 'archive.publish', 'plugins.configure',
               'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
             ],
@@ -5274,6 +5314,16 @@ export function createSessionDaemon({
       }
       case 'extensions.packages.remove': {
         const result = await mutateExtensionConfig(message.payload, (target) => extensionConfigService.removePackage(target, message.payload));
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.packages.install': {
+        const result = await installExtensionPackage(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.packages.update': {
+        const result = await updateExtensionPackage(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }

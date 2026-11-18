@@ -83,6 +83,12 @@ import {
   isValidSessionShelfResponse,
   type PiAbortInput,
   type PiExtensionConfigResponse,
+  type PiExtensionPackageInstall,
+  type PiExtensionPackageInstallResponse,
+  type PiMarketplaceFeaturedResponse,
+  type PiMarketplacePackageDetail,
+  type PiMarketplaceSearchResponse,
+  type PiMarketplaceVersionsResponse,
   type PiExtensionConfigWrite,
   type PiExtensionListResponse,
   type PiPluginListResponse,
@@ -132,6 +138,12 @@ interface JsonRequestInit<TBody> {
   /** Abort after this many ms instead of `DEFAULT_REQUEST_TIMEOUT_MS`. */
   timeoutMs?: number;
 }
+
+/**
+ * Package installs and updates wait on npm; the server allows them 10
+ * minutes, so the page waits a little longer than that.
+ */
+const PACKAGE_WRITE_TIMEOUT_MS = 11 * 60 * 1000;
 
 const jsonRequest = async <TBody, TResponse>(
   path: string,
@@ -1427,6 +1439,82 @@ export class PiService {
         ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
       },
     );
+  }
+
+  /**
+   * Install an npm package (what `pi install npm:<name>` does, or with `-l`
+   * for a project). npm can take minutes; the answer is the fresh list.
+   */
+  async installExtensionPackage(
+    input: PiExtensionPackageInstall,
+    scope?: PiClientScope,
+  ): Promise<PiExtensionPackageInstallResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiExtensionPackageInstall, PiExtensionPackageInstallResponse>('/api/pi/extensions/packages', {
+      method: 'POST',
+      body: input,
+      retry: false,
+      timeoutMs: PACKAGE_WRITE_TIMEOUT_MS,
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Update an installed npm or git package (what `pi update <source>` does). */
+  async updateExtensionPackage(
+    id: string,
+    directory?: string,
+    scope?: PiClientScope,
+  ): Promise<PiExtensionConfigResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiExtensionConfigResponse>(
+      `/api/pi/extensions/packages/${encodeURIComponent(id)}/update`,
+      {
+        method: 'POST',
+        retry: false,
+        timeoutMs: PACKAGE_WRITE_TIMEOUT_MS,
+        ...(directory ? { query: { directory } } : {}),
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
+    );
+  }
+
+  // ----- Marketplace -----------------------------------------------------
+
+  /** One page of Pi packages on npm; `from` is the previous page's `nextFrom`. */
+  async searchMarketplace(
+    input: { query?: string; from?: number; pichamberOnly?: boolean },
+    scope?: PiClientScope,
+  ): Promise<PiMarketplaceSearchResponse> {
+    assertRuntimeUnchanged(scope);
+    const query: Record<string, string> = {};
+    if (input.query) query.q = input.query;
+    if (input.from) query.from = String(input.from);
+    if (input.pichamberOnly) query.pichamber = '1';
+    return jsonRequest<undefined, PiMarketplaceSearchResponse>('/api/pi/marketplace/search', {
+      method: 'GET', query, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async getMarketplaceFeatured(scope?: PiClientScope): Promise<PiMarketplaceFeaturedResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiMarketplaceFeaturedResponse>('/api/pi/marketplace/featured', {
+      method: 'GET', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async getMarketplacePackage(name: string, scope?: PiClientScope): Promise<PiMarketplacePackageDetail> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiMarketplacePackageDetail>('/api/pi/marketplace/package', {
+      method: 'GET', query: { name }, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Latest versions of npm packages, for update checks. */
+  async getMarketplaceVersions(names: string[], scope?: PiClientScope): Promise<PiMarketplaceVersionsResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiMarketplaceVersionsResponse>('/api/pi/marketplace/versions', {
+      method: 'GET', query: { names: names.join(',') }, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
   }
 
   /**

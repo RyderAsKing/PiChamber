@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "updated": "2026-11-18",
+  "featured": [
+    { "name": "pi-web-access", "note": "Web search, page fetching, GitHub repos and PDFs" },
+    { "name": "pi-lens", "note": "Linters, formatters and type checks as the agent edits" },
+    { "name": "@juicesharp/rpiv-todo", "note": "A todo list the agent keeps while it works" },
+    { "name": "@plannotator/pi-extension", "note": "Review and annotate the agent's plans" },
+    { "name": "pi-simplify", "note": "Reviews recent changes for clarity" }
+  ],
+  "hidden": []
+}

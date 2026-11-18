@@ -18,9 +18,14 @@ import {
 } from '@/components/sections/shared/SettingsSection';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { ExtensionsSection } from '@/components/sections/plugins/ExtensionsSection';
 import { reportExtensionWrite } from '@/components/sections/plugins/extensionWriteReport';
+import { InstallPackageDialog } from '@/components/sections/plugins/InstallPackageDialog';
+import { MarketplacePackagePage } from '@/components/sections/plugins/MarketplacePackagePage';
+import { MarketplaceView, type MarketplaceFilter } from '@/components/sections/plugins/MarketplaceView';
+import { PluginIcon, PluginRow, PluginSwitch } from '@/components/sections/plugins/PluginRow';
+import { useSaveReporter } from '@/components/sections/plugins/useSaveReporter';
+import { NativeTag, Tag } from '@/components/sections/plugins/tags';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { reportSettingsSaveState } from '@/lib/persistence';
 import type {
@@ -32,15 +37,13 @@ import type {
 } from '@/lib/pi/protocol';
 import { cn } from '@/lib/utils';
 import { useExtensionConfigStore } from '@/plugins/extensionConfigStore';
-import { resolvePluginIcon } from '@/plugins/icons';
-import { summarizePluginImpact } from '@/plugins/impact';
 import { getNativePluginFeatures } from '@/plugins/registry';
-import { findReplacement, replacementFix, replacementLine, replacementReason } from '@/plugins/replacements';
+import { findReplacement, replacementFix, replacementReason } from '@/plugins/replacements';
 import { usePluginsStore } from '@/plugins/store';
 import { useExtensionConfig } from '@/plugins/useExtensionConfig';
 import { usePlugins } from '@/plugins/usePlugins';
 
-const PLUGINS_INFO = 'Features that come with PiChamber. Built-in plugins start off, and a plugin that is off adds nothing to the agent.';
+const PLUGINS_INFO = 'Plugins that come with PiChamber. Plugins you install from Browse are Pi packages and show under Pi extensions, Packages. Built-in plugins start off, and a plugin that is off adds nothing to the agent.';
 const IMPACT_INFO = 'Measured by loading the plugin\'s agent code. Tools are described to the model on every request while the plugin is on. A plugin that is off adds nothing.';
 
 type PluginFilter = 'all' | 'on' | 'off';
@@ -51,123 +54,8 @@ const FILTERS: Array<{ id: PluginFilter; label: string }> = [
   { id: 'off', label: 'Off' },
 ];
 
-function useSaveReporter() {
-  return React.useCallback(async (write: () => Promise<boolean>) => {
-    reportSettingsSaveState('saving');
-    const ok = await write();
-    reportSettingsSaveState(ok ? 'saved' : 'error');
-    return ok;
-  }, []);
-}
-
-/** The plugin's on/off switch, saved at once. */
-function PluginSwitch({ plugin, className }: { plugin: PiPluginView; className?: string }) {
-  const setEnabled = usePluginsStore((state) => state.setEnabled);
-  const busy = usePluginsStore((state) => state.pending[plugin.id] === true);
-  const save = useSaveReporter();
-  return (
-    <Switch
-      checked={plugin.enabled}
-      disabled={busy}
-      ariaLabel={plugin.name}
-      className={className}
-      onChange={(next) => {
-        void save(() => setEnabled(plugin.id, next)).then((ok) => {
-          // Which extensions Pi loads can change with the plugin; read that again.
-          if (ok) useExtensionConfigStore.getState().invalidate();
-        });
-      }}
-    />
-  );
-}
-
-/**
- * The plugin's mark: the bare line icon at the size of a line of text, as the
- * settings navigation draws its own, so it sits on the title's line.
- */
-function PluginIcon({ plugin }: { plugin: PiPluginView }) {
-  return (
-    <Icon
-      name={resolvePluginIcon(plugin.icon)}
-      aria-hidden="true"
-      className={cn('size-5 shrink-0', plugin.enabled ? 'text-foreground' : 'text-muted-foreground')}
-    />
-  );
-}
-
-/** A small label beside a name: where a plugin comes from, what kind of thing a row is. */
-function Tag({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex shrink-0 items-center rounded-full bg-muted px-2 py-0.5 typography-micro font-medium text-muted-foreground">
-      {children}
-    </span>
-  );
-}
-
 /** Plugins past this count get the All, On, Off filter. */
 const FILTER_FROM = 7;
-
-const impactLine = (plugin: PiPluginView): string => (
-  plugin.impactError ? 'Could not measure what it adds to the agent' : summarizePluginImpact(plugin.impact)
-);
-
-/**
- * One plugin in the list. The name is the row's button (stretched over the
- * row), so the whole row opens the plugin while the switch stays its own
- * control.
- */
-function PluginRow({
-  plugin,
-  replacement,
-  onOpen,
-}: {
-  plugin: PiPluginView;
-  /** Set when the plugin is on but an extension took its place. */
-  replacement?: PiExtensionReplacement;
-  onOpen: () => void;
-}) {
-  return (
-    <SettingsListRow
-      interactive
-      settingsItem={`plugins.${plugin.id}`}
-      className="items-start py-3"
-      leading={<PluginIcon plugin={plugin} />}
-      title={(
-        <button
-          type="button"
-          onClick={onOpen}
-          aria-label={`${plugin.name} settings`}
-          className={cn(
-            'truncate typography-ui-label font-medium text-foreground outline-none',
-            "after:absolute after:inset-0 after:content-['']",
-            'focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-[var(--interactive-focus-ring)]',
-          )}
-        >
-          {plugin.name}
-        </button>
-      )}
-      titleAccessory={plugin.bundled ? <Tag>{'Built in'}</Tag> : null}
-      detail={(
-        <>
-          <p className={cn(SETTINGS_LIST_DETAIL_CLASS, 'line-clamp-2 text-pretty')}>{plugin.description}</p>
-          {replacement ? (
-            <p className="truncate typography-meta text-[var(--status-warning)]">{replacementLine(replacement)}</p>
-          ) : (
-            <p className="truncate typography-micro tabular-nums text-muted-foreground">
-              {plugin.enabled ? impactLine(plugin) : 'Off: adds nothing to the agent'}
-            </p>
-          )}
-        </>
-      )}
-      trailing={(
-        <>
-          <PluginSwitch plugin={plugin} className="relative z-10" />
-          <Icon name="arrow-right-s" aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-        </>
-      )}
-    />
-  );
-}
 
 function PluginList({
   plugins,
@@ -189,7 +77,7 @@ function PluginList({
   ));
 
   return (
-    <SettingsSection divider={false} title="Plugins" info={PLUGINS_INFO} contentClassName="space-y-3">
+    <SettingsSection divider={false} title="Native plugins" info={PLUGINS_INFO} contentClassName="space-y-3">
       {plugins.length >= FILTER_FROM ? (
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Show plugins">
           {FILTERS.map(({ id, label }) => (
@@ -214,6 +102,7 @@ function PluginList({
               key={plugin.id}
               plugin={plugin}
               replacement={plugin.enabled ? findReplacement(config, 'plugin', plugin.id) : undefined}
+              showNativeTag={false}
               onOpen={() => onOpen(plugin.id)}
             />
           ))}
@@ -403,11 +292,13 @@ function PluginDetail({
   plugin,
   directory,
   config,
+  backLabel,
   onBack,
 }: {
   plugin: PiPluginView;
   directory: string | null;
   config: PiExtensionConfigResponse | null;
+  backLabel: string;
   onBack: () => void;
 }) {
   const showOptions = hasOptions(plugin, directory);
@@ -418,11 +309,11 @@ function PluginDetail({
       titleAbove={(
         <Button variant="ghost" size="xs" onClick={onBack} className="-ml-2 gap-1 text-muted-foreground">
           <Icon name="arrow-left-s" aria-hidden="true" className="size-4" />
-          {'Extensions & Plugins'}
+          {backLabel}
         </Button>
       )}
       titleLeading={<PluginIcon plugin={plugin} />}
-      titleAccessory={plugin.bundled ? <Tag>{'Built in'}</Tag> : null}
+      titleAccessory={plugin.bundled ? <NativeTag /> : null}
       description={<p className={cn(SETTINGS_DESCRIPTION_CLASS, 'text-pretty')}>{plugin.description}</p>}
     >
       {replacement ? <ReplacedNotice replacement={replacement} config={config} /> : null}
@@ -456,7 +347,7 @@ function PluginDetail({
 
       <SettingsSection title="About">
         <SettingsList>
-          <SettingsListRow title="Source" trailing={<Fact>{plugin.bundled ? 'Comes with PiChamber' : 'Installed'}</Fact>} />
+          <SettingsListRow title="Source" trailing={<Fact>{plugin.bundled ? 'Native: comes with PiChamber' : 'Installed'}</Fact>} />
           <SettingsListRow title="Version" trailing={<Fact>{plugin.version}</Fact>} />
         </SettingsList>
       </SettingsSection>
@@ -464,28 +355,97 @@ function PluginDetail({
   );
 }
 
+/** What the page shows: the installed list, or one of the pages it opens. */
+type PageView =
+  | { kind: 'list' }
+  | { kind: 'plugin'; id: string; from: 'list' | 'browse' }
+  | { kind: 'browse' }
+  | { kind: 'package'; name: string; from: 'list' | 'browse' };
+
 /**
- * Settings → Extensions & Plugins: PiChamber's plugins with switches (a row
- * opens the plugin's own page), then Pi's extensions and packages.
+ * Settings → Extensions & Plugins. The list: PiChamber's own plugins with
+ * switches, then everything Pi loads (packages, the user's extensions, Pi's
+ * built-ins). Browse finds Pi packages on npm; a plugin or package opens on
+ * its own page with a link back.
  */
 export const PluginsPage: React.FC = () => {
   const directory = useEffectiveDirectory() ?? null;
   const { plugins, entry } = usePlugins(directory);
   const load = usePluginsStore((state) => state.load);
-  const [openId, setOpenId] = React.useState<string | null>(null);
+  const [view, setView] = React.useState<PageView>({ kind: 'list' });
+  // Kept here so the search is still there when a package page goes back.
+  const [query, setQuery] = React.useState('');
+  const [filter, setFilter] = React.useState<MarketplaceFilter>('all');
+  const [installName, setInstallName] = React.useState<string | null>(null);
   // What a live session in this folder loaded says whether a plugin that is
   // on gave way to one of the user's extensions.
   const config = useExtensionConfig(directory)?.config ?? null;
+  // Whether this folder can take a project install.
+  const projectTrusted = directory && config ? config.project.trusted : undefined;
 
-  const open = openId ? plugins.find((plugin) => plugin.id === openId) : undefined;
-  if (open) {
-    return <PluginDetail plugin={open} directory={directory} config={config} onBack={() => setOpenId(null)} />;
+  const installDialog = (
+    <InstallPackageDialog
+      name={installName}
+      directory={directory}
+      projectTrusted={projectTrusted}
+      onClose={() => setInstallName(null)}
+    />
+  );
+
+  if (view.kind === 'plugin') {
+    const open = plugins.find((plugin) => plugin.id === view.id);
+    if (open) {
+      return (
+        <PluginDetail
+          plugin={open}
+          directory={directory}
+          config={config}
+          backLabel={view.from === 'browse' ? 'Browse' : 'Extensions & Plugins'}
+          onBack={() => setView(view.from === 'browse' ? { kind: 'browse' } : { kind: 'list' })}
+        />
+      );
+    }
+  }
+
+  if (view.kind === 'browse') {
+    return (
+      <>
+        <MarketplaceView
+          plugins={plugins}
+          directory={directory}
+          query={query}
+          onQueryChange={setQuery}
+          filter={filter}
+          onFilterChange={setFilter}
+          onBack={() => setView({ kind: 'list' })}
+          onOpenPackage={(name) => setView({ kind: 'package', name, from: 'browse' })}
+          onOpenPlugin={(id) => setView({ kind: 'plugin', id, from: 'browse' })}
+          onInstall={setInstallName}
+        />
+        {installDialog}
+      </>
+    );
+  }
+
+  if (view.kind === 'package') {
+    return (
+      <>
+        <MarketplacePackagePage
+          name={view.name}
+          directory={directory}
+          backLabel={view.from === 'browse' ? 'Browse' : 'Extensions & Plugins'}
+          onBack={() => setView(view.from === 'browse' ? { kind: 'browse' } : { kind: 'list' })}
+          onInstall={setInstallName}
+        />
+        {installDialog}
+      </>
+    );
   }
 
   let body: React.ReactNode;
   if (!entry?.plugins && entry?.status === 'error') {
     body = (
-      <SettingsSection divider={false} title="Plugins">
+      <SettingsSection divider={false} title="Native plugins">
         <div className="flex flex-wrap items-center gap-3">
           <p className={SETTINGS_HELPER_CLASS}>{'Could not load plugins from the server.'}</p>
           <Button variant="outline" size="sm" onClick={() => void load(directory, { force: true })}>
@@ -496,20 +456,21 @@ export const PluginsPage: React.FC = () => {
     );
   } else if (!entry?.plugins) {
     body = (
-      <SettingsSection divider={false} title="Plugins">
+      <SettingsSection divider={false} title="Native plugins">
         <p className={SETTINGS_HELPER_CLASS}>{'Loading plugins…'}</p>
       </SettingsSection>
     );
   } else if (plugins.length === 0) {
     body = (
-      <SettingsSection divider={false} title="Plugins">
+      <SettingsSection divider={false} title="Native plugins">
         <p className={SETTINGS_HELPER_CLASS}>{'This server has no plugins.'}</p>
       </SettingsSection>
     );
   } else {
-    body = <PluginList plugins={plugins} config={config} onOpen={setOpenId} />;
+    body = <PluginList plugins={plugins} config={config} onOpen={(id) => setView({ kind: 'plugin', id, from: 'list' })} />;
   }
 
+  const browse = () => setView({ kind: 'browse' });
   return (
     <SettingsPageLayout
       title="Extensions & Plugins"
@@ -518,11 +479,19 @@ export const PluginsPage: React.FC = () => {
           {'Plugins add features to PiChamber and the agent. Extensions are what Pi itself loads, here and in the terminal.'}
         </p>
       )}
+      headerEnd={(
+        <Button variant="outline" size="sm" onClick={browse} data-settings-item="plugins.browse">
+          <Icon name="search" aria-hidden="true" className="size-3.5" />
+          {'Browse'}
+        </Button>
+      )}
     >
       {body}
       <ExtensionsSection
         directory={directory}
         pluginNames={Object.fromEntries(plugins.map((plugin) => [plugin.id, plugin.name]))}
+        onBrowse={browse}
+        onOpenPackage={(name) => setView({ kind: 'package', name, from: 'list' })}
       />
     </SettingsPageLayout>
   );

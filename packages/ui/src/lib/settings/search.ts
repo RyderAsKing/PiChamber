@@ -635,6 +635,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['subagent', 'sub-agent', 'agents', 'delegate', 'parallel', 'chain', 'scout', 'reviewer', 'plugin'],
   },
   {
+    id: 'plugins.browse',
+    page: 'plugins',
+    title: "Browse Pi packages",
+    description: "Find and install Pi packages from npm, and see which work with PiChamber",
+    keywords: ['marketplace', 'browse', 'install', 'npm', 'gallery', 'store', 'find', 'search', 'pi install', 'update'],
+  },
+  {
     id: 'plugins.extensions',
     page: 'plugins',
     title: "Pi extensions",
@@ -645,7 +652,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'plugins.extensions.packages',
     page: 'plugins',
     title: "Pi packages",
-    description: "See the packages Pi has installed and remove one",
+    description: "See the packages Pi has installed, update one, or remove it",
     keywords: ['package', 'packages', 'npm', 'git', 'pi list', 'pi remove', 'uninstall', 'remove', 'installed'],
   },
   {

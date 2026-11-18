@@ -17,6 +17,7 @@ import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { usePromptTemplatesStore } from '@/stores/usePromptTemplatesStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useExtensionConfigStore } from '@/plugins/extensionConfigStore';
+import { useMarketplaceStore } from '@/plugins/marketplaceStore';
 import { usePluginsStore } from '@/plugins/store';
 import { usePluginSessionStore } from '@/plugins/sessionStore';
 import { clearCommandCatalogForRuntimeSwitch } from '@/lib/pi/commandCatalog';
@@ -62,6 +63,7 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   usePluginsStore.getState().resetForRuntimeSwitch();
   usePluginSessionStore.getState().resetForRuntimeSwitch();
   useExtensionConfigStore.getState().resetForRuntimeSwitch();
+  useMarketplaceStore.getState().resetForRuntimeSwitch();
   useConfigStore.setState({
     providers: [],
     isConnected: false,
