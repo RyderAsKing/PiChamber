@@ -753,6 +753,19 @@ describe('package install and update with a stubbed package manager', () => {
     expect(failure.message).not.toContain('/agent');
   });
 
+  it('reads trust again when a queued install or update starts, and stops when it was revoked', async () => {
+    const revoked = { cwd: '/work', directory: '/work', trusted: false };
+    const { service, calls } = stubbed({ configured });
+    await expect(service.installPackage(project, { name: 'pi-new', scope: 'project' }, {
+      resolveTarget: async () => revoked,
+    })).rejects.toMatchObject({ code: 'PROJECT_UNTRUSTED' });
+    const projectId = await idOf(service, project, 'npm:proj-pkg');
+    await expect(service.updatePackage(project, { id: projectId }, {
+      resolveTarget: async () => revoked,
+    })).rejects.toMatchObject({ code: 'PROJECT_UNTRUSTED' });
+    expect(calls).toEqual([]);
+  });
+
   it('lists name, version, and the PiChamber marker from the installed package.json, ignoring a broken one', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-extension-config-pkg-'));
     try {

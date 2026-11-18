@@ -3408,6 +3408,7 @@ export function createSessionDaemon({
     let answer;
     const { installedId } = await extensionConfigService.installPackage(target, payload, {
       serializeInstall: serializePackageInstall,
+      resolveTarget: () => extensionConfigTarget(payload),
       withWriteLock: (write) => transactResourceMutation(async () => {
         await withSharedPiConfigLock(async () => {
           target = await extensionConfigTarget(payload);
@@ -3420,8 +3421,11 @@ export function createSessionDaemon({
   };
   const updateExtensionPackage = async (payload) => {
     const target = await extensionConfigTarget(payload);
-    await extensionConfigService.updatePackage(target, payload, { serializeInstall: serializePackageInstall });
-    return transactResourceMutation(() => answerExtensionConfigChange(target));
+    await extensionConfigService.updatePackage(target, payload, {
+      serializeInstall: serializePackageInstall,
+      resolveTarget: () => extensionConfigTarget(payload),
+    });
+    return transactResourceMutation(async () => answerExtensionConfigChange(await extensionConfigTarget(payload)));
   };
 
   const resourceId = (kind, filePath) => `${kind}:${createHash('sha256').update(filePath).digest('base64url')}`;

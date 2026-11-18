@@ -73,6 +73,32 @@ const parseVersion = (version: string) => {
 };
 
 /**
+ * Semver prerelease order: dot-separated fields, numbers compared as numbers
+ * (by length first, so any size works) and below words, words compared as
+ * text, and a shorter list below a longer one it starts.
+ */
+const comparePrerelease = (a: string, b: string): number => {
+  const left = a.split('.');
+  const right = b.split('.');
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const x = left[index];
+    const y = right[index];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    if (x === y) continue;
+    const xNumber = /^\d+$/.test(x);
+    const yNumber = /^\d+$/.test(y);
+    if (xNumber && yNumber) {
+      if (x.length !== y.length) return x.length < y.length ? -1 : 1;
+      return x < y ? -1 : 1;
+    }
+    if (xNumber !== yNumber) return xNumber ? -1 : 1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
+};
+
+/**
  * Compare two versions the way semver orders them (numbers first, a
  * prerelease before its release). Unparseable versions compare equal, so
  * no update is offered on a guess.
@@ -88,7 +114,7 @@ export const compareVersions = (a: string, b: string): number => {
   if (left.prerelease === right.prerelease) return 0;
   if (!left.prerelease) return 1;
   if (!right.prerelease) return -1;
-  return left.prerelease < right.prerelease ? -1 : 1;
+  return comparePrerelease(left.prerelease, right.prerelease);
 };
 
 /**

@@ -785,10 +785,16 @@ export function createExtensionConfig({
    * `serializeInstall` runs Pi's `install` (one npm run at a time), then
    * `withWriteLock(write)` runs `write(freshTarget)` under the resource
    * mutation queue and the shared Pi config lock to add the source to
-   * settings. Both hooks default to running directly. Returns
-   * `{ installedId }`, the new package's list id.
+   * settings. Both hooks default to running directly. `resolveTarget`
+   * reads the target again when the queued npm step starts, so trust
+   * revoked while it waited stops it. Returns `{ installedId }`, the new
+   * package's list id.
    */
-  const installPackage = async (target, payload, { serializeInstall = runDirectly, withWriteLock = (write) => write(target) } = {}) => {
+  const installPackage = async (target, payload, {
+    serializeInstall = runDirectly,
+    withWriteLock = (write) => write(target),
+    resolveTarget = async () => target,
+  } = {}) => {
     const request = parseInstallRequest(payload);
     const source = `npm:${request.name}`;
     const identity = packageIdentity(source);
@@ -799,7 +805,10 @@ export function createExtensionConfig({
       assertNotConfigured(packageManager, request.scope, identity);
     }
     await serializeInstall(async () => {
-      const { packageManager, globalCwd } = managersFor(target);
+      // Trust can change while this waits in the queue: check again first.
+      const current = await resolveTarget();
+      assertInstallTarget(current, request.scope);
+      const { packageManager, globalCwd } = managersFor(current);
       try {
         await packageManager.install(source, { local });
       } catch (error) {
@@ -828,20 +837,28 @@ export function createExtensionConfig({
   /**
    * `pi update <source>` for one configured npm or git package, run through
    * `serializeInstall` with no lock held. Pi updates every entry with the
-   * same identity in the settings it can read. The caller recreates
+   * same identity in the settings it can read. `resolveTarget` reads the
+   * target again when the queued step starts, so the package is looked up
+   * with the trust and settings of that moment. The caller recreates
    * runtimes afterwards.
    */
-  const updatePackage = async (target, payload, { serializeInstall = runDirectly } = {}) => {
+  const updatePackage = async (target, payload, { serializeInstall = runDirectly, resolveTarget = async () => target } = {}) => {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)
       || typeof payload.id !== 'string' || !ID_PATTERN.test(payload.id)) {
       throw invalid();
     }
-    const { match } = findConfiguredPackage(target, payload.id);
-    const kind = packageKind(match.source);
-    if (kind === 'local') throw invalid('A local package has nothing to update.');
-    if (isPinnedSource(match.source)) throw new ExtensionConfigError('PACKAGE_PINNED', 'The package is pinned to a version.');
+    const assertUpdatable = (source) => {
+      if (packageKind(source) === 'local') throw invalid('A local package has nothing to update.');
+      if (isPinnedSource(source)) throw new ExtensionConfigError('PACKAGE_PINNED', 'The package is pinned to a version.');
+    };
+    assertUpdatable(findConfiguredPackage(target, payload.id).match.source);
     await serializeInstall(async () => {
-      const { packageManager, globalCwd } = managersFor(target);
+      // Trust and settings can change while this waits in the queue: look
+      // the package up again, which leaves out an untrusted project's.
+      const current = await resolveTarget();
+      const { match } = findConfiguredPackage(current, payload.id);
+      assertUpdatable(match.source);
+      const { packageManager, globalCwd } = managersFor(current);
       try {
         await packageManager.update(match.source);
       } catch (error) {

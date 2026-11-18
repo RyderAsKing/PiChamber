@@ -82,6 +82,15 @@ describe('compareVersions', () => {
     expect(compareVersions('2.0', '2.0.0')).toBe(0);
   });
 
+  test('orders prereleases by semver precedence', () => {
+    expect(compareVersions('1.0.0-beta.10', '1.0.0-beta.2')).toBe(1);
+    expect(compareVersions('1.0.0-beta.2', '1.0.0-beta.10')).toBe(-1);
+    expect(compareVersions('1.0.0-alpha', '1.0.0-alpha.1')).toBe(-1);
+    expect(compareVersions('1.0.0-1', '1.0.0-alpha')).toBe(-1);
+    expect(compareVersions('1.0.0-alpha.beta', '1.0.0-beta')).toBe(-1);
+    expect(compareVersions('1.0.0-rc.99999999999999999999', '1.0.0-rc.9')).toBe(1);
+  });
+
   test('treats versions it cannot read as equal', () => {
     expect(compareVersions('latest', '1.0.0')).toBe(0);
   });
