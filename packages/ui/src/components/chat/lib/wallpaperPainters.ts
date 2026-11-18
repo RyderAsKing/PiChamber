@@ -41,13 +41,17 @@ export type PainterOptions = {
   fade?: WallpaperFade;
 };
 
-/** How much ink a lit cell takes. Dark themes need a touch more to show. */
+/**
+ * How much ink a lit cell takes: texture, not a picture. Dark ink on a light
+ * page reads much stronger than light ink on a dark one, so light themes get
+ * about half of what dark themes do.
+ */
 const INK_ALPHA = {
-  dither: { light: 0.11, dark: 0.13 },
-  ascii: { light: 0.15, dark: 0.18 },
-  halftone: { light: 0.13, dark: 0.16 },
-  strands: { light: 0.22, dark: 0.26 },
-  grain: { light: 0.09, dark: 0.11 },
+  dither: { light: 0.055, dark: 0.1 },
+  ascii: { light: 0.075, dark: 0.13 },
+  halftone: { light: 0.065, dark: 0.12 },
+  strands: { light: 0.11, dark: 0.19 },
+  grain: { light: 0.05, dark: 0.08 },
   /** The picture on its own, with no pattern over it. */
   photo: { light: 0.3, dark: 0.26 },
   /** The picture under a pattern. */

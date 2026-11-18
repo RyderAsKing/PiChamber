@@ -50,10 +50,11 @@ function renderSwatch({ wallpaper, picture, ink, variant }: SwatchOptions): stri
     const layer = document.createElement('canvas');
     const painter = createWallpaperPainter({ canvas: layer, ...size, ink, variant, wallpaper, picture, fade: 'full' });
     painter?.draw(0);
-    copy(layer, size, isPixelatedWallpaper(wallpaper));
-    // On its own a pattern is faint by design; twice over, a small tile still
-    // reads. Over a picture it is already drawn at the picture's strength.
-    if (!picture) copy(layer, size, isPixelatedWallpaper(wallpaper));
+    // On its own a pattern is faint by design, light themes most of all; laid
+    // over itself a few times, a small tile still reads. Over a picture it is
+    // already drawn at the picture's strength.
+    const layers = picture ? 1 : variant === 'light' ? 4 : 2;
+    for (let i = 0; i < layers; i += 1) copy(layer, size, isPixelatedWallpaper(wallpaper));
   }
   return out.toDataURL('image/png');
 }
