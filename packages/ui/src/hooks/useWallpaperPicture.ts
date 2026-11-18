@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { loadWallpaperPicture } from '@/lib/wallpaperPicture';
+import { loadWallpaperPicture, peekWallpaperPicture } from '@/lib/wallpaperPicture';
 
 /**
  * The server's decoded wallpaper picture for `version`. `picture` is null
@@ -9,9 +9,17 @@ import { loadWallpaperPicture } from '@/lib/wallpaperPicture';
  * than draw without it and then redraw.
  */
 export function useWallpaperPicture(version: string | null): { picture: ImageBitmap | null; pending: boolean } {
-  const [picture, setPicture] = React.useState<{ version: string; bitmap: ImageBitmap | null } | null>(null);
+  const [picture, setPicture] = React.useState<{ version: string; bitmap: ImageBitmap | null } | null>(() => {
+    const loaded = version ? peekWallpaperPicture(version) : undefined;
+    return version && loaded ? { version, bitmap: loaded.value } : null;
+  });
   React.useEffect(() => {
     if (!version) return;
+    const loaded = peekWallpaperPicture(version);
+    if (loaded) {
+      setPicture((previous) => (previous?.version === version && previous.bitmap === loaded.value ? previous : { version, bitmap: loaded.value }));
+      return;
+    }
     let cancelled = false;
     loadWallpaperPicture(version).then(
       (bitmap) => {

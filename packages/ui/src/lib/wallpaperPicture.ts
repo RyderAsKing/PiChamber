@@ -77,7 +77,7 @@ export async function removeWallpaperPicture(): Promise<void> {
  * answer, not a failure). Other failures reject. One picture is kept per
  * runtime, so switching servers or versions fetches again.
  */
-let cached: { key: string; picture: Promise<ImageBitmap | null> } | null = null;
+let cached: { key: string; picture: Promise<ImageBitmap | null>; settled?: { value: ImageBitmap | null } } | null = null;
 
 export function loadWallpaperPicture(version: string): Promise<ImageBitmap | null> {
   const key = `${getRuntimeKey()}\u0000${version}`;
@@ -88,10 +88,26 @@ export function loadWallpaperPicture(version: string): Promise<ImageBitmap | nul
     if (!response.ok) throw new Error(`Wallpaper picture unavailable (${response.status})`);
     return createImageBitmap(await response.blob());
   })();
-  cached = { key, picture };
-  // A failed load is not kept, so the next render tries again.
-  picture.catch(() => {
-    if (cached?.key === key) cached = null;
-  });
+  const entry: NonNullable<typeof cached> = { key, picture };
+  cached = entry;
+  picture.then(
+    (value) => {
+      entry.settled = { value };
+    },
+    // A failed load is not kept, so the next render tries again.
+    () => {
+      if (cached === entry) cached = null;
+    },
+  );
   return picture;
+}
+
+/**
+ * The picture for `version` if it has already loaded, so a remounted
+ * wallpaper draws at once instead of blinking out while the promise settles.
+ * Undefined when it has not loaded (yet).
+ */
+export function peekWallpaperPicture(version: string): { value: ImageBitmap | null } | undefined {
+  const key = `${getRuntimeKey()}\u0000${version}`;
+  return cached?.key === key ? cached.settled : undefined;
 }

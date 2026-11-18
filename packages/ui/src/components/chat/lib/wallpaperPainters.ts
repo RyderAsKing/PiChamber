@@ -67,6 +67,27 @@ const deviceScale = (): number => Math.min(2, window.devicePixelRatio || 1);
 
 const inkStyle = (ink: Ink, alpha: number): string => `rgb(${ink.r} ${ink.g} ${ink.b} / ${alpha})`;
 
+/** One cell of each pattern, in CSS pixels. */
+const CELLS: Record<Exclude<Wallpaper, 'none'>, { width: number; height: number }> = {
+  dither: { width: DITHER_CELL_PX, height: DITHER_CELL_PX },
+  ascii: ASCII_CELL,
+  halftone: { width: HALFTONE_CELL_PX, height: HALFTONE_CELL_PX },
+  strands: { width: STRAND_CELL_PX, height: STRAND_CELL_PX },
+  grain: { width: 1, height: 1 },
+};
+
+/**
+ * The canvas size to draw a pattern at for a `width` x `height` area: rounded
+ * up to an even number of cells, so that, centred, a cell always sits on the
+ * middle. Then a canvas redrawn at another size keeps every cell where it was
+ * instead of shifting the whole pattern by part of a cell.
+ */
+export function wallpaperCanvasSize(wallpaper: Wallpaper, width: number, height: number): { width: number; height: number } {
+  const cell = wallpaper === 'none' ? { width: 2, height: 2 } : CELLS[wallpaper];
+  const even = (length: number, step: number) => Math.max(0, Math.ceil(length / (2 * step)) * 2 * step);
+  return { width: even(width, cell.width), height: even(height, cell.height) };
+}
+
 /** Whether the canvas holds one pixel per cell and is scaled up crisply by CSS. */
 export const isPixelatedWallpaper = (wallpaper: Wallpaper): boolean => wallpaper === 'dither' || wallpaper === 'grain';
 
