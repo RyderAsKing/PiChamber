@@ -117,8 +117,10 @@ const BASE_STYLE = [
   ':where(input[type=range],input[type=checkbox],input[type=radio]){accent-color:var(--pc-accent)}',
   // Inherited, so a font-size or fill set on the text, its group, or by a
   // page rule still wins. Shapes with no fill of their own get the muted
-  // colour instead of black.
-  ':where(svg){overflow:visible;fill:var(--pc-muted);font-family:var(--pc-font);font-size:12px;font-variant-numeric:tabular-nums}',
+  // colour instead of black. Skipped where the svg sets its own (an icon's
+  // fill="none"): a page rule would beat the attribute.
+  ':where(svg){overflow:visible;font-family:var(--pc-font);font-variant-numeric:tabular-nums}',
+  ':where(svg:not([fill])){fill:var(--pc-muted)}:where(svg:not([font-size])){font-size:12px}',
 ].join('');
 
 const themeStyle = (theme: VisualTheme): string => (

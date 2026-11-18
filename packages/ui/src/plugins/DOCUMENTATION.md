@@ -286,7 +286,8 @@ names a manifest may use and falls back to `puzzle` for any other.
   page on the chat background with an 8 px gutter on `html` (room for focus
   rings and shadows; scrollbar hidden), style body text, headings (16 px at
   most), tables, buttons, inputs, and code, and give `svg` a 12 px size and
-  the muted fill, which its text inherits unless the text, a group, or a
+  the muted fill (unless the `svg` sets its own, like an icon's
+  `fill="none"`), which its text inherits unless the text, a group, or a
   page rule sets its own, so the agent writes only layout. The tool description names the variables and sets the layout,
   text-size, and colour rules (no outer card or title banner, one colour per
   series in `--pc-c1`, at most three series hues).

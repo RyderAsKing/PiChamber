@@ -86,7 +86,11 @@ describe('buildVisualDocument', () => {
     expect(doc).toContain(':where(html){background:var(--pc-bg);padding:8px;');
     // On the svg itself, so text inherits it and any fill on the text or a
     // group (attribute, style, or page rule) wins.
-    expect(doc).toContain(':where(svg){overflow:visible;fill:var(--pc-muted);font-family:var(--pc-font);font-size:12px;');
+    // An svg's own fill or font-size attribute (an icon's fill="none") is
+    // left alone: a page rule would beat it.
+    expect(doc).toContain(':where(svg:not([fill])){fill:var(--pc-muted)}');
+    expect(doc).toContain(':where(svg:not([font-size])){font-size:12px}');
+    expect(/:where\(svg\)\{[^}]*(fill|font-size)/.test(doc)).toBe(false);
     expect(/svg text[^{]*\{fill/.test(doc)).toBe(false);
   });
 });
