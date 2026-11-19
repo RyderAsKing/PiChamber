@@ -1296,7 +1296,7 @@ const PAGES = {
   },
   'composer-controls': {
     // The seed's demo extension declares a Mode cycle and a Plan toggle with
-    // `pichamber:composer`; they follow the plugin toggles in the footer.
+    // `pichamber.composer`; they follow the plugin toggles in the footer.
     path: DEMO_SESSION_PATH,
     readyText: [DEMO_REPLY],
     settledScript: `Boolean(document.querySelector('[data-extension-control="mode"]'))`,
@@ -1966,7 +1966,7 @@ const writeDemoPackage = async (home) => {
   }, null, 2)}\n`);
 };
 
-// Composer controls a plain Pi extension declares with `pichamber:composer`:
+// Composer controls a plain Pi extension declares with `pichamber.composer`:
 // a mode picker that cycles through its own `/demo-mode <name>` command and a
 // plan toggle. A mode switches model and thinking, as a real mode extension
 // does, so the composer can be seen following it: the cheapest, middle, or
@@ -1991,11 +1991,11 @@ export default function (pi) {
   let mode = 'balance';
   let plan = false;
   const publish = () => {
-    pi.events.emit('pichamber:composer', {
+    pi.events.emit('pichamber.composer', {
       id: 'mode', kind: 'cycle', label: 'Mode', description: 'Model and thinking presets', value: mode,
       options: MODES.map((name) => ({ value: name, label: label(name), command: 'demo-mode ' + name })),
     });
-    pi.events.emit('pichamber:composer', {
+    pi.events.emit('pichamber.composer', {
       id: 'plan', kind: 'toggle', label: 'Plan', description: 'Read-only planning before edits', value: plan, command: 'demo-plan',
     });
   };

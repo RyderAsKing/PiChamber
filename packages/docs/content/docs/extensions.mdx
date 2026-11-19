@@ -205,7 +205,7 @@ commands, and follow the same rules:
 ## Composer controls
 
 An extension can put a switch, a mode picker, or a button in the composer
-footer, beside the model and thinking controls. It emits `pichamber:composer`
+footer, beside the model and thinking controls. It emits `pichamber.composer`
 on Pi's shared event bus. The pi CLI has no listener, so the event does
 nothing there and the extension's commands keep working as before.
 
@@ -217,7 +217,7 @@ what was last reported.
 ```ts
 // Economy → Balance → Premium, one click each.
 const publishMode = (active: string | undefined) => {
-  pi.events.emit('pichamber:composer', {
+  pi.events.emit('pichamber.composer', {
     id: 'mode',
     kind: 'cycle',
     label: 'Mode',
@@ -234,13 +234,13 @@ const publishMode = (active: string | undefined) => {
 // model_select and thinking_level_select when the model changes some other way.
 
 // A toggle: `command` flips it, `value` says whether it is on.
-pi.events.emit('pichamber:composer', { id: 'plan', kind: 'toggle', label: 'Plan', value: planOn, command: 'plan' });
+pi.events.emit('pichamber.composer', { id: 'plan', kind: 'toggle', label: 'Plan', value: planOn, command: 'plan' });
 
 // A button that runs a command.
-pi.events.emit('pichamber:composer', { id: 'review', kind: 'action', label: 'Review', command: 'review --staged' });
+pi.events.emit('pichamber.composer', { id: 'review', kind: 'action', label: 'Review', command: 'review --staged' });
 
 // Take a control away.
-pi.events.emit('pichamber:composer', { id: 'plan', remove: true });
+pi.events.emit('pichamber.composer', { id: 'plan', remove: true });
 ```
 
 - `id`: lowercase letters, digits and dashes, up to 40 characters. Emitting

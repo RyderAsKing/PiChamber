@@ -1454,7 +1454,7 @@ export type PiExtensionStatusEvent = PiEventEnvelope<
 >;
 
 /**
- * A composer control a Pi extension declared by emitting `pichamber:composer`
+ * A composer control a Pi extension declared by emitting `pichamber.composer`
  * on `pi.events`. Each names the extension's own slash commands; the daemon
  * runs one for a click (`piClient.runExtensionControl`) and the extension
  * reports its new value with a new declaration.

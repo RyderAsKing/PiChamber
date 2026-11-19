@@ -143,7 +143,7 @@ interface ExtensionControlItem {
 }
 
 /**
- * Controls the session's Pi extensions declared (`pichamber:composer`), and a
+ * Controls the session's Pi extensions declared (`pichamber.composer`), and a
  * way to click one.
  */
 function useSessionExtensionControls(sessionId: string | null, directory: string | null | undefined) {
@@ -576,7 +576,7 @@ function MobileToggles({
 /**
  * The `composer.toggles` plugin slot: one switch per toggle an enabled plugin
  * declares, bound to a boolean state value, followed by the controls the
- * session's Pi extensions declare (`pichamber:composer`). Drawn by the host so
+ * session's Pi extensions declare (`pichamber.composer`). Drawn by the host so
  * every one looks and behaves the same: a pill each on desktop, one button and
  * a sheet on phones.
  */

@@ -179,4 +179,16 @@ describe('createComposerControlsExtension', () => {
     pi.events.emit('other:event', { id: 'ignored' });
     expect(received).toEqual([['s1', 'early'], ['s1', 'late']]);
   });
+
+  it('listens on pichamber.composer only', () => {
+    const received = [];
+    const extension = createComposerControlsExtension((sessionId, data) => received.push([sessionId, data.id]));
+    const pi = fakePi();
+    extension.factory(pi);
+    pi.start('s1');
+    expect(COMPOSER_CONTROL_EVENT).toBe('pichamber.composer');
+    pi.events.emit('pichamber.composer', { id: 'current' });
+    pi.events.emit('pichamber:composer', { id: 'retired' });
+    expect(received).toEqual([['s1', 'current']]);
+  });
 });

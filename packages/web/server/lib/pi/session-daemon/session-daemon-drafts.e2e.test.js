@@ -36,7 +36,7 @@ export default function (pi) {
 const MODES_EXTENSION = `
 export default function (pi) {
   let mode = 'economy';
-  const declare = () => pi.events.emit('pichamber:composer', {
+  const declare = () => pi.events.emit('pichamber.composer', {
     id: 'mode',
     kind: 'cycle',
     label: 'Mode',
@@ -66,7 +66,7 @@ export default function (pi) {
 // dialog, and one whose command starts an agent turn.
 const EXTRAS_EXTENSION = `
 export default function (pi) {
-  const declare = () => pi.events.emit('pichamber:composer', {
+  const declare = () => pi.events.emit('pichamber.composer', {
     id: 'extra',
     kind: 'cycle',
     label: 'Extra',

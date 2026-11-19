@@ -16,7 +16,7 @@ const credential = 'controls-e2e-daemon-credential';
 const MODES_EXTENSION = `
 export default function (pi) {
   let mode = 'economy';
-  const declare = () => pi.events.emit('pichamber:composer', {
+  const declare = () => pi.events.emit('pichamber.composer', {
     id: 'mode',
     kind: 'cycle',
     label: 'Mode',
@@ -40,7 +40,7 @@ export default function (pi) {
   pi.on('session_start', () => {
     declare();
     // A control whose command nobody registered never runs.
-    pi.events.emit('pichamber:composer', { id: 'ghost', kind: 'action', label: 'Ghost', command: 'not-registered' });
+    pi.events.emit('pichamber.composer', { id: 'ghost', kind: 'action', label: 'Ghost', command: 'not-registered' });
   });
 }
 `;

@@ -1,18 +1,18 @@
 // Composer controls declared by Pi extensions.
 //
 // A plain Pi extension puts a control in PiChamber's composer by emitting
-// `pichamber:composer` on Pi's shared extension event bus (`pi.events`). The
+// `pichamber.composer` on Pi's shared extension event bus (`pi.events`). The
 // Pi CLI has no listener, so the same extension keeps working there through
 // its own slash commands. Each control names the extension's own commands; a
 // click in PiChamber runs one of them as if it had been typed, and the
 // extension reports its new value by emitting again. The extension stays the
 // only source of truth for the value.
 //
-//   pi.events.emit('pichamber:composer', {
+//   pi.events.emit('pichamber.composer', {
 //     id: 'mode', kind: 'cycle', label: 'Mode', value: 'balance',
 //     options: [{ value: 'economy', label: 'Economy', command: 'economy' }, ...],
 //   });
-//   pi.events.emit('pichamber:composer', { id: 'mode', remove: true });
+//   pi.events.emit('pichamber.composer', { id: 'mode', remove: true });
 //
 // Kinds: `toggle` (`value: boolean`, `command` flips it), `cycle` (`value`,
 // 2 to 12 `options`, each with its own command), `action` (`command` only).
@@ -20,7 +20,7 @@
 // Command names and arguments follow the rule every extension surface shares.
 import { parseExtensionCommandText } from '../extension-commands.js';
 
-export const COMPOSER_CONTROL_EVENT = 'pichamber:composer';
+export const COMPOSER_CONTROL_EVENT = 'pichamber.composer';
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ICON_PATTERN = /^[a-z0-9][a-z0-9-]{0,47}$/;
@@ -34,7 +34,7 @@ const cleanText = (value, max) => (typeof value === 'string'
   : '');
 
 /**
- * Validate one `pichamber:composer` payload. Returns the control,
+ * Validate one `pichamber.composer` payload. Returns the control,
  * `{ id, remove: true }`, or null when the payload is not usable (it is then
  * ignored, like a malformed status).
  */
