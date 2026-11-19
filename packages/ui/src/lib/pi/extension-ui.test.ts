@@ -79,15 +79,18 @@ describe('parseExtensionChatItem', () => {
         props: { items: ['a'] },
         actions: [
           { label: 'ok', command: 'good' },
+          { label: 'leading slash', command: '/review' },
           { label: 'slash', command: 'a/b' },
           { label: 'traversal', command: '..etc' },
+          { label: 'space', command: 'run now' },
           { label: 'no label' },
         ],
       },
     })
     expect(parsed.kind).toBe('ui')
     if (parsed.kind !== 'ui') return
-    expect(parsed.descriptor.actions?.map((action) => action.command)).toEqual(['good'])
+    // Same rule as composer controls: one leading `/` is dropped.
+    expect(parsed.descriptor.actions?.map((action) => action.command)).toEqual(['good', 'review'])
   })
 
   test('non-pichamber custom types render as fallback with their content', () => {

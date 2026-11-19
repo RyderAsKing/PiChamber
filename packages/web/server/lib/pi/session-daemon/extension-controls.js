@@ -17,13 +17,13 @@
 // Kinds: `toggle` (`value: boolean`, `command` flips it), `cycle` (`value`,
 // 2 to 12 `options`, each with its own command), `action` (`command` only).
 
+// Command names and arguments follow the rule every extension surface shares.
+import { parseExtensionCommandText } from '../extension-commands.js';
+
 export const COMPOSER_CONTROL_EVENT = 'pichamber:composer';
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ICON_PATTERN = /^[a-z0-9][a-z0-9-]{0,47}$/;
-// Pi command invocation names: no spaces; Pi adds `:<n>` to tell apart two
-// extensions' commands of the same name.
-const COMMAND_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 const KINDS = new Set(['toggle', 'cycle', 'action']);
 export const MAX_CONTROLS_PER_SESSION = 16;
 const MAX_OPTIONS = 12;
@@ -33,16 +33,6 @@ const cleanText = (value, max) => (typeof value === 'string'
   ? value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
   : '');
 
-/** `/plan on` or `plan on` → `plan on`; null when the name is not a command name. */
-const parseCommand = (value) => {
-  const text = cleanText(value, 200).replace(/^\//, '');
-  const name = text.split(' ')[0];
-  return COMMAND_NAME_PATTERN.test(name) ? text : null;
-};
-
-/** The command's invocation name: the part before the first space. */
-export const commandName = (command) => command.split(' ')[0];
-
 /**
  * Validate one `pichamber:composer` payload. Returns the control,
  * `{ id, remove: true }`, or null when the payload is not usable (it is then
@@ -51,7 +41,9 @@ export const commandName = (command) => command.split(' ')[0];
 export const parseComposerControl = (raw) => {
   if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !ID_PATTERN.test(raw.id)) return null;
   const id = raw.id;
-  if (raw.remove === true) return { id, remove: true };
+  // `remove: true` is the documented form; `removed: true` (what panels and
+  // app surfaces took first) is accepted as well.
+  if (raw.remove === true || raw.removed === true) return { id, remove: true };
   if (!KINDS.has(raw.kind)) return null;
   const label = cleanText(raw.label, 40);
   if (!label) return null;
@@ -69,7 +61,7 @@ export const parseComposerControl = (raw) => {
     for (const option of raw.options.slice(0, MAX_OPTIONS)) {
       const value = cleanText(option?.value, 40);
       const optionLabel = cleanText(option?.label, 40) || value;
-      const command = parseCommand(option?.command);
+      const command = parseExtensionCommandText(option?.command);
       if (!value || !command || options.some((existing) => existing.value === value)) return null;
       options.push({ value, label: optionLabel, command });
     }
@@ -77,7 +69,7 @@ export const parseComposerControl = (raw) => {
     const value = typeof raw.value === 'string' && options.some((option) => option.value === raw.value) ? raw.value : undefined;
     return { ...common, options, ...(value !== undefined ? { value } : {}) };
   }
-  const command = parseCommand(raw.command);
+  const command = parseExtensionCommandText(raw.command);
   if (!command) return null;
   if (raw.kind === 'toggle') return { ...common, command, value: raw.value === true };
   return { ...common, command };

@@ -12,13 +12,20 @@ describe('parseExtensionAppCommand', () => {
       token: 'secret',
       command: 'agents:run',
       args: '  one\ntwo ',
-    }, context)).toBe('/agents:run one two');
+    }, context)).toEqual({ command: 'agents:run', args: 'one two' });
+    expect(parseExtensionAppCommand({
+      type: 'pichamber-app-command',
+      appId: 'board',
+      token: 'secret',
+      command: '/review.staged',
+    }, context)).toEqual({ command: 'review.staged' });
   });
 
   test('rejects stale tokens, other apps, and unsafe commands', () => {
     expect(parseExtensionAppCommand({ type: 'pichamber-app-command', appId: 'board', token: 'stale', command: 'run' }, context)).toBe(undefined);
     expect(parseExtensionAppCommand({ type: 'pichamber-app-command', appId: 'other', token: 'secret', command: 'run' }, context)).toBe(undefined);
     expect(parseExtensionAppCommand({ type: 'pichamber-app-command', appId: 'board', token: 'secret', command: '../run' }, context)).toBe(undefined);
+    expect(parseExtensionAppCommand({ type: 'pichamber-app-command', appId: 'board', token: 'secret', command: 'a/b' }, context)).toBe(undefined);
     expect(parseExtensionAppCommand({ type: 'other', appId: 'board', token: 'secret', command: 'run' }, context)).toBe(undefined);
   });
 });

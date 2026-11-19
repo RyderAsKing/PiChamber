@@ -759,4 +759,38 @@ describe('composer controls', () => {
     expect(unavailable.status).toBe(409);
     await expect(unavailable.json()).resolves.toEqual({ error: { code: 'CONTROL_UNAVAILABLE' } });
   });
+
+  it('forwards a card action\'s command by the shared rule', async () => {
+    const calls = [];
+    let answer = { ran: true };
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const url = `http://127.0.0.1:${server.address().port}/api/pi/extensions/command`;
+    const post = (body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+    const ok = await post({ sessionId: 's1', command: '/explore-focus', args: 'src', clientId: 'tab-1', extra: 'x' });
+    expect(ok.status).toBe(200);
+    await expect(ok.json()).resolves.toEqual({ ran: true });
+    expect(calls).toEqual([{ command: 'extensions.command', payload: { sessionId: 's1', command: '/explore-focus', args: 'src', clientId: 'tab-1' } }]);
+
+    for (const bad of [{}, { sessionId: 's1' }, { sessionId: 's1', command: 'a/b' }, { sessionId: 's1', command: '..etc' }, { sessionId: 's1', command: 'run now' }, { sessionId: 's1', command: 'x'.repeat(129) }, { sessionId: 's1', command: 'ok', args: 3 }]) {
+      const res = await post(bad);
+      expect(res.status).toBe(400);
+    }
+    expect(calls).toHaveLength(1);
+
+    answer = Object.assign(new Error('gone'), { code: 'COMMAND_UNAVAILABLE' });
+    const unavailable = await post({ sessionId: 's1', command: 'ghost' });
+    expect(unavailable.status).toBe(409);
+    await expect(unavailable.json()).resolves.toEqual({ error: { code: 'COMMAND_UNAVAILABLE' } });
+  });
 });

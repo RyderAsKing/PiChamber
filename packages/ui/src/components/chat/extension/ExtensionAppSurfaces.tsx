@@ -1,6 +1,8 @@
 import * as React from 'react';
 
-import { getPiSessionStore } from '@/apps/pi-session-store';
+import { piClient } from '@/lib/pi/client';
+import { getTabClientId } from '@/lib/pi/tab-client-id';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import { parseExtensionAppCommand } from '@/lib/pi/extension-app-command';
 import { Button } from '@/components/ui/button';
 
@@ -14,9 +16,11 @@ import { Button } from '@/components/ui/button';
  * - The only capability granted back is invoking slash commands. The parent
  *   injects a per-mount random token into the document; a click on an
  *   element carrying `data-pichamber-command` posts that token back, and the
- *   parent validates token + command shape before prompting the session.
- * - Commands follow the exact same allowlist rules as card actions (no `/`,
- *   no leading `.`), so the browser never executes extension logic — it
+ *   parent validates token + command shape before asking the server to run
+ *   it (`piClient.runExtensionCommand`).
+ * - Commands follow the rule card actions and composer controls share
+ *   (`extension-command.ts`), and the daemon runs only commands the session's
+ *   extensions register, so the browser never executes extension logic — it
  *   executes descriptors.
  */
 
@@ -63,9 +67,12 @@ export const ExtensionAppFrame: React.FC<{
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
-      const promptText = parseExtensionAppCommand(event.data, { appId, token });
-      if (!promptText) return;
-      void getPiSessionStore().prompt(sessionId, promptText, 'prompt').catch(() => {});
+      const request = parseExtensionAppCommand(event.data, { appId, token });
+      if (!request) return;
+      void piClient.runExtensionCommand(
+        { sessionId, ...request, clientId: getTabClientId() },
+        { runtimeKey: getRuntimeKey() },
+      ).catch(() => {});
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);

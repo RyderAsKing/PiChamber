@@ -1558,6 +1558,25 @@ export class PiService {
   }
 
   /**
+   * Click on a `pichamber.ui` card action or an app surface's command: runs
+   * the extension's own `command` with `args`, like a composer control. The
+   * daemon refuses a command the session's extensions do not register
+   * (`COMMAND_UNAVAILABLE`), so it never reaches the model as a prompt, and
+   * nothing is added to the transcript.
+   */
+  async runExtensionCommand(
+    input: { sessionId: string; command: string; args?: string; clientId?: string },
+    scope?: PiClientScope,
+  ): Promise<{ ran: boolean }> {
+    assertRuntimeUnchanged(scope);
+    const body = { ...input, ...(scope?.directory ? { directory: scope.directory } : {}) };
+    const result = await jsonRequest<typeof body, { ran?: unknown }>('/api/pi/extensions/command', {
+      method: 'POST', body, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    return { ran: result?.ran === true };
+  }
+
+  /**
    * Sends one `ctx.ui.custom()` request: keys (`input`), this client's
    * viewport (`viewport`, `claim` makes it drive the size), the host Close
    * button (`close`), or a full-frame refresh after a missed patch

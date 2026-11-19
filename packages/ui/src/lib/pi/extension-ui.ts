@@ -16,11 +16,13 @@
  *
  * Everything is display-only JSON: no markup injection, no arbitrary component
  * execution. Unknown components fall back to a generic card so extensions
- * never break the chat. Actions map to registered extension slash commands
- * that PiChamber invokes through the normal prompt path.
+ * never break the chat. Actions name the extension's own slash commands; a
+ * click runs one through `piClient.runExtensionCommand`, which the daemon
+ * refuses unless the session's extensions register it.
  */
 
 import { normalizeCommandArgs } from './command-triggers';
+import { parseExtensionCommandName } from './extension-command';
 import type { PiExtensionMessageRender } from './types';
 
 export const PI_EXTENSION_UI_CUSTOM_TYPE = 'pichamber.ui';
@@ -141,11 +143,9 @@ const parseActions = (value: unknown): ExtensionUiAction[] | undefined => {
     const record = asRecord(raw);
     if (!record) continue;
     const label = asString(record.label);
-    const command = asString(record.command);
+    // The rule every extension surface shares: `review` or `/review`.
+    const command = parseExtensionCommandName(record.command);
     if (!label || !command) continue;
-    // Commands are invoked through the prompt path, which requires "/"-prefixed
-    // text — keep the stored form clean and reject embedded separators.
-    if (command.includes('/') || command.startsWith('.')) continue;
     const promptForArgsSource = asRecord(record.promptForArgs);
     const promptLabel = promptForArgsSource ? asString(promptForArgsSource.label) : undefined;
     const promptPlaceholder = promptForArgsSource ? asString(promptForArgsSource.placeholder) : undefined;

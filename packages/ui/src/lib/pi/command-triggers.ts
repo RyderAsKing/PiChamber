@@ -43,8 +43,8 @@ export const sanitizeCommandTriggers = (value: unknown): CommandTrigger[] | unde
     const label = asBoundedString(raw.label, 64);
     const command = asBoundedString(raw.command, 128);
     if (!label || !command) continue;
-    // Same rule as extension card actions: triggers run through the prompt
-    // path, so embedded path separators would be ambiguous or hostile.
+    // Triggers are the user's own and run through the prompt path like typed
+    // text, so embedded path separators would be ambiguous or hostile.
     if (command.includes('/') || command.startsWith('.')) continue;
     let id = asBoundedString(raw.id, 64);
     if (!id || seenIds.has(id)) id = `trigger-${triggers.length + 1}-${command}`;

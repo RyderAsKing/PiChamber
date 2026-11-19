@@ -825,6 +825,14 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     expect(snapshot.payload.extensionPanels).toHaveLength(1);
     expect(snapshot.payload.extensionPanels[0]).toMatchObject({ id: 'subagents', props: { value: 90 } });
     reconnect.close();
+
+    // `remove: true`, as for a composer control, takes it away even with a body.
+    session.emit({
+      type: 'entry_appended',
+      entry: { type: 'custom', id: 'entry-3', customType: 'pichamber.ui', data: { id: 'subagents', remove: true, component: 'progress', props: { value: 95 } }, timestamp: '2026-01-01T00:00:03.000Z' },
+    });
+    const removal = await client.next((message) => message.event === 'extension.ui' && message.payload?.removed === true);
+    expect(removal.payload.id).toBe('subagents');
   });
 
   it('mirrors pichamber.app entries into extension.app events and unregisters on removal', async () => {

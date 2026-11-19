@@ -39,6 +39,7 @@ import { createPiDaemonPool, MAIN_DAEMON_KEY, publicDaemonStreamId } from './ses
 import { decodePiEventCursor, subscribeMergedPiEvents } from './merged-event-stream.js';
 import { registerPiSandboxRoutes } from './sandbox/sandbox-routes.js';
 import { MAX_CONTROLS_PER_SESSION, parseComposerControl } from './session-daemon/extension-controls.js';
+import { EXTENSION_COMMAND_NAME_PATTERN, parseExtensionCommandName } from './extension-commands.js';
 import {
   DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
   createPiEventStreamRegistry,
@@ -92,7 +93,7 @@ const writeDaemonError = (res, error) => {
     : code === 'INVALID_SESSION'
       ? 404
       : code === 'SESSION_IN_USE' || code === 'OPERATION_PAYLOAD_MISMATCH' || code === 'STALE_STREAM_EPOCH'
-        || code === ENGINE_UNSUPPORTED_OPERATION || code === 'CONTROL_UNAVAILABLE'
+        || code === ENGINE_UNSUPPORTED_OPERATION || code === 'CONTROL_UNAVAILABLE' || code === 'COMMAND_UNAVAILABLE'
         || code === 'PACKAGE_ALREADY_INSTALLED' || code === 'PACKAGE_PINNED'
         ? 409
         : code === 'OPERATION_EXPIRED'
@@ -698,7 +699,6 @@ const projectExtensionAppPayload = (app) => ({
   html: typeof app.html === 'string' ? app.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : '',
 });
 
-const EXTENSION_COMMAND_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const OPAQUE_EXTENSION_ID_PATTERN = /^[a-f0-9]{16}$/;
 
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
@@ -747,7 +747,7 @@ export const projectExtensionList = (result) => {
   });
   const commands = result.commands.map((command) => {
     if (!command || typeof command !== 'object'
-      || typeof command.name !== 'string' || !EXTENSION_COMMAND_PATTERN.test(command.name)
+      || typeof command.name !== 'string' || !EXTENSION_COMMAND_NAME_PATTERN.test(command.name)
       || (command.description !== undefined && typeof command.description !== 'string')
       || (command.scope !== undefined && typeof command.scope !== 'string')) throw protocolMismatch();
     return {
@@ -2905,6 +2905,38 @@ export const registerPiRuntimeRoutes = (app, {
         sessionId: body.sessionId,
         id: body.id,
         ...(body.value !== undefined ? { value: body.value } : {}),
+        ...(typeof body.clientId === 'string' && body.clientId.length > 0 ? { clientId: body.clientId } : {}),
+      });
+      res.json({ ran: result?.ran === true });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  // A click on a `pichamber.ui` card action: the extension's own command,
+  // which the daemon runs only when the session's extensions register it
+  // (`COMMAND_UNAVAILABLE`, 409, otherwise). Same name rule as composer
+  // controls (extension-commands.js).
+  app.post('/api/pi/extensions/command', async (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || typeof body.sessionId !== 'string' || body.sessionId.length === 0 || body.sessionId.length > 256
+      || !parseExtensionCommandName(body.command)
+      || (body.args !== undefined && (typeof body.args !== 'string' || body.args.length > 4096))
+      || (body.clientId !== undefined && (typeof body.clientId !== 'string' || body.clientId.length > 128))
+      || (body.directory !== undefined && (typeof body.directory !== 'string' || body.directory.length > 4096))) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      drainingSessionRuntime(res, sandboxManager, body.sessionId, 'extensions.command');
+      const directory = typeof body.directory === 'string' && body.directory.length > 0 ? body.directory : undefined;
+      const routeDirectory = await sessionDaemonDirectory(res, sandboxManager, body.sessionId, directory);
+      const result = await daemonFor(routeDirectory).request('extensions.command', {
+        sessionId: body.sessionId,
+        command: body.command,
+        ...(typeof body.args === 'string' ? { args: body.args } : {}),
+        ...(directory ? { directory } : {}),
         ...(typeof body.clientId === 'string' && body.clientId.length > 0 ? { clientId: body.clientId } : {}),
       });
       res.json({ ran: result?.ran === true });

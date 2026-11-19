@@ -1,7 +1,10 @@
 import * as React from 'react';
 
-import { getPiSessionStore } from '@/apps/pi-session-store';
-import { buildCommandPromptText } from '@/lib/pi/command-triggers';
+import { toast } from '@/components/ui';
+import { piClient } from '@/lib/pi/client';
+import { normalizeCommandArgs } from '@/lib/pi/command-triggers';
+import { getTabClientId } from '@/lib/pi/tab-client-id';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import { parseExtensionChatItem } from '@/lib/pi/extension-ui';
 import type { ExtensionUiAction } from '@/lib/pi/extension-ui';
 import { cn } from '@/lib/utils';
@@ -48,12 +51,25 @@ const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, s
     const runCommand = React.useCallback(async (args?: string) => {
         if (!sessionId || pending) return;
         setPending(true);
+        const normalizedArgs = normalizeCommandArgs(args);
         try {
-            await getPiSessionStore().prompt(sessionId, buildCommandPromptText(action.command, args), 'prompt');
+            // Runs like a composer control: only a command the session's
+            // extensions register, at once, without a transcript row.
+            await piClient.runExtensionCommand(
+                {
+                    sessionId,
+                    command: action.command,
+                    ...(normalizedArgs ? { args: normalizedArgs } : {}),
+                    clientId: getTabClientId(),
+                },
+                { runtimeKey: getRuntimeKey() },
+            );
+        } catch {
+            toast.error(`Could not run ${action.label}`);
         } finally {
             setPending(false);
         }
-    }, [sessionId, pending, action.command]);
+    }, [sessionId, pending, action.command, action.label]);
 
     const runAction = React.useCallback(async () => {
         if (action.promptForArgs) {

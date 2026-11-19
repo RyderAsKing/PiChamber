@@ -44,6 +44,10 @@ export const extractExtensionDescriptor = (entry) => {
   return data.ui && typeof data.ui === 'object' && !Array.isArray(data.ui) ? data.ui : data;
 };
 
+// `remove: true` takes a panel or app surface away, as it does a composer
+// control; `removed: true`, the first form these took, still works.
+const isRemoval = (descriptor) => descriptor.remove === true || descriptor.removed === true;
+
 export const isIddExtensionEntry = (entry) => {
   const descriptor = extractExtensionDescriptor(entry);
   if (!descriptor) return false;
@@ -814,7 +818,7 @@ export const createExtensionBridge = ({
     const hasBody = typeof descriptor.component === 'string'
       || typeof descriptor.title === 'string'
       || Array.isArray(descriptor.actions);
-    const removed = descriptor.removed === true || !hasBody;
+    const removed = isRemoval(descriptor) || !hasBody;
     const panels = extensionPanelsBySession.get(sessionId) ?? new Map();
     const normalized = removed ? undefined : {
       id,
@@ -839,7 +843,7 @@ export const createExtensionBridge = ({
 
   // Mirrors a declarative `pichamber.ui` descriptor into normalized panel
   // state and publishes an `extension.ui` event. Latest wins per stable id;
-  // `removed: true` (or a payload without component/title) unregisters.
+  // `remove: true` (or a payload without component/title) unregisters.
   const mirrorExtensionPanel = (sessionId, descriptor, directory) => {
     const result = setNormalizedPanel(sessionId, descriptor);
     if (!result) return;
@@ -854,7 +858,7 @@ export const createExtensionBridge = ({
     const html = typeof descriptor.html === 'string'
       ? (descriptor.html.length > MAX_EXTENSION_APP_HTML_CHARS ? descriptor.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : descriptor.html)
       : undefined;
-    const removed = descriptor.removed === true || !html || html.length === 0;
+    const removed = isRemoval(descriptor) || !html || html.length === 0;
     const apps = extensionAppsBySession.get(sessionId) ?? new Map();
     if (removed) {
       apps.delete(appId);

@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   COMPOSER_CONTROL_EVENT,
   MAX_CONTROLS_PER_SESSION,
-  commandName,
   createComposerControls,
   createComposerControlsExtension,
   isComposerControlsExtensionPath,
   parseComposerControl,
 } from './extension-controls.js';
+import { commandName } from '../extension-commands.js';
 
 const MODES = {
   id: 'mode',
@@ -48,6 +48,7 @@ describe('parseComposerControl', () => {
 
   it('reads a removal', () => {
     expect(parseComposerControl({ id: 'mode', remove: true })).toEqual({ id: 'mode', remove: true });
+    expect(parseComposerControl({ id: 'mode', removed: true })).toEqual({ id: 'mode', remove: true });
   });
 
   it('drops a cycle value that is not one of its options', () => {

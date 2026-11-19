@@ -33,7 +33,8 @@ import {
   isDisplayedExtensionEntryType,
   isIddExtensionEntry,
 } from './extension-bridge.js';
-import { commandName, createComposerControlsExtension, isComposerControlsExtensionPath } from './extension-controls.js';
+import { createComposerControlsExtension, isComposerControlsExtensionPath } from './extension-controls.js';
+import { commandName, normalizeExtensionCommandArgs, parseExtensionCommandName } from '../extension-commands.js';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
 import {
@@ -1689,7 +1690,8 @@ export function createSessionDaemon({
       case 'sessions.abortBash':
       case 'sessions.delete':
       case 'sessions.rename':
-      case 'extensions.control': {
+      case 'extensions.control':
+      case 'extensions.command': {
         const candidate = message?.payload?.sessionId;
         return isValidIdleSessionId(candidate) ? candidate : undefined;
       }
@@ -4158,8 +4160,13 @@ export function createSessionDaemon({
   // `requireExtensionCommand`: the text must be a command the session's
   // extensions register once the runtime is settled, or nothing runs. A
   // composer control sets it, so its `/command` never reaches the model as a
-  // prompt when a queued recreation drops the extension behind it.
-  const runSessionInput = async (payload, delivery, { keepDraft = false, requireExtensionCommand = false } = {}) => {
+  // prompt when a queued recreation drops the extension behind it, and so does
+  // a card action (`extensions.command`), which answers `COMMAND_UNAVAILABLE`.
+  const runSessionInput = async (payload, delivery, {
+    keepDraft = false,
+    requireExtensionCommand = false,
+    unavailableCode = 'CONTROL_UNAVAILABLE',
+  } = {}) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
@@ -4231,7 +4238,9 @@ export function createSessionDaemon({
       && registeredExtensionCommands.some((command) => command?.invocationName === slashInvocation),
     );
     if (requireExtensionCommand && !isExtensionCommand) {
-      throw new SessionDaemonProtocolError('CONTROL_UNAVAILABLE', 'The command for this control is not available.');
+      throw new SessionDaemonProtocolError(unavailableCode, unavailableCode === 'CONTROL_UNAVAILABLE'
+        ? 'The command for this control is not available.'
+        : 'The extension command is not available.');
     }
     // Like the Pi CLI, never persist an auto-title. Lists derive the display
     // title from the first user prompt; publish that derived title live (not
@@ -4526,6 +4535,43 @@ export function createSessionDaemon({
       runs.delete(run);
       if (runs.size === 0 && controlRunsBySession.get(sessionId) === runs) controlRunsBySession.delete(sessionId);
     }
+    return { ran: true };
+  };
+
+  // A click on a `pichamber.ui` card action (or an app surface's command):
+  // the extension's own command, run the way a composer control runs one.
+  // The name must be one the session's extensions register right now
+  // (`COMMAND_UNAVAILABLE` otherwise), so a typo or a stale card never
+  // reaches the model as a prompt, and it runs at once, also mid-turn,
+  // without adding anything to the transcript.
+  const runExtensionCommand = async (payload) => {
+    const sessionId = payload?.sessionId;
+    const name = parseExtensionCommandName(payload?.command);
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 256 || !name
+      || (payload.args !== undefined && typeof payload.args !== 'string')) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The command request is invalid.');
+    }
+    const args = normalizeExtensionCommandArgs(payload.args);
+    const target = runtimeRegistry?.findBySessionId(sessionId)
+      || (runtime?.session?.sessionId === sessionId ? runtime : undefined)
+      || await activateSession(sessionId, payload.directory);
+    const registered = target?.session?.extensionRunner?.getRegisteredCommands?.();
+    if (!Array.isArray(registered) || !registered.some((command) => command?.invocationName === name)) {
+      throw new SessionDaemonProtocolError('COMMAND_UNAVAILABLE', 'The extension command is not available.');
+    }
+    const clientId = typeof payload.clientId === 'string' && payload.clientId.length > 0 && payload.clientId.length <= 128
+      ? payload.clientId
+      : undefined;
+    await runSessionInput({
+      sessionId,
+      text: args ? `/${name} ${args}` : `/${name}`,
+      directory: target.cwd,
+      ...(clientId ? { clientId } : {}),
+    }, target.session.isStreaming ? 'steer' : undefined, {
+      keepDraft: true,
+      requireExtensionCommand: true,
+      unavailableCode: 'COMMAND_UNAVAILABLE',
+    });
     return { ran: true };
   };
 
@@ -5120,7 +5166,7 @@ export function createSessionDaemon({
               'sessions.setThinking', 'sessions.discardDraft', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'sessions.release', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.hosts', 'providers.oauth.refresh', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
-              'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.draft', 'extensions.palette',
+              'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.command', 'extensions.draft', 'extensions.palette',
               'extensions.config.list', 'extensions.config.set', 'extensions.packages.remove',
               'extensions.packages.install', 'extensions.packages.update',
               'openUrl.publish', 'archive.publish', 'plugins.configure',
@@ -5368,6 +5414,11 @@ export function createSessionDaemon({
       }
       case 'extensions.control': {
         const result = await runComposerControl(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.command': {
+        const result = await runExtensionCommand(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
