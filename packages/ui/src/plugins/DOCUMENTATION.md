@@ -140,7 +140,7 @@ access and asks where to load it. The server side is
   Built into PiChamber.
 - Every Pi package works in PiChamber, so the mark is not about support: it
   means enhanced for PiChamber: built with the plugin SDK. List rows mark it
-  by the author's `pichamber-plugin` keyword (the Enhanced for PiChamber filter);
+  by the author's `pichamber` keyword (the Enhanced for PiChamber filter);
   the package page reads the manifest. An installed package whose
   `package.json` has a `pichamber` block gets the Enhanced tag in the Pi
   extensions list. It still runs as a plain Pi package.

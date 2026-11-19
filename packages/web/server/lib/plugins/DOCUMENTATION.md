@@ -26,7 +26,7 @@ disabled, and a disabled plugin loads no agent code.
   `contributes.ui` (native UI id). The agent half must be a `.js`/`.mjs`
   module inside the package. The package `version` is the plugin version,
   its `name` is `packageName`, and its `keywords` (lowercased, at most 16,
-  without the listing keywords `pi-package` and `pichamber-plugin`) are
+  without the listing keywords `pi-package` and `pichamber`) are
   `keywords`, which the marketplace matches a search against.
 - `registry.js` reads `packages/web/plugins/registry.json`
   (`{ version: 1, plugins: [id] }`) and loads each listed folder. An invalid

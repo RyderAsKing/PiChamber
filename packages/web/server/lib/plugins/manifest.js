@@ -20,7 +20,7 @@ const MAX_TOGGLES = 4;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 // Discovery keywords every Pi package or PiChamber plugin carries; they say
 // nothing about what one plugin does, so they are left out of its keywords.
-const DISCOVERY_KEYWORDS = new Set(['pi-package', 'pichamber-plugin']);
+const DISCOVERY_KEYWORDS = new Set(['pi-package', 'pichamber']);
 const MAX_KEYWORDS = 16;
 const MAX_KEYWORD_LENGTH = 40;
 

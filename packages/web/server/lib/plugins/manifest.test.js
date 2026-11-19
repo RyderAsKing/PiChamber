@@ -82,7 +82,7 @@ describe('parsePluginPackage', () => {
 
   it('keeps package keywords that say what it does', () => {
     const manifest = parsePluginPackage(validPackage({}, {
-      keywords: ['pi-package', 'PiChamber-Plugin', 'Chart', 'chart', '', 7, 'x'.repeat(41), 'diagram'],
+      keywords: ['pi-package', 'PiChamber', 'Chart', 'chart', '', 7, 'x'.repeat(41), 'diagram'],
     }), { packageDir });
     expect(manifest.packageName).toBe('demo');
     expect(manifest.keywords).toEqual(['chart', 'diagram']);

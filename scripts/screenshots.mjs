@@ -77,7 +77,7 @@ const demoNpmPackage = (name, version, description, keywords, extra = {}) => ({
 });
 const DEMO_NPM_PACKAGES = [
   demoNpmPackage('pi-web-reader', '2.4.1', 'Search the web and read pages as clean markdown, with citations the agent can quote.', ['web', 'search', 'fetch'], { downloads: 18_400, maintainer: 'lena-k' }),
-  demoNpmPackage('@acme/pi-review-gate', '1.3.0', 'Ask before risky shell commands, with a review panel in PiChamber and a prompt in the terminal.', ['pichamber-plugin', 'review', 'permissions', 'safety'], { downloads: 2_150, maintainer: 'acme-tools', pichamber: true }),
+  demoNpmPackage('@acme/pi-review-gate', '1.3.0', 'Ask before risky shell commands, with a review panel in PiChamber and a prompt in the terminal.', ['pichamber', 'review', 'permissions', 'safety'], { downloads: 2_150, maintainer: 'acme-tools', pichamber: true }),
   demoNpmPackage('pi-todo-board', '0.9.3', 'A todo list the agent keeps up to date as it works, with a /todos command.', ['todo', 'tasks', 'planning'], { downloads: 7_830, maintainer: 'mo-ellis' }),
   demoNpmPackage('pi-lint-lens', '1.1.0', 'Runs your linters after each edit and hands the agent the errors it introduced.', ['lint', 'eslint', 'diagnostics'], { downloads: 5_020, pi: { extensions: ['./index.ts'], skills: ['./skills'] } }),
   demoNpmPackage('pi-team-agents', '0.4.2', 'Send tasks to parallel subagents with their own models and context.', ['subagent', 'agents', 'parallel'], { downloads: 1_260, maintainer: 'quill-labs' }),
@@ -1954,7 +1954,7 @@ const writeDemoPackage = async (home) => {
   const gate = join(home, '.pi', 'agent', 'npm', 'node_modules', '@acme', 'pi-review-gate');
   await mkdir(gate, { recursive: true });
   await writeFile(join(gate, 'package.json'), `${JSON.stringify({
-    name: '@acme/pi-review-gate', version: '1.2.0', keywords: ['pi-package', 'pichamber-plugin'],
+    name: '@acme/pi-review-gate', version: '1.2.0', keywords: ['pi-package', 'pichamber'],
     pi: { extensions: ['./index.ts'] }, pichamber: { apiVersion: 1 },
   }, null, 2)}\n`);
   await writeFile(join(gate, 'index.ts'), 'export default function () {}\n');
