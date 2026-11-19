@@ -87,12 +87,12 @@ under Packages when it is done.
 
 ## Marking a package as enhanced for PiChamber
 
-Add the `pichamber-plugin` keyword next to `pi-package` in `package.json`,
+Add the `pichamber` keyword next to `pi-package` in `package.json`,
 and declare a `pichamber` block with the API version you target:
 
 ```json
 {
-  "keywords": ["pi-package", "pichamber-plugin"],
+  "keywords": ["pi-package", "pichamber"],
   "pichamber": { "apiVersion": 1 }
 }
 ```
@@ -146,23 +146,24 @@ Do not make PiChamber a hard dependency. Check at runtime. `ctx.mode` does
 not tell PiChamber apart: it is `"tui"`, as in the pi CLI, or `"rpc"` when the
 user chose standard dialogs.
 
+Check for `globalThis.pichamber`. It is there only inside PiChamber:
+
 ```ts
-const isPiChamber = (): boolean => {
-  const marker = (globalThis as Record<string, unknown>).__PICHAMBER__ as { version?: number } | undefined;
-  if (marker?.version) return true;
-  try { return typeof process !== 'undefined' && process.env.PICHAMBER === '1'; } catch { return false; }
-};
+const pichamber = (globalThis as Record<string, unknown>).pichamber as
+  | { version: number; ui: Record<string, (...args: unknown[]) => Promise<unknown>> }
+  | undefined;
 
 pi.on('session_start', async (_event, ctx) => {
-  if (isPiChamber()) ctx.ui.setStatus('my-ext', 'PiChamber mode');
+  if (pichamber) ctx.ui.setStatus('my-ext', 'PiChamber mode');
 });
 ```
 
 Keep the check local to your extension. It has no PiChamber runtime dependency,
-so the same extension continues to work in the plain pi CLI.
+so the same extension continues to work in the plain pi CLI. A child process
+an extension starts can check `process.env.PICHAMBER === "1"`. Older
+extensions check `globalThis.__PICHAMBER__`, which stays.
 
-PiChamber's own calls live on `globalThis.pichamber`, a frozen object with
-`version` and `ui`. They are not on pi's `ctx.ui`: if pi later adds a method
+`pichamber` is a frozen object with `version` and `ui`. They are not on pi's `ctx.ui`: if pi later adds a method
 with the same name and another shape, ours would shadow it. Each call takes the
 tool or handler `ctx` first, which tells PiChamber the session.
 
@@ -173,6 +174,33 @@ if (pichamber) await pichamber.ui.openUrl(ctx, "http://localhost:3000");
 
 Without `ctx`, or with a `ctx` from outside a PiChamber session, a call rejects
 with a `TypeError`.
+
+### One API version
+
+`pichamber.version` is the PiChamber extension API version, now `1`. The same
+number is the `version` in a `pichamber.ui` card, the `apiVersion` in a
+package's `pichamber` block, and `__PICHAMBER__.version`. They change
+together, only for a change that would break extensions written for the
+previous version.
+
+### The rules every surface shares
+
+Composer controls, card actions, and app surfaces each name one of your own
+commands, and follow the same rules:
+
+- **Command name**: the name you registered, with or without a leading `/`.
+  A letter or digit first, then letters, digits, `_`, `.`, `:` or `-`, up to
+  128 characters. Arguments go after a space in a composer control, or in
+  `args` for a card action; they are kept as one line of up to 2,000
+  characters.
+- **Registered only**: a click runs the command only when your extension
+  registered it in that session. Anything else is refused, never sent to the
+  model as a message.
+- **Runs at once**: a click runs the command right away, also while the agent
+  works, and adds nothing to the transcript or the session title. Your
+  command's handler can still start a turn or send a message.
+- **Taking something away**: emit or append the same id with `remove: true`.
+  (`removed: true` works too.)
 
 ## Composer controls
 
@@ -290,7 +318,7 @@ pi.appendEntry('pichamber.ui', {
   out of the transcript. Leave `id` off if the card should show in the chat.
 - `component`: one of `markdown`, `kv`, `list`, `table`, `progress`, `badges`, `code`
 - `props`: component properties (validated; unknown components degrade to a generic card)
-- `actions`: up to 8 buttons. Each invokes a registered extension command through the normal prompt path, so the handler receives the arguments and can drive the agent
+- `actions`: up to 8 buttons. Each runs one of your registered commands with its `args` (see [the rules every surface shares](#the-rules-every-surface-shares)), so the handler receives the arguments and can drive the agent
 - `title`: optional card heading (≤256 chars)
 
 ### Component reference
@@ -322,7 +350,7 @@ Tones: `info`, `success`, `warning`, `error`, `neutral`.
 
 ### Actions invoke your commands
 
-Action buttons send `/<command> <args>` through PiChamber's prompt path. Register matching commands with `pi.registerCommand()`:
+An action button runs `/<command> <args>` the way a composer control runs its command: only a command your extension registered, at once, without a transcript row. Register matching commands with `pi.registerCommand()`:
 
 ```ts
 pi.registerCommand("explore-focus", {
@@ -346,7 +374,7 @@ Actions support optional fields beyond `label`/`command`/`args`/`variant`:
 PiChamber does not render live panels. The daemon still mirrors a
 `pi.appendEntry()` entry that carries a stable `id` into `extension.ui` events
 and per-session panel state. The latest descriptor for each `id` replaces the
-previous one, and `{ id, removed: true }` unregisters it. No client reads that
+previous one, and `{ id, remove: true }` unregisters it. No client reads that
 state, and the daemon keeps those entries out of the transcript, so a
 `pichamber.ui` entry with an `id` is not visible anywhere. Leave `id` off to
 get a transcript card. A `pichamber.ui` custom message published with
@@ -437,12 +465,12 @@ pi.appendEntry("pichamber.app", {
   title: "Kanban board",
   html: `<button data-pichamber-command="board-next">Next</button>`,
 });
-// Remove it again with: { appId: "board", removed: true }
+// Remove it again with: { appId: "board", remove: true }
 ```
 
-The command name must match `[A-Za-z0-9][A-Za-z0-9:_-]{0,127}` — no path
-separators — and runs through the same authenticated prompt path as action
-buttons. HTML is capped at ~200 KB per app and 8 apps per session.
+The command follows [the rules every surface shares](#the-rules-every-surface-shares),
+like an action button. HTML is capped at ~200 KB per app and 8 apps per session.
+
 ### State ownership and transport
 
 Declarative cards are `appendEntry` / `sendMessage` entries in the pi JSONL.
@@ -525,8 +553,9 @@ Project-local extensions participate in pi's standard trust flow. When PiChamber
 - Declarative payloads are validated and truncated (keys ≤128, titles ≤256,
   badge items ≤24, table rows ≤200, messages ≤50k). Unknown `pichamber.ui`
   components never execute code.
-- Actions map to registered slash commands and are invoked through the
-  authenticated prompt path — never arbitrary function calls.
+- Actions, composer controls, and app surfaces run only slash commands the
+  session's extensions register, through an authenticated request — never
+  arbitrary function calls, and never a message to the model.
 - Extension UI state is scoped per `sessionId` and never leaks across sessions
   or directory scopes.
 - Raw HTML in extension messages is rendered as inert text and sanitized.
