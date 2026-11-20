@@ -26,9 +26,10 @@
       }
     },
     "contributes": {
-      "composerToggles": [
+      "controls": [
         {
           "id": "subagents",
+          "kind": "toggle",
           "state": "on",
           "label": "Sub-agents",
           "icon": "robot-2",

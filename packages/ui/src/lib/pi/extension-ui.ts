@@ -1,18 +1,22 @@
 /**
- * PiChamber extension GUI protocol (v1) — parsing side.
+ * Extension cards, parsing side.
  *
- * pi extensions running inside the session daemon can surface rich UI in
- * PiChamber by appending a custom entry or sending a custom message with the
- * `pichamber.ui` customType whose payload is a declarative descriptor:
+ * An extension shows a card in the chat with `pichamber.card(ctx, card)`,
+ * which saves a `pichamber.card` entry whose data is a declarative
+ * descriptor:
  *
  * ```ts
- * pi.appendEntry("pichamber.ui", {
+ * pichamber.card(ctx, {
  *   title: "Explore progress",
  *   component: "progress",
  *   props: { label: "Files indexed", value: 40, max: 100 },
  *   actions: [{ label: "Focus repo", command: "explore:focus", args: "src" }],
  * });
  * ```
+ *
+ * Sessions saved by 1.0.6 and 1.0.7 hold the same descriptor under
+ * `pichamber.ui`; every `pichamber.*` entry reads as a card, so those keep
+ * rendering.
  *
  * Everything is display-only JSON: no markup injection, no arbitrary component
  * execution. Unknown components fall back to a generic card so extensions
@@ -25,10 +29,11 @@ import { normalizeCommandArgs } from './command-triggers';
 import { parseExtensionCommandName } from './extension-command';
 import type { PiExtensionMessageRender } from './types';
 
-export const PI_EXTENSION_UI_CUSTOM_TYPE = 'pichamber.ui';
+/** What `pichamber.card()` saves. */
+export const PI_EXTENSION_CARD_TYPE = 'pichamber.card';
 
-/** Custom types prefixed with this namespace are treated as PiChamber GUI. */
-export const PI_EXTENSION_UI_NAMESPACE = 'pichamber.';
+/** Every custom type with this prefix reads as a card, `pichamber.ui` (1.0.6) included. */
+const PI_EXTENSION_UI_NAMESPACE = 'pichamber.';
 
 /** Versioned protocol marker for the declarative UI surface. */
 export const PI_EXTENSION_UI_PROTOCOL = 'pichamber-extension-ui';
@@ -281,8 +286,7 @@ export const parseExtensionChatItem = (input: {
   details?: unknown;
   text?: string;
 }): ParsedExtensionItem => {
-  const namespaced = input.customType === PI_EXTENSION_UI_CUSTOM_TYPE
-    || (input.customType?.startsWith(PI_EXTENSION_UI_NAMESPACE) ?? false);
+  const namespaced = input.customType?.startsWith(PI_EXTENSION_UI_NAMESPACE) ?? false;
 
   const source = namespaced
     ? (asRecord((asRecord(input.data)?.ui) ?? null) ?? asRecord(input.data) ?? asRecord(input.details))
