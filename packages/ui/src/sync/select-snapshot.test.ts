@@ -19,8 +19,6 @@ const session = (overrides: Partial<PiReducerSessionState> & Pick<PiReducerSessi
       extensionDialogs: [],
       extensionNotices: [],
       extensionErrors: [],
-  extensionPanels: new Map(),
-  extensionApps: new Map(),
   queue: { steering: 0, followUp: 0 },
   ...overrides,
 });

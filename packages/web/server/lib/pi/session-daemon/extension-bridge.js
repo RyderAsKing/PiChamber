@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import {
-  MAX_EXTENSION_APP_HTML_CHARS,
   projectExtensionChooseFields,
   sanitizeExtensionFormFields,
   validateExtensionChoiceAnswer,
@@ -13,9 +12,6 @@ import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
 import { PICHAMBER_API } from './pichamber-api.js';
 
-const MAX_EXTENSION_PANELS_PER_SESSION = 24;
-const MAX_EXTENSION_APPS_PER_SESSION = 8;
-const MAX_EXTENSION_PANEL_ACTIONS = 8;
 const MAX_EXTENSION_EDITOR_TEXT_CHARS = 100_000;
 const MAX_EXTENSION_TITLE_CHARS = 256;
 const MAX_EXTENSION_WORKING_CHARS = 200;
@@ -40,27 +36,16 @@ export const isDisplayedExtensionEntryType = (customType) => (
   typeof customType === 'string' && customType.startsWith('pichamber.')
 );
 
-export const extractExtensionDescriptor = (entry) => {
-  if (!entry || typeof entry !== 'object' || entry.type !== 'custom') return undefined;
-  if (!isDisplayedExtensionEntryType(entry.customType)) return undefined;
-  const data = entry.data;
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined;
-  return data.ui && typeof data.ui === 'object' && !Array.isArray(data.ui) ? data.ui : data;
-};
-
-// `remove: true` takes a panel or app surface away, as it does a composer
-// control; `removed: true`, the first form these took, still works.
-const isRemoval = (descriptor) => descriptor.remove === true || descriptor.removed === true;
-
-export const isIddExtensionEntry = (entry) => {
-  const descriptor = extractExtensionDescriptor(entry);
-  if (!descriptor) return false;
-  if (entry.customType === 'pichamber.app') {
-    const appId = typeof descriptor.appId === 'string' && descriptor.appId.length > 0
-      ? descriptor.appId
-      : (typeof descriptor.id === 'string' && descriptor.id.length > 0 ? descriptor.id : undefined);
-    return Boolean(appId);
-  }
+// 1.0.6 and 1.0.7 kept two more entry kinds that no client ever drew: live
+// panels (`pichamber.ui` with an `id`) and app surfaces (`pichamber.app`).
+// Sessions saved then still hold them; they stay out of the transcript, as
+// they always were.
+export const isRetiredExtensionEntry = (entry) => {
+  if (entry?.type !== 'custom') return false;
+  if (entry.customType === 'pichamber.app') return true;
+  if (entry.customType !== 'pichamber.ui') return false;
+  const data = entry.data && typeof entry.data === 'object' ? entry.data : {};
+  const descriptor = data.ui && typeof data.ui === 'object' ? data.ui : data;
   return typeof descriptor.id === 'string' && descriptor.id.length > 0;
 };
 
@@ -86,8 +71,6 @@ export const createExtensionBridge = ({
   const extensionWidgetsBySession = new Map();
   const extensionComponentWidgetsBySession = new Map();
   const extensionWidgetRenderTimersBySession = new Map();
-  const extensionPanelsBySession = new Map();
-  const extensionAppsBySession = new Map();
   const extensionTitlesBySession = new Map();
   const extensionWorkingBySession = new Map();
   const extensionDraftBySession = new Map();
@@ -266,20 +249,14 @@ export const createExtensionBridge = ({
 
     const statuses = extensionStatusesBySession.get(sessionId);
     const widgets = extensionWidgetsBySession.get(sessionId);
-    const panels = extensionPanelsBySession.get(sessionId);
-    const apps = extensionAppsBySession.get(sessionId);
     if (statuses) for (const key of statuses.keys()) publishForSession('extension.status', { key }, sessionId);
     if (widgets) for (const key of widgets.keys()) publishForSession('extension.widget', { key }, sessionId);
-    if (panels) for (const id of panels.keys()) publishForSession('extension.ui', { id, removed: true }, sessionId);
-    if (apps) for (const appId of apps.keys()) publishForSession('extension.app', { appId, removed: true }, sessionId);
     if (extensionTitlesBySession.has(sessionId)) publishForSession('extension.title', {}, sessionId);
     if (extensionWorkingBySession.has(sessionId)) publishForSession('extension.working', {}, sessionId);
     // Stop browser draft sync; a later getEditorText() call re-enables it.
     if (extensionDraftTrackedSessions.has(sessionId)) publishForSession('extension.editor.track', { enabled: false }, sessionId);
     extensionStatusesBySession.delete(sessionId);
     extensionWidgetsBySession.delete(sessionId);
-    extensionPanelsBySession.delete(sessionId);
-    extensionAppsBySession.delete(sessionId);
     extensionTitlesBySession.delete(sessionId);
     extensionWorkingBySession.delete(sessionId);
     extensionDraftBySession.delete(sessionId);
@@ -298,8 +275,6 @@ export const createExtensionBridge = ({
       ...extensionStatusesBySession.keys(),
       ...extensionWidgetsBySession.keys(),
       ...extensionComponentWidgetsBySession.keys(),
-      ...extensionPanelsBySession.keys(),
-      ...extensionAppsBySession.keys(),
       ...extensionTitlesBySession.keys(),
       ...extensionWorkingBySession.keys(),
       ...extensionDraftBySession.keys(),
@@ -690,8 +665,6 @@ export const createExtensionBridge = ({
     } finally {
       if (providerObserver) providerObserver.suppress = false;
     }
-    const entries = session.sessionManager?.getBranch?.() ?? session.sessionManager?.getEntries?.();
-    rebuildSessionPanelsAndApps(session.sessionId, Array.isArray(entries) ? entries : []);
     publishCatalogChange(session.sessionId, { providers: true, resources: true, commands: true });
   };
 
@@ -726,10 +699,6 @@ export const createExtensionBridge = ({
             replaceInstructions: navigateOptions?.replaceInstructions,
             label: navigateOptions?.label,
           });
-          if (result?.cancelled !== true) {
-            const entries = session.sessionManager?.getBranch?.() ?? session.sessionManager?.getEntries?.();
-            rebuildSessionPanelsAndApps(session.sessionId, Array.isArray(entries) ? entries : []);
-          }
           return { cancelled: result.cancelled };
         },
         switchSession: async (sessionPath, switchOptions) => {
@@ -832,113 +801,6 @@ export const createExtensionBridge = ({
     }, sessionId, directory);
   };
 
-  const setNormalizedPanel = (sessionId, descriptor) => {
-    const id = typeof descriptor.id === 'string' && descriptor.id.length > 0 ? descriptor.id.slice(0, 128) : '';
-    if (!id) return undefined;
-    const hasBody = typeof descriptor.component === 'string'
-      || typeof descriptor.title === 'string'
-      || Array.isArray(descriptor.actions);
-    const removed = isRemoval(descriptor) || !hasBody;
-    const panels = extensionPanelsBySession.get(sessionId) ?? new Map();
-    const normalized = removed ? undefined : {
-      id,
-      ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
-      ...(typeof descriptor.component === 'string' ? { component: descriptor.component.slice(0, 64) } : {}),
-      ...(descriptor.props && typeof descriptor.props === 'object' && !Array.isArray(descriptor.props) ? { props: redactAttachmentValues(descriptor.props) } : {}),
-      ...(Array.isArray(descriptor.actions) ? { actions: descriptor.actions.slice(0, MAX_EXTENSION_PANEL_ACTIONS) } : {}),
-    };
-    if (removed) {
-      panels.delete(id);
-    } else {
-      panels.set(id, normalized);
-    }
-    if (panels.size > MAX_EXTENSION_PANELS_PER_SESSION) {
-      const oldest = [...panels.keys()].slice(0, panels.size - MAX_EXTENSION_PANELS_PER_SESSION);
-      for (const key of oldest) panels.delete(key);
-    }
-    if (panels.size === 0) extensionPanelsBySession.delete(sessionId);
-    else extensionPanelsBySession.set(sessionId, panels);
-    return { id, removed, normalized };
-  };
-
-  // Mirrors a declarative `pichamber.ui` descriptor into normalized panel
-  // state and publishes an `extension.ui` event. Latest wins per stable id;
-  // `remove: true` (or a payload without component/title) unregisters.
-  const mirrorExtensionPanel = (sessionId, descriptor, directory) => {
-    const result = setNormalizedPanel(sessionId, descriptor);
-    if (!result) return;
-    publish('extension.ui', result.removed ? { id: result.id, removed: true } : result.normalized, sessionId, directory);
-  };
-
-  const setNormalizedApp = (sessionId, descriptor) => {
-    const appId = typeof descriptor.appId === 'string' && descriptor.appId.length > 0
-      ? descriptor.appId.slice(0, 128)
-      : (typeof descriptor.id === 'string' && descriptor.id.length > 0 ? descriptor.id.slice(0, 128) : '');
-    if (!appId) return undefined;
-    const html = typeof descriptor.html === 'string'
-      ? (descriptor.html.length > MAX_EXTENSION_APP_HTML_CHARS ? descriptor.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : descriptor.html)
-      : undefined;
-    const removed = isRemoval(descriptor) || !html || html.length === 0;
-    const apps = extensionAppsBySession.get(sessionId) ?? new Map();
-    if (removed) {
-      apps.delete(appId);
-    } else {
-      apps.set(appId, {
-        appId,
-        ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
-        html,
-      });
-    }
-    if (apps.size > MAX_EXTENSION_APPS_PER_SESSION) {
-      const oldest = [...apps.keys()].slice(0, apps.size - MAX_EXTENSION_APPS_PER_SESSION);
-      for (const key of oldest) apps.delete(key);
-    }
-    if (apps.size === 0) extensionAppsBySession.delete(sessionId);
-    else extensionAppsBySession.set(sessionId, apps);
-    return {
-      appId,
-      removed,
-      app: removed ? undefined : {
-        appId,
-        ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
-        html,
-      },
-    };
-  };
-
-  // Mirrors a `pichamber.app` descriptor into normalized app state and
-  // publishes an `extension.app` event. HTML is capped; removal unregisters.
-  const mirrorExtensionApp = (sessionId, descriptor, directory) => {
-    const result = setNormalizedApp(sessionId, descriptor);
-    if (!result) return;
-    publish('extension.app', {
-      appId: result.appId,
-      ...(result.removed ? { removed: true } : {
-        ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
-        html: descriptor.html && typeof descriptor.html === 'string' && descriptor.html.length > MAX_EXTENSION_APP_HTML_CHARS ? descriptor.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : descriptor.html,
-      }),
-    }, sessionId, directory);
-  };
-
-  // Replays persisted custom entries on the active branch without publishing
-  // events to restore live panel and app state across restarts and branch switches.
-  const rebuildSessionPanelsAndApps = (sessionId, entries) => {
-    if (!sessionId) return;
-    extensionPanelsBySession.delete(sessionId);
-    extensionAppsBySession.delete(sessionId);
-    if (!Array.isArray(entries)) return;
-    for (const entry of entries) {
-      if (entry?.type !== 'custom' || !isDisplayedExtensionEntryType(entry.customType)) continue;
-      const descriptor = extractExtensionDescriptor(entry);
-      if (!descriptor) continue;
-      if (entry.customType === 'pichamber.app') {
-        setNormalizedApp(sessionId, descriptor);
-      } else {
-        setNormalizedPanel(sessionId, descriptor);
-      }
-    }
-  };
-
   const updateExtensionDraft = (sessionId, text, revision) => {
     if (typeof sessionId !== 'string' || !sessionId) return { accepted: false };
     if (!extensionDraftTrackedSessions.has(sessionId)) return { accepted: false };
@@ -964,8 +826,6 @@ export const createExtensionBridge = ({
     if (!sessionId) return {};
     const statuses = extensionStatusesBySession.get(sessionId);
     const widgets = extensionWidgetsBySession.get(sessionId);
-    const panels = extensionPanelsBySession.get(sessionId);
-    const apps = extensionAppsBySession.get(sessionId);
     const title = extensionTitlesBySession.get(sessionId);
     const dialogs = [...pendingExtensionDialogs.values()]
       .filter((pending) => pending.sessionId === sessionId)
@@ -979,8 +839,6 @@ export const createExtensionBridge = ({
       ...(controls ? { controls } : {}),
       ...(widgets?.size ? { widgets: [...widgets.entries()].map(([key, widget]) => ({ key, ...widget })) } : {}),
       ...(dialogs.length ? { dialogs } : {}),
-      ...(panels?.size ? { panels: [...panels.values()] } : {}),
-      ...(apps?.size ? { apps: [...apps.values()] } : {}),
       ...(title ? { title } : {}),
       ...(working ? { working: { ...working } } : {}),
       ...(draftTracked ? { draftTracked: true } : {}),
@@ -992,9 +850,6 @@ export const createExtensionBridge = ({
     buildExtensionBindings,
     clearExtensionState,
     getSnapshotState,
-    mirrorExtensionApp,
-    mirrorExtensionPanel,
-    rebuildSessionPanelsAndApps,
     publishExtensionCustomMessage,
     reloadSession,
     resetExtensionDraft,

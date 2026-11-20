@@ -3123,8 +3123,6 @@ export class PiSessionStore {
           extensionDialogs: [],
           extensionNotices: [],
           extensionErrors: [],
-          extensionPanels: new Map(),
-          extensionApps: new Map(),
         };
     // A plain prompt's user message only enters the transcript via server
     // echo, so the busy state below belongs to an unborn turn until then.

@@ -238,8 +238,6 @@ export interface PiSessionDetailResponse extends Pick<
   | 'extensionControls'
   | 'extensionWidgets'
   | 'extensionDialogs'
-  | 'extensionPanels'
-  | 'extensionApps'
   | 'extensionTitle'
   | 'extensionWorking'
   | 'extensionDraftTracked'
@@ -1077,8 +1075,6 @@ export type PiEventName =
   | 'extension.widget'
   | 'extension.dialog'
   | 'extension.dialog.dismiss'
-  | 'extension.ui'
-  | 'extension.app'
   | 'extension.working'
   | 'extension.editor.track'
   | 'extension.custom'
@@ -1562,30 +1558,6 @@ export interface PiExtensionDialogResponseInput {
   values?: Record<string, string>;
 }
 
-/** Declarative GUI panel update keyed by a stable id; latest wins. */
-export interface PiExtensionPanelPayload {
-  id: string;
-  title?: string;
-  component?: string;
-  props?: Record<string, unknown>;
-  actions?: unknown[];
-  /** Present when the panel should be removed from the live dock. */
-  removed?: boolean;
-}
-
-export type PiExtensionUiEvent = PiEventEnvelope<'extension.ui', PiExtensionPanelPayload>;
-
-/** Sandboxed extension app surface; `removed` (or missing `html`) unregisters. */
-export interface PiExtensionAppPayload {
-  appId: string;
-  title?: string;
-  /** Self-contained HTML document rendered inside a sandboxed iframe. */
-  html?: string;
-  removed?: boolean;
-}
-
-export type PiExtensionAppEvent = PiEventEnvelope<'extension.app', PiExtensionAppPayload>;
-
 /** Session-scoped working indicator message or visibility set via `ctx.ui.setWorkingMessage` / `setWorkingVisible`. */
 export type PiExtensionWorkingEvent = PiEventEnvelope<
   'extension.working',
@@ -1943,8 +1915,6 @@ export type PiSessionEvent =
   | PiExtensionWidgetEvent
   | PiExtensionDialogEvent
   | PiExtensionDialogDismissEvent
-  | PiExtensionUiEvent
-  | PiExtensionAppEvent
   | PiExtensionWorkingEvent
   | PiExtensionEditorTrackEvent
   | PiExtensionSurfaceEvent
@@ -1994,8 +1964,6 @@ export const PI_EVENT_KINDS = [
   'extension.widget',
   'extension.dialog',
   'extension.dialog.dismiss',
-  'extension.ui',
-  'extension.app',
   'extension.working',
   'extension.editor.track',
   'extension.custom',

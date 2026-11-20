@@ -760,7 +760,7 @@ describe('Pi session daemon extension bridging', () => {
   });
 });
 
-describe('Pi session daemon extension panels, apps, and forms', () => {
+describe('Pi session daemon extension cards and forms', () => {
   let daemon;
   let sessions = [];
 
@@ -799,59 +799,6 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     await daemon?.stop();
     daemon = undefined;
     sessions = [];
-  });
-
-  it('mirrors pichamber.ui entries into extension.ui panels that update in place and appear in snapshots', async () => {
-    const { client, session, endpoint } = await startWithExtensibleSession();
-
-    session.emit({
-      type: 'entry_appended',
-      entry: { type: 'custom', id: 'entry-1', customType: 'pichamber.ui', data: { protocol: 'pichamber-extension-ui', version: 1, id: 'subagents', title: 'Sub-agents', component: 'progress', props: { value: 10 } }, timestamp: '2026-01-01T00:00:01.000Z' },
-    });
-    const first = await client.next((message) => message.event === 'extension.ui');
-    expect(first.payload).toMatchObject({ id: 'subagents', title: 'Sub-agents', component: 'progress' });
-
-    // Latest wins per id: an update replaces the panel instead of stacking.
-    session.emit({
-      type: 'entry_appended',
-      entry: { type: 'custom', id: 'entry-2', customType: 'pichamber.ui', data: { id: 'subagents', component: 'progress', props: { value: 90 } }, timestamp: '2026-01-01T00:00:02.000Z' },
-    });
-    await client.next((message) => message.event === 'extension.ui' && message.payload?.props?.value === 90);
-
-    // A freshly authenticating client receives the normalized panels in its
-    // authoritative snapshot.
-    const reconnect = connectClient(endpoint);
-    const snapshot = await reconnect.authenticate();
-    expect(snapshot.payload.extensionPanels).toHaveLength(1);
-    expect(snapshot.payload.extensionPanels[0]).toMatchObject({ id: 'subagents', props: { value: 90 } });
-    reconnect.close();
-
-    // `remove: true`, as for a composer control, takes it away even with a body.
-    session.emit({
-      type: 'entry_appended',
-      entry: { type: 'custom', id: 'entry-3', customType: 'pichamber.ui', data: { id: 'subagents', remove: true, component: 'progress', props: { value: 95 } }, timestamp: '2026-01-01T00:00:03.000Z' },
-    });
-    const removal = await client.next((message) => message.event === 'extension.ui' && message.payload?.removed === true);
-    expect(removal.payload.id).toBe('subagents');
-  });
-
-  it('mirrors pichamber.app entries into extension.app events and unregisters on removal', async () => {
-    const { client, session } = await startWithExtensibleSession();
-
-    session.emit({
-      type: 'entry_appended',
-      entry: { type: 'custom', id: 'app-entry-1', customType: 'pichamber.app', data: { appId: 'board', title: 'Board', html: '<button data-pichamber-command="board-run">Run</button>' }, timestamp: '2026-01-01T00:00:03.000Z' },
-    });
-    const appEvent = await client.next((message) => message.event === 'extension.app');
-    expect(appEvent.payload).toMatchObject({ appId: 'board', title: 'Board' });
-    expect(appEvent.payload.html).toContain('data-pichamber-command');
-
-    session.emit({
-      type: 'entry_appended',
-      entry: { type: 'custom', id: 'app-entry-2', customType: 'pichamber.app', data: { appId: 'board', removed: true }, timestamp: '2026-01-01T00:00:04.000Z' },
-    });
-    const removal = await client.next((message) => message.event === 'extension.app' && message.payload?.removed === true);
-    expect(removal.payload.appId).toBe('board');
   });
 
   it('bridges pichamber.form to a form dialog and resolves with a values object', async () => {
@@ -1026,7 +973,7 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     expect(setEvent.payload).toMatchObject({ text: 'hello set', mode: 'set' });
   });
 
-  it('excludes idd pichamber.ui entries from sessions.open messages while rebuilding them into live panel snapshots on open and handling removed: true', async () => {
+  it('keeps the panels and app surfaces 1.0.6 saved out of the transcript, and shows saved cards', async () => {
     const { client, session } = await startWithExtensibleSession({
       entries: [
         {
@@ -1059,6 +1006,13 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
         },
         {
           type: 'custom',
+          id: 'entry-5',
+          customType: 'pichamber.app',
+          data: { appId: 'board', html: '<p>board</p>' },
+          timestamp: '2026-01-01T00:00:04.500Z',
+        },
+        {
+          type: 'custom',
           id: 'card-1',
           customType: 'pichamber.ui',
           data: { component: 'one-off-card', title: 'Card' },
@@ -1068,15 +1022,10 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     });
 
     const openRes = await client.request('sessions.open', { sessionId: session.sessionId });
-    expect(openRes.result.extensionPanels).toHaveLength(1);
-    expect(openRes.result.extensionPanels[0]).toMatchObject({
-      id: 'status-panel',
-      title: 'Status',
-      component: 'badges',
-      props: { status: 'completed' },
-    });
-    // Id'd entries entry-1, entry-2, entry-3, entry-4 must NOT appear in messages.
-    // The un-id'd card-1 entry DOES appear in messages.
+    expect(openRes.result).not.toHaveProperty('extensionPanels');
+    expect(openRes.result).not.toHaveProperty('extensionApps');
+    // The panel entries (an `id`) and the app surface never showed and still
+    // do not; the card saved as `pichamber.ui` does.
     const extensionMessages = openRes.result.messages.filter((m) => m.message.role === 'extension');
     expect(extensionMessages).toHaveLength(1);
     expect(extensionMessages[0].message.id).toBe('card-1');

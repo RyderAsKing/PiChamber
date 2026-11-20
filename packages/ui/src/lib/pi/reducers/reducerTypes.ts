@@ -2,9 +2,7 @@ import { CowMap } from '../cow-map';
 import type {
   PiBashExecution,
   PiComposerControl,
-  PiExtensionAppPayload,
   PiExtensionDialogPayload,
-  PiExtensionPanelPayload,
   PiToolRender,
 } from '../protocol';
 import type {
@@ -168,10 +166,6 @@ export interface PiReducerSessionState {
   extensionNotices: PiExtensionNotice[];
   /** Bounded feed of extension runtime errors. */
   extensionErrors: Array<{ id: string; source: string; event?: string; message: string; createdAt: number }>;
-  /** Live declarative GUI panels keyed by stable id (latest wins). */
-  extensionPanels: Map<string, PiExtensionPanelPayload>;
-  /** Registered sandboxed extension app surfaces keyed by appId. */
-  extensionApps: Map<string, PiExtensionAppPayload>;
   /** Low-frequency invalidation counters for extension-owned catalogs and labels. */
   extensionCatalogRevision?: number;
   sessionTreeRevision?: number;

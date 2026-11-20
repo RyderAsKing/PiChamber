@@ -52,8 +52,6 @@ const createTestSession = (sessionId: string, directory = '/repo'): PiReducerSes
   extensionDialogs: [],
   extensionNotices: [],
   extensionErrors: [],
-  extensionPanels: new Map(),
-  extensionApps: new Map(),
 });
 
 describe('ExtensionPromptDock', () => {

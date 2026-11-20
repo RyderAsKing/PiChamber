@@ -19,7 +19,6 @@ import { isPiThinkingLevel } from './thinking-levels.js';
 import { createPiSessionFoldersStore } from './session-folders-store.js';
 import { createPiSessionShelfStore } from './session-shelf-store.js';
 import {
-  MAX_EXTENSION_APP_HTML_CHARS,
   isValidCustomInputItems,
   projectCustomDismiss,
   projectCustomFrame,
@@ -678,27 +677,6 @@ const projectSessionTree = (value) => {
 
 const sessionIdFrom = (req) => typeof req.params.sessionId === 'string' && req.params.sessionId.length > 0 ? req.params.sessionId : undefined;
 
-
-const projectExtensionPanelActions = (actions) => (
-  Array.isArray(actions)
-    ? actions.filter((action) => action && typeof action === 'object' && typeof action.command === 'string').slice(0, 8)
-    : undefined
-);
-
-const projectExtensionPanelPayload = (panel) => ({
-  id: panel.id.slice(0, 128),
-  ...(typeof panel.title === 'string' ? { title: panel.title.slice(0, 256) } : {}),
-  ...(typeof panel.component === 'string' ? { component: panel.component.slice(0, 64) } : {}),
-  ...(panel.props && typeof panel.props === 'object' && !Array.isArray(panel.props) ? { props: panel.props } : {}),
-  ...(projectExtensionPanelActions(panel.actions) ? { actions: panel.actions } : {}),
-});
-
-const projectExtensionAppPayload = (app) => ({
-  appId: app.appId.slice(0, 128),
-  ...(typeof app.title === 'string' ? { title: app.title.slice(0, 256) } : {}),
-  html: typeof app.html === 'string' ? app.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : '',
-});
-
 const OPAQUE_EXTENSION_ID_PATTERN = /^[a-f0-9]{16}$/;
 
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
@@ -932,12 +910,6 @@ function projectExtensionSnapshotState(snapshot) {
       }))
     : undefined;
 
-  const extensionPanels = Array.isArray(snapshot.extensionPanels)
-    ? snapshot.extensionPanels.filter((entry) => entry && typeof entry.id === 'string' && entry.id.length > 0).slice(0, 24).map(projectExtensionPanelPayload)
-    : undefined;
-  const extensionApps = Array.isArray(snapshot.extensionApps)
-    ? snapshot.extensionApps.filter((entry) => entry && typeof entry.appId === 'string' && entry.appId.length > 0 && typeof entry.html === 'string' && entry.html.length > 0).slice(0, 8).map(projectExtensionAppPayload)
-    : undefined;
   const extensionWorking = snapshot.extensionWorking && typeof snapshot.extensionWorking === 'object'
     ? {
         ...(typeof snapshot.extensionWorking.message === 'string'
@@ -951,8 +923,6 @@ function projectExtensionSnapshotState(snapshot) {
     ...(extensionControls ? { extensionControls } : {}),
     ...(extensionWidgets ? { extensionWidgets } : {}),
     ...(extensionDialogs ? { extensionDialogs } : {}),
-    ...(extensionPanels ? { extensionPanels } : {}),
-    ...(extensionApps ? { extensionApps } : {}),
     ...(typeof snapshot.extensionTitle === 'string' && snapshot.extensionTitle.length > 0
       ? { extensionTitle: snapshot.extensionTitle.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 256) }
       : {}),
@@ -1269,26 +1239,6 @@ export const projectEventFrame = (frame) => {
           reason: frame.payload.reason,
         },
       };
-    }
-    case 'extension.ui': {
-      if (typeof frame.payload.id !== 'string' || frame.payload.id.length === 0 || frame.payload.id.length > 128) return null;
-      const hasBody = typeof frame.payload.component === 'string'
-        || typeof frame.payload.title === 'string'
-        || Array.isArray(frame.payload.actions);
-      const removed = frame.payload.removed === true || !hasBody;
-      return {
-        ...common,
-        payload: removed
-          ? { id: frame.payload.id.slice(0, 128), removed: true }
-          : projectExtensionPanelPayload(frame.payload),
-      };
-    }
-    case 'extension.app': {
-      if (typeof frame.payload.appId !== 'string' || frame.payload.appId.length === 0 || frame.payload.appId.length > 128) return null;
-      const html = typeof frame.payload.html === 'string' ? frame.payload.html : '';
-      if (html.length === 0) return { ...common, payload: { appId: frame.payload.appId.slice(0, 128), removed: true } };
-      if (html.length > MAX_EXTENSION_APP_HTML_CHARS) return null;
-      return { ...common, payload: projectExtensionAppPayload({ ...frame.payload, html }) };
     }
     case 'extension.working': {
       if (frame.payload.message !== undefined && typeof frame.payload.message !== 'string') return null;
