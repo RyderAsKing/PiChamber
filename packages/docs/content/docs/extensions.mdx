@@ -170,7 +170,7 @@ The rules are the same for every function:
 
 - **`ctx` first.** It is the `ctx` pi hands your tool, command or event
   handler, and tells PiChamber which session is asking.
-- **A promise back.** Bad input, or a `ctx` from outside a PiChamber session,
+- **A promise back.** Bad input (a card with an unknown component, a control without a command), or a `ctx` from outside a PiChamber session,
   rejects with a `TypeError` that names the function.
 - **Clicks run your commands.** A card button or a composer control names one
   of your registered commands, with or without the leading `/`: a letter or

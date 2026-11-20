@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { CARD_ENTRY_TYPE, normalizeExtensionCard } from '../extension-card.js';
 import {
   projectExtensionChooseFields,
   sanitizeExtensionFormFields,
@@ -30,7 +31,6 @@ const textFromContent = (content) => (
 // persist extension state. Only PiChamber GUI entries are meant to render.
 // `pichamber.card` is what `pichamber.card()` saves; cards saved before the
 // function existed carry `pichamber.ui` and read the same way.
-const CARD_ENTRY_TYPE = 'pichamber.card';
 
 export const isDisplayedExtensionEntryType = (customType) => (
   typeof customType === 'string' && customType.startsWith('pichamber.')
@@ -423,10 +423,9 @@ export const createExtensionBridge = ({
       // A card in the chat: saved in the session as a `pichamber.card` entry,
       // the same entry `pi.appendEntry('pichamber.card', card)` writes.
       card: async (card) => {
-        if (!card || typeof card !== 'object' || Array.isArray(card)) {
-          throw new TypeError('pichamber.card needs a card object.');
-        }
-        appendSessionEntry(sessionId, CARD_ENTRY_TYPE, card);
+        const checked = normalizeExtensionCard(card);
+        if (checked.error) throw new TypeError(`pichamber.card: ${checked.error}.`);
+        appendSessionEntry(sessionId, CARD_ENTRY_TYPE, checked.card);
       },
       // A control in the composer; `{ id, remove: true }` takes it away.
       control: async (control) => {
