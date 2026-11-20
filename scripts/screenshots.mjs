@@ -1296,7 +1296,7 @@ const PAGES = {
   },
   'composer-controls': {
     // The seed's demo extension declares a Mode cycle and a Plan toggle with
-    // `pichamber.composer`; they follow the plugin toggles in the footer.
+    // `pichamber.control`; they follow the plugin toggles in the footer.
     path: DEMO_SESSION_PATH,
     readyText: [DEMO_REPLY],
     settledScript: `Boolean(document.querySelector('[data-extension-control="mode"]'))`,
@@ -1966,7 +1966,7 @@ const writeDemoPackage = async (home) => {
   }, null, 2)}\n`);
 };
 
-// Composer controls a plain Pi extension declares with `pichamber.composer`:
+// Composer controls a plain Pi extension declares with `pichamber.control`:
 // a mode picker that cycles through its own `/demo-mode <name>` command and a
 // plan toggle. A mode switches model and thinking, as a real mode extension
 // does, so the composer can be seen following it: the cheapest, middle, or
@@ -1990,12 +1990,12 @@ const label = (name) => name[0].toUpperCase() + name.slice(1);
 export default function (pi) {
   let mode = 'balance';
   let plan = false;
-  const publish = () => {
-    pi.events.emit('pichamber.composer', {
+  const publish = async (ctx) => {
+    await globalThis.pichamber?.control(ctx, {
       id: 'mode', kind: 'cycle', label: 'Mode', description: 'Model and thinking presets', value: mode,
       options: MODES.map((name) => ({ value: name, label: label(name), command: 'demo-mode ' + name })),
     });
-    pi.events.emit('pichamber.composer', {
+    await globalThis.pichamber?.control(ctx, {
       id: 'plan', kind: 'toggle', label: 'Plan', description: 'Read-only planning before edits', value: plan, command: 'demo-plan',
     });
   };
@@ -2007,14 +2007,14 @@ export default function (pi) {
       const model = pickModel(ctx, mode);
       if (model) await pi.setModel(model);
       pi.setThinkingLevel(THINKING[mode]);
-      publish();
+      await publish(ctx);
     },
   });
   pi.registerCommand('demo-plan', {
     description: 'Toggle demo plan mode',
-    handler: async () => { plan = !plan; publish(); },
+    handler: async (_args, ctx) => { plan = !plan; await publish(ctx); },
   });
-  pi.on('session_start', async () => publish());
+  pi.on('session_start', async (_event, ctx) => publish(ctx));
 }
 `;
 
