@@ -1,7 +1,6 @@
 // The one rule for an extension naming one of its own slash commands.
 //
-// Composer controls, `pichamber.ui` card actions, and `pichamber.app`
-// surfaces all name a command the extension registered, and a click runs it
+// Composer controls and card actions both name a command the extension registered, and a click runs it
 // through `extensions.command`/`extensions.control`, which refuse a name Pi
 // has not registered. They share this module so the same command is valid in
 // every one of them:

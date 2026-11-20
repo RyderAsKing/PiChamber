@@ -4,7 +4,7 @@ import type { ToolPart } from '@/lib/chat/types';
 import type { PiExtensionChoice } from '@/lib/pi/protocol';
 
 /**
- * A question the plugin's tool call is waiting on (`pichamber.ui.choose` with the
+ * A question the plugin's tool call is waiting on (`pichamber.choose` with the
  * call's `toolCallId`). The component may draw it its own way; the dock
  * above the composer shows the same question, so either can answer.
  */

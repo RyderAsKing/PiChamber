@@ -1558,7 +1558,7 @@ export class PiService {
   }
 
   /**
-   * Click on a `pichamber.ui` card action or an app surface's command: runs
+   * Click on a card action: runs
    * the extension's own `command` with `args`, like a composer control. The
    * daemon refuses a command the session's extensions do not register
    * (`COMMAND_UNAVAILABLE`), so it never reaches the model as a prompt, and

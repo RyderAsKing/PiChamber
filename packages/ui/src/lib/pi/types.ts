@@ -158,7 +158,7 @@ export interface PiExtensionMessageRender {
 
 export interface PiExtensionMessage extends PiMessageBase {
   role: 'extension';
-  /** The pi customType that authored this item (e.g. `pichamber.ui`). */
+  /** The pi customType that authored this item (e.g. `pichamber.card`). */
   customType: string;
   /** Text content for custom messages. Absent for custom entries. */
   text?: string;

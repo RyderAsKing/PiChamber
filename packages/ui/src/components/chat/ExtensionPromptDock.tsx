@@ -175,7 +175,7 @@ interface ChooseBodyProps {
   setNote: (note: string) => void;
 }
 
-/** `pichamber.ui.choose`: choices with a description each, and a note when allowed. */
+/** `pichamber.choose`: choices with a description each, and a note when allowed. */
 const ChooseBody: React.FC<ChooseBodyProps> = ({
   request,
   onChoose,

@@ -20,7 +20,7 @@ disabled, and a disabled plugin loads no agent code.
   `defaultEnabled` (must be false for bundled plugins), `replaceable`
   (maps to the Pi factory's `replaceable`), `state` (`{ type: 'boolean' | 'enum',
   scope: 'global' | 'project', default, label, description?, options? }` per key),
-  `contributes.composerToggles` (`{ id, state, label, icon, description? }`,
+  `contributes.controls` (`{ id, kind: 'toggle', state, label, icon, description? }`,
   bound to a boolean key; optional), `contributes.settings` (ordered keys,
   never a key a composer toggle sets), and
   `contributes.ui` (native UI id). The agent half must be a `.js`/`.mjs`
@@ -152,7 +152,7 @@ Listed in `packages/web/plugins/registry.json`, one folder each:
   file) or an image file in the project (`path` to a `.png`, `.jpg`, `.webp`,
   `.gif` or `.svg`, sent as a `data:` URL). It reports the options as a
   partial result, waits a turn of the event loop so they reach clients first,
-  then asks with `pichamber.ui.choose(ctx, ...)` and its own tool call id, and returns the
+  then asks with `pichamber.choose(ctx, ...)` and its own tool call id, and returns the
   chosen option and the user's note. The details are
   `{ title, options, answer }`: `answer` is `{ id, note? }`, `null` when the
   question was closed, and absent when the client could not ask. Under plain

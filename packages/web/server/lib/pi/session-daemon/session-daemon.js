@@ -4518,7 +4518,7 @@ export function createSessionDaemon({
     return { ran: true };
   };
 
-  // A click on a `pichamber.ui` card action (or an app surface's command):
+  // A click on a card action:
   // the extension's own command, run the way a composer control runs one.
   // The name must be one the session's extensions register right now
   // (`COMMAND_UNAVAILABLE` otherwise), so a typo or a stale card never

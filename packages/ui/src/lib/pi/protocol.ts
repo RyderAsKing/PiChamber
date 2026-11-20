@@ -1450,8 +1450,8 @@ export type PiExtensionStatusEvent = PiEventEnvelope<
 >;
 
 /**
- * A composer control a Pi extension declared by emitting `pichamber.composer`
- * on `pi.events`. Each names the extension's own slash commands; the daemon
+ * A composer control a Pi extension declared with `pichamber.control(ctx, ...)`.
+ * Each names the extension's own slash commands; the daemon
  * runs one for a click (`piClient.runExtensionControl`) and the extension
  * reports its new value with a new declaration.
  */
@@ -1488,7 +1488,7 @@ export type PiExtensionWidgetEvent = PiEventEnvelope<
   }
 >;
 
-/** One typed input of a `form` dialog (`pichamber.ui.form`). */
+/** One typed input of a `form` dialog (`pichamber.form`). */
 export interface PiExtensionFormField {
   id: string;
   label: string;
@@ -1503,7 +1503,7 @@ export interface PiExtensionFormField {
   max?: number;
 }
 
-/** One choice of a `choose` dialog (`pichamber.ui.choose`). */
+/** One choice of a `choose` dialog (`pichamber.choose`). */
 export interface PiExtensionChoice {
   id: string;
   label: string;

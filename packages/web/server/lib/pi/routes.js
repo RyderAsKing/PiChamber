@@ -2863,7 +2863,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
-  // A click on a `pichamber.ui` card action: the extension's own command,
+  // A click on a card action: the extension's own command,
   // which the daemon runs only when the session's extensions register it
   // (`COMMAND_UNAVAILABLE`, 409, otherwise). Same name rule as composer
   // controls (extension-commands.js).

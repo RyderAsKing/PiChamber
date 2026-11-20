@@ -62,7 +62,7 @@ export const validateExtensionFormValues = (fields, values) => {
 
 // ---------------------------------------------------------------- choose()
 //
-// `pichamber.ui.choose(ctx, title, choices, opts)`: one question, a short list of
+// `pichamber.choose(ctx, title, choices, opts)`: one question, a short list of
 // choices that each have an id, a label and an optional description, and an
 // optional free-text note. A tool can name its own call (`toolCallId`), so a
 // plugin's chat component can draw the question beside what the call shows.

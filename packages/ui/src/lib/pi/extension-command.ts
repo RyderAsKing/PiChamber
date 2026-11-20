@@ -1,6 +1,6 @@
 /**
  * The one rule for an extension naming one of its own slash commands, shared
- * by `pichamber.ui` card actions and `pichamber.app` surfaces in the browser.
+ * by card actions in the browser.
  * The server owns the rule (`packages/web/server/lib/pi/extension-commands.js`)
  * and enforces it again before anything runs; keep the two in step.
  *
