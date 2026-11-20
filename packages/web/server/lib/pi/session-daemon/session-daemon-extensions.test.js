@@ -854,11 +854,11 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     expect(removal.payload.appId).toBe('board');
   });
 
-  it('bridges pichamber.ui.form to a form dialog and resolves with a values object', async () => {
+  it('bridges pichamber.form to a form dialog and resolves with a values object', async () => {
     const { client, session, endpoint } = await startWithExtensibleSession();
     const ctx = { ui: session.boundBindings.uiContext };
 
-    const pending = globalThis.pichamber.ui.form(ctx, 'Spawn agent', [
+    const pending = globalThis.pichamber.form(ctx, 'Spawn agent', [
       { id: 'name', label: 'Name', type: 'text', required: true },
       { id: 'level', label: 'Level', type: 'select', options: ['low', 'high'], initial: 'high' },
       { id: 'workers', label: 'Workers', type: 'number', min: 1, max: 4 },
@@ -890,7 +890,7 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     expect(await pending).toEqual({ name: 'research', level: 'high', workers: '4' });
   });
 
-  it('bridges pichamber.ui.choose to a choose dialog tied to its tool call', async () => {
+  it('bridges pichamber.choose to a choose dialog tied to its tool call', async () => {
     const { client, session, endpoint } = await startWithExtensibleSession();
     const ctx = { ui: session.boundBindings.uiContext };
     const { pichamber } = globalThis;
@@ -903,7 +903,7 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
       { label: 'no id' },
     ];
 
-    const pending = pichamber.ui.choose(ctx, 'Which header?', choices, { toolCallId: 'call-7', allowNote: true });
+    const pending = pichamber.choose(ctx, 'Which header?', choices, { toolCallId: 'call-7', allowNote: true });
     const request = await client.next((message) => message.kind === 'event' && message.event === 'extension.dialog');
     expect(request.payload).toMatchObject({
       method: 'choose',
@@ -932,7 +932,7 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     expect(await pending).toEqual({ id: 'b', note: 'darker header' });
 
     // A note for a question that takes none is refused; dismissing resolves undefined.
-    const plain = pichamber.ui.choose(ctx, 'Pick', [{ id: 'x', label: 'X' }]);
+    const plain = pichamber.choose(ctx, 'Pick', [{ id: 'x', label: 'X' }]);
     const plainRequest = await answering.next((message) => message.kind === 'event' && message.event === 'extension.dialog');
     expect(plainRequest.payload).not.toHaveProperty('allowNote');
     expect(plainRequest.payload).not.toHaveProperty('toolCallId');
@@ -948,14 +948,14 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     expect(await plain).toBeUndefined();
 
     // Nothing to choose, or no title: nothing is shown and the call fails.
-    await expect(pichamber.ui.choose(ctx, 'Pick', [{ label: 'no id' }])).rejects.toThrow(/at least one choice/);
-    await expect(pichamber.ui.choose(ctx, '', [{ id: 'x', label: 'X' }])).rejects.toThrow(/title/);
+    await expect(pichamber.choose(ctx, 'Pick', [{ label: 'no id' }])).rejects.toThrow(/at least one choice/);
+    await expect(pichamber.choose(ctx, '', [{ id: 'x', label: 'X' }])).rejects.toThrow(/title/);
   });
 
-  it('exposes globalThis.pichamber with ui, and keeps the released markers', () => {
+  it('exposes globalThis.pichamber with every function, and keeps the released markers', () => {
     expect(Object.isFrozen(globalThis.pichamber)).toBe(true);
-    expect(globalThis.pichamber.version).toBe(1);
-    expect(Object.keys(globalThis.pichamber.ui).sort()).toEqual(['choose', 'form', 'openUrl']);
+    expect(globalThis.pichamber.apiVersion).toBe(1);
+    expect(Object.keys(globalThis.pichamber).sort()).toEqual(['apiVersion', 'card', 'choose', 'control', 'form', 'openUrl']);
     expect(globalThis.__PICHAMBER__.version).toBe(1);
     expect(process.env.PICHAMBER).toBe('1');
   });
@@ -967,17 +967,17 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     // PiChamber's own calls are not on Pi's `ctx.ui` under a string name.
     expect(ctx.ui).not.toHaveProperty('form');
     expect(ctx.ui).not.toHaveProperty('openUrl');
-    await expect(globalThis.pichamber.ui.openUrl(ctx, 'file:///etc/passwd')).resolves.toBe(false);
+    await expect(globalThis.pichamber.openUrl(ctx, 'file:///etc/passwd')).resolves.toBe(false);
   });
 
-  it('rejects a pichamber.ui call without a PiChamber ctx, never synchronously', async () => {
+  it('rejects a pichamber call without a PiChamber ctx, never synchronously', async () => {
     const { pichamber } = globalThis;
-    for (const name of ['choose', 'form', 'openUrl']) {
+    for (const name of ['choose', 'form', 'openUrl', 'card', 'control']) {
       let promise;
-      expect(() => { promise = pichamber.ui[name](undefined, 'T', []); }).not.toThrow();
+      expect(() => { promise = pichamber[name](undefined, 'T', []); }).not.toThrow();
       await expect(promise).rejects.toBeInstanceOf(TypeError);
       await expect(promise).rejects.toThrow(/ctx/);
-      await expect(pichamber.ui[name]({ ui: { select: async () => undefined } }, 'T', [])).rejects.toBeInstanceOf(TypeError);
+      await expect(pichamber[name]({ ui: { select: async () => undefined } }, 'T', [])).rejects.toBeInstanceOf(TypeError);
     }
   });
 

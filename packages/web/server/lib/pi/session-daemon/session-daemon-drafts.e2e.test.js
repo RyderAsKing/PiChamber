@@ -36,7 +36,7 @@ export default function (pi) {
 const MODES_EXTENSION = `
 export default function (pi) {
   let mode = 'economy';
-  const declare = () => pi.events.emit('pichamber.composer', {
+  const declare = (ctx) => globalThis.pichamber.control(ctx, {
     id: 'mode',
     kind: 'cycle',
     label: 'Mode',
@@ -54,11 +54,11 @@ export default function (pi) {
         const model = ctx.modelRegistry.find('drafts-mock-provider', name === 'balance' ? 'drafts-smart' : 'drafts-cheap');
         if (model) await pi.setModel(model);
         pi.setThinkingLevel(name === 'balance' ? 'high' : 'low');
-        declare();
+        await declare(ctx);
       },
     });
   }
-  pi.on('session_start', () => declare());
+  pi.on('session_start', (_event, ctx) => declare(ctx));
 }
 `;
 
@@ -66,7 +66,7 @@ export default function (pi) {
 // dialog, and one whose command starts an agent turn.
 const EXTRAS_EXTENSION = `
 export default function (pi) {
-  const declare = () => pi.events.emit('pichamber.composer', {
+  const declare = (ctx) => globalThis.pichamber.control(ctx, {
     id: 'extra',
     kind: 'cycle',
     label: 'Extra',
@@ -86,7 +86,7 @@ export default function (pi) {
     description: 'Start a turn',
     handler: async () => { pi.sendUserMessage('hello from a control'); },
   });
-  pi.on('session_start', () => declare());
+  pi.on('session_start', (_event, ctx) => declare(ctx));
 }
 `;
 

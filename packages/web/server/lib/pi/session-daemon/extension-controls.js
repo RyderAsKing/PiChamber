@@ -1,18 +1,16 @@
 // Composer controls declared by Pi extensions.
 //
-// A plain Pi extension puts a control in PiChamber's composer by emitting
-// `pichamber.composer` on Pi's shared extension event bus (`pi.events`). The
-// Pi CLI has no listener, so the same extension keeps working there through
-// its own slash commands. Each control names the extension's own commands; a
-// click in PiChamber runs one of them as if it had been typed, and the
-// extension reports its new value by emitting again. The extension stays the
-// only source of truth for the value.
+// An extension puts a control in PiChamber's composer with
+// `pichamber.control(ctx, control)`. Each control names the extension's own
+// commands; a click in PiChamber runs one of them as if it had been typed,
+// and the extension reports its new value by calling again. The extension
+// stays the only source of truth for the value.
 //
-//   pi.events.emit('pichamber.composer', {
+//   pichamber.control(ctx, {
 //     id: 'mode', kind: 'cycle', label: 'Mode', value: 'balance',
 //     options: [{ value: 'economy', label: 'Economy', command: 'economy' }, ...],
 //   });
-//   pi.events.emit('pichamber.composer', { id: 'mode', remove: true });
+//   pichamber.control(ctx, { id: 'mode', remove: true });
 //
 // Kinds: `toggle` (`value: boolean`, `command` flips it), `cycle` (`value`,
 // 2 to 12 `options`, each with its own command), `action` (`command` only).
@@ -20,30 +18,25 @@
 // Command names and arguments follow the rule every extension surface shares.
 import { parseExtensionCommandText } from '../extension-commands.js';
 
-export const COMPOSER_CONTROL_EVENT = 'pichamber.composer';
-
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ICON_PATTERN = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const KINDS = new Set(['toggle', 'cycle', 'action']);
 export const MAX_CONTROLS_PER_SESSION = 16;
 const MAX_OPTIONS = 12;
-const MAX_PENDING = 64;
 
 const cleanText = (value, max) => (typeof value === 'string'
   ? value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
   : '');
 
 /**
- * Validate one `pichamber.composer` payload. Returns the control,
+ * Validate one `pichamber.control` payload. Returns the control,
  * `{ id, remove: true }`, or null when the payload is not usable (it is then
  * ignored, like a malformed status).
  */
 export const parseComposerControl = (raw) => {
   if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !ID_PATTERN.test(raw.id)) return null;
   const id = raw.id;
-  // `remove: true` is the documented form; `removed: true` (what panels and
-  // app surfaces took first) is accepted as well.
-  if (raw.remove === true || raw.removed === true) return { id, remove: true };
+  if (raw.remove === true) return { id, remove: true };
   if (!KINDS.has(raw.kind)) return null;
   const label = cleanText(raw.label, 40);
   if (!label) return null;
@@ -137,33 +130,3 @@ export const createComposerControls = ({ publish }) => {
 
   return { set, clear, snapshot, resolve, sessionIds };
 };
-
-/**
- * The extension factory that listens on a runtime's event bus. One runtime
- * hosts one session; the id is known from `session_start`, which reaches
- * this factory after the user's extensions (Pi loads factories last), so
- * controls emitted before it are held until then.
- */
-const COMPOSER_CONTROLS_EXTENSION_NAME = 'pichamber:composer-controls';
-
-/** Pi labels a named factory `<inline:name>`; this one is not listed as an extension. */
-export const isComposerControlsExtensionPath = (extensionPath) => extensionPath === `<inline:${COMPOSER_CONTROLS_EXTENSION_NAME}>`;
-
-export const createComposerControlsExtension = (onControl) => ({
-  name: COMPOSER_CONTROLS_EXTENSION_NAME,
-  hidden: true,
-  factory: (pi) => {
-    let sessionId;
-    const pending = [];
-    pi.events?.on?.(COMPOSER_CONTROL_EVENT, (data) => {
-      if (sessionId) onControl(sessionId, data);
-      else if (pending.length < MAX_PENDING) pending.push(data);
-    });
-    pi.on?.('session_start', (_event, ctx) => {
-      const id = ctx?.sessionManager?.getSessionId?.();
-      if (typeof id !== 'string' || id.length === 0) return;
-      sessionId = id;
-      for (const data of pending.splice(0)) onControl(sessionId, data);
-    });
-  },
-});

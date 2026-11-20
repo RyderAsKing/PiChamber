@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { createSessionDaemon } from './session-daemon.js';
 
-// Real SDK: a plain Pi extension declares a composer control on `pi.events`;
+// Real SDK: a plain Pi extension declares a composer control with `pichamber.control`;
 // the daemon keeps it in the session snapshot, and `extensions.control` runs
 // the extension's own command for the value asked for. The extension then
 // reports the new value itself. No model is called.
@@ -16,7 +16,7 @@ const credential = 'controls-e2e-daemon-credential';
 const MODES_EXTENSION = `
 export default function (pi) {
   let mode = 'economy';
-  const declare = () => pi.events.emit('pichamber.composer', {
+  const declare = (ctx) => globalThis.pichamber.control(ctx, {
     id: 'mode',
     kind: 'cycle',
     label: 'Mode',
@@ -29,18 +29,18 @@ export default function (pi) {
   for (const name of ['economy', 'balance']) {
     pi.registerCommand(name, {
       description: 'Switch to ' + name + ' mode',
-      handler: async (args) => {
+      handler: async (args, ctx) => {
         mode = name;
         globalThis.__controlsE2eArgs = args;
         globalThis.__controlsE2eRuns = (globalThis.__controlsE2eRuns ?? 0) + 1;
-        declare();
+        await declare(ctx);
       },
     });
   }
-  pi.on('session_start', () => {
-    declare();
+  pi.on('session_start', async (_event, ctx) => {
+    await declare(ctx);
     // A control whose command nobody registered never runs.
-    pi.events.emit('pichamber.composer', { id: 'ghost', kind: 'action', label: 'Ghost', command: 'not-registered' });
+    await globalThis.pichamber.control(ctx, { id: 'ghost', kind: 'action', label: 'Ghost', command: 'not-registered' });
   });
 }
 `;

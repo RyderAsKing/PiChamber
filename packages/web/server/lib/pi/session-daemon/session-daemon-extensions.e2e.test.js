@@ -43,7 +43,7 @@ export default function (pi) {
     description: "Ask a question",
     handler: async (_args, ctx) => {
       const ok = await ctx.ui.confirm("Fire the missile?", "This cannot be undone");
-      pi.appendEntry("pichamber.ui", {
+      await globalThis.pichamber.card(ctx, {
         title: "Demo",
         component: "badges",
         props: { items: [{ label: ok ? "confirmed" : "declined", tone: ok ? "success" : "warning" }] },
@@ -178,7 +178,7 @@ describe('pi extensions end-to-end through the real SDK', () => {
 
     // Extension saw the answer and emitted its GUI card + custom message.
     const card = await client.next((message) => message.kind === 'event' && message.event === 'extension.entry');
-    expect(card.payload.customType).toBe('pichamber.ui');
+    expect(card.payload.customType).toBe('pichamber.card');
     expect(card.payload.data.component).toBe('badges');
 
     const note = await client.next((message) => message.kind === 'event' && message.event === 'extension.message');
@@ -190,7 +190,7 @@ describe('pi extensions end-to-end through the real SDK', () => {
     // A fresh projection includes both items for reconnect/hydration.
     const opened = await client.request('sessions.open', { sessionId: created.result.session.id });
     const extensionItems = opened.result.messages.filter((item) => item.message.role === 'extension');
-    expect(extensionItems.map((item) => item.message.customType).sort()).toEqual(['demo-note', 'pichamber.ui']);
+    expect(extensionItems.map((item) => item.message.customType).sort()).toEqual(['demo-note', 'pichamber.card']);
 
     const sessionUpdated = client.next((message) => message.event === 'session.updated' && message.payload?.title === 'Extension-owned title');
     const treeUpdated = client.next((message) => message.event === 'session.tree.updated');

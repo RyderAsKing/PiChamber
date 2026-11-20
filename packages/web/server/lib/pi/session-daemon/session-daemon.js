@@ -33,7 +33,6 @@ import {
   isDisplayedExtensionEntryType,
   isIddExtensionEntry,
 } from './extension-bridge.js';
-import { createComposerControlsExtension, isComposerControlsExtensionPath } from './extension-controls.js';
 import { commandName, normalizeExtensionCommandArgs, parseExtensionCommandName } from '../extension-commands.js';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
@@ -86,7 +85,7 @@ import { createSessionEngineRouter } from './session-engine-router.js';
 import { createPendingInputIndex } from './pending-input.js';
 import { createExtensionCustomHost } from './extension-custom-host.js';
 import { resolveExtensionMode } from './extension-ui-mode.js';
-import { createPichamberUi } from './pichamber-ui.js';
+import { createPichamberApi } from './pichamber-api.js';
 import { createExtensionPaletteResolver, isTerminalColors } from './extension-palette.js';
 
 const textFromContent = (content) => (
@@ -99,8 +98,10 @@ const textFromContent = (content) => (
 // Extensions should use optional detection, e.g.:
 //   const marker = (globalThis as any).__PICHAMBER__;
 // or `process.env.PICHAMBER === "1"`. The object is frozen and versioned.
-// `globalThis.pichamber` holds PiChamber's own dialog calls (`pichamber.ui`),
-// kept off Pi's `ctx.ui` so a method Pi adds later cannot be shadowed.
+// `globalThis.pichamber` is the extension API (pichamber-api.js), kept off
+// Pi's `ctx.ui` so a method Pi adds later cannot be shadowed. Its presence is
+// the documented way to detect PiChamber; `__PICHAMBER__` is the marker
+// extensions written for 1.0.6 and 1.0.7 check.
 if (!globalThis.__PICHAMBER__) {
   try {
     globalThis.__PICHAMBER__ = Object.freeze({
@@ -116,7 +117,7 @@ if (!globalThis.__PICHAMBER__) {
 }
 if (!globalThis.pichamber) {
   try {
-    globalThis.pichamber = Object.freeze({ version: 1, ui: createPichamberUi() });
+    globalThis.pichamber = createPichamberApi();
   } catch {}
 }
 if (!process.env.PICHAMBER) {
@@ -173,12 +174,10 @@ export async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), se
       cwd: runtimeCwd,
       agentDir: runtimeAgentDir,
       resourceLoaderOptions: {
-        // PiChamber plugins load after Pi's built-ins (plugin-host.js); the
-        // composer-controls listener loads last (extension-controls.js).
+        // PiChamber plugins load after Pi's built-ins (plugin-host.js).
         extensionFactories: [
           ...getBuiltinExtensionFactories(),
           ...(hooks?.pluginExtensionFactories?.() ?? []),
-          ...(hooks?.internalExtensionFactories?.() ?? []),
         ],
       },
     });
@@ -727,7 +726,7 @@ export function createSessionDaemon({
     cwd: outsideSandbox(targetCwd),
     agentDir,
     resourceLoaderOptions: {
-      extensionFactories: [...getBuiltinExtensionFactories(), ...pluginHost.extensionFactories(), ...internalExtensionFactories()],
+      extensionFactories: [...getBuiltinExtensionFactories(), ...pluginHost.extensionFactories()],
     },
   });
 
@@ -870,6 +869,16 @@ export function createSessionDaemon({
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined),
     getDefaultDirectory: () => defaultDirectory(),
     getSequence: () => sequence,
+    // What `pi.appendEntry` does, for `pichamber.card(ctx, ...)`, which has
+    // the session but not the extension's `pi`.
+    appendSessionEntry: (sessionId, customType, data) => {
+      const owner = runtimeRegistry?.findBySessionId(sessionId)
+        || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
+      const manager = owner?.session?.sessionManager;
+      if (!manager) throw new Error('The session is no longer available.');
+      const entry = manager.getEntry(manager.appendCustomEntry(customType, data));
+      if (entry) publishSessionEvent(sessionId, { type: 'entry_appended', entry }, owner.cwd);
+    },
     protocolError: (code, message) => new SessionDaemonProtocolError(code, message),
     renderExtensionMessage: (session, message) => extensionMessageRenderer.renderMessage(session, message),
     requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
@@ -877,12 +886,6 @@ export function createSessionDaemon({
     customHost,
     resolveExtensionMode: resolveBindingExtensionMode,
   });
-  // Factories PiChamber itself adds to every runtime, after plugins: the
-  // listener for composer controls extensions declare on `pi.events`.
-  const composerControlsExtension = createComposerControlsExtension(
-    (sessionId, data) => extensionBridge.setComposerControl(sessionId, data),
-  );
-  const internalExtensionFactories = () => [composerControlsExtension];
 
   // `custom()` commands from browsers. Unknown or closed surfaces answer
   // `accepted: false` instead of throwing, like stale dialog responses, so a
@@ -961,7 +964,6 @@ export function createSessionDaemon({
   const createRuntime = (runtimeOptions, extraHooks) => baseCreateRuntime(runtimeOptions, {
     createExtensionBindings: buildExtensionBindings,
     pluginExtensionFactories: pluginHost.extensionFactories,
-    internalExtensionFactories,
     ...extraHooks,
   });
 
@@ -5124,6 +5126,16 @@ export function createSessionDaemon({
     protocolVersion: PROTOCOL_VERSION,
     pendingInput,
     getSequence: () => sequence,
+    // What `pi.appendEntry` does, for `pichamber.card(ctx, ...)`, which has
+    // the session but not the extension's `pi`.
+    appendSessionEntry: (sessionId, customType, data) => {
+      const owner = runtimeRegistry?.findBySessionId(sessionId)
+        || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
+      const manager = owner?.session?.sessionManager;
+      if (!manager) throw new Error('The session is no longer available.');
+      const entry = manager.getEntry(manager.appendCustomEntry(customType, data));
+      if (entry) publishSessionEvent(sessionId, { type: 'entry_appended', entry }, owner.cwd);
+    },
   });
 
   const handleRequest = async (socket, message) => {
@@ -5475,8 +5487,6 @@ export function createSessionDaemon({
             directory: activeRuntime.cwd,
             extensions: (Array.isArray(extensionPaths) ? extensionPaths : [])
               .filter((extensionPath) => typeof extensionPath === 'string' && extensionPath.length > 0)
-              // PiChamber's own listener is part of the app, not an extension.
-              .filter((extensionPath) => !isComposerControlsExtensionPath(extensionPath))
               // Opaque id only: server filesystem paths must never reach the
               // browser (see DOCUMENTATION.md route invariants).
               .map((extensionPath) => ({

@@ -8,10 +8,10 @@ import {
   validateExtensionFormValues,
 } from '../extension-protocol.js';
 import { handleBrowserArguments, isHttpUrl } from '../../open-url/browser-handler.mjs';
-import { createComposerControls } from './extension-controls.js';
+import { createComposerControls, parseComposerControl } from './extension-controls.js';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
-import { PICHAMBER_UI } from './pichamber-ui.js';
+import { PICHAMBER_API } from './pichamber-api.js';
 
 const MAX_EXTENSION_PANELS_PER_SESSION = 24;
 const MAX_EXTENSION_APPS_PER_SESSION = 8;
@@ -32,6 +32,10 @@ const textFromContent = (content) => (
 
 // Pi keeps `appendEntry` custom entries out of the TUI transcript; they
 // persist extension state. Only PiChamber GUI entries are meant to render.
+// `pichamber.card` is what `pichamber.card()` saves; cards saved before the
+// function existed carry `pichamber.ui` and read the same way.
+const CARD_ENTRY_TYPE = 'pichamber.card';
+
 export const isDisplayedExtensionEntryType = (customType) => (
   typeof customType === 'string' && customType.startsWith('pichamber.')
 );
@@ -71,6 +75,7 @@ export const createExtensionBridge = ({
   getSequence,
   protocolError,
   renderExtensionMessage,
+  appendSessionEntry,
   requestSessionShutdown,
   pendingInput,
   customHost,
@@ -93,7 +98,7 @@ export const createExtensionBridge = ({
   // into public stream events; blocking dialogs are resolved by the
   // `extensions.respond` daemon command.
   const pendingExtensionDialogs = new Map();
-  // Composer controls extensions declare on `pi.events` (extension-controls.js).
+  // Composer controls extensions declare with `pichamber.control` (extension-controls.js).
   const composerControls = createComposerControls({
     publish: (sessionId, payload) => publishForSession('extension.control', payload, sessionId),
   });
@@ -388,8 +393,8 @@ export const createExtensionBridge = ({
       });
     };
 
-    // PiChamber's own dialog calls, reached through `pichamber.ui.x(ctx, ...)`.
-    const pichamberUi = {
+    // PiChamber's own calls, reached through `pichamber.x(ctx, ...)`.
+    const pichamberApi = {
       // Structured multi-input dialog resolved with a values object keyed by
       // field id.
       form: (title, fields, opts) => {
@@ -417,7 +422,7 @@ export const createExtensionBridge = ({
         // the question and the caller would wait forever.
         const question = typeof title === 'string' ? title.trim().slice(0, 512) : '';
         if (!question || fields.choices.length === 0) {
-          return Promise.reject(new TypeError('pichamber.ui.choose needs a title and at least one choice with an id and a label.'));
+          return Promise.reject(new TypeError('pichamber.choose needs a title and at least one choice with an id and a label.'));
         }
         return dialog(
           'choose',
@@ -439,6 +444,21 @@ export const createExtensionBridge = ({
           env: { ...process.env, PI_SESSION_ID: sessionId },
         });
         return code === 0;
+      },
+      // A card in the chat: saved in the session as a `pichamber.card` entry,
+      // the same entry `pi.appendEntry('pichamber.card', card)` writes.
+      card: async (card) => {
+        if (!card || typeof card !== 'object' || Array.isArray(card)) {
+          throw new TypeError('pichamber.card needs a card object.');
+        }
+        appendSessionEntry(sessionId, CARD_ENTRY_TYPE, card);
+      },
+      // A control in the composer; `{ id, remove: true }` takes it away.
+      control: async (control) => {
+        if (!parseComposerControl(control)) {
+          throw new TypeError('pichamber.control needs a valid control: an id, a kind (toggle, cycle or action), a label and a command.');
+        }
+        composerControls.set(sessionId, control);
       },
     };
 
@@ -462,8 +482,8 @@ export const createExtensionBridge = ({
         (response) => (typeof response?.value === 'string' ? response.value : undefined),
       ),
       // Nothing PiChamber-only goes on `ctx.ui` under a string name, so a
-      // method Pi adds later is never shadowed; see `pichamber-ui.js`.
-      [PICHAMBER_UI]: pichamberUi,
+      // method Pi adds later is never shadowed; see `pichamber-api.js`.
+      [PICHAMBER_API]: pichamberApi,
       editor: (title, prefill) => dialog(
         'editor',
         { title, ...(typeof prefill === 'string' ? { prefill } : {}) },
@@ -980,7 +1000,6 @@ export const createExtensionBridge = ({
     resetExtensionDraft,
     resolveExtensionDialog,
     updateExtensionDraft,
-    setComposerControl: composerControls.set,
     resolveComposerControl: composerControls.resolve,
   };
 };

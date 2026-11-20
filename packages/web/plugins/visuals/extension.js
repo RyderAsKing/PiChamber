@@ -4,8 +4,8 @@
 // the result's `details`; this module only validates and returns them.
 //
 // It has no switch of its own: while the plugin is on in Settings, the tools
-// are there in every session. PiChamber's `pichamber` handle is used only to ask
-// `render_choices` questions; plain Pi passes none and gets a text list.
+// are there in every session. `render_choices` asks through
+// `globalThis.pichamber.choose`; plain Pi has none and gets a text list.
 
 import { CHOICES_TOOL_NAME, registerChoicesTool } from './choices.js';
 import { MAX_PAGE_CHARS, readPage } from './files.js';
@@ -61,7 +61,7 @@ export const renderHtml = async (params, { cwd } = {}) => {
   };
 };
 
-export default function visuals(pi, pichamber) {
+export default function visuals(pi) {
   let cwd;
 
   pi.registerTool({
@@ -74,7 +74,7 @@ export default function visuals(pi, pichamber) {
     },
   });
 
-  registerChoicesTool(pi, () => cwd, pichamber);
+  registerChoicesTool(pi, () => cwd);
 
   // Keep the rest of the active tools as they are; only add ours.
   pi.on('session_start', (_event, ctx) => {

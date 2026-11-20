@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  COMPOSER_CONTROL_EVENT,
   MAX_CONTROLS_PER_SESSION,
   createComposerControls,
-  createComposerControlsExtension,
-  isComposerControlsExtensionPath,
   parseComposerControl,
 } from './extension-controls.js';
 import { commandName } from '../extension-commands.js';
@@ -48,7 +45,7 @@ describe('parseComposerControl', () => {
 
   it('reads a removal', () => {
     expect(parseComposerControl({ id: 'mode', remove: true })).toEqual({ id: 'mode', remove: true });
-    expect(parseComposerControl({ id: 'mode', removed: true })).toEqual({ id: 'mode', remove: true });
+    expect(parseComposerControl({ id: 'mode', removed: true })).toBeNull();
   });
 
   it('drops a cycle value that is not one of its options', () => {
@@ -81,11 +78,9 @@ describe('parseComposerControl', () => {
   });
 });
 
-describe('commandName and the listener path', () => {
-  it('reads the invocation name and recognises the listener', () => {
+describe('commandName', () => {
+  it('reads the invocation name', () => {
     expect(commandName('review --staged')).toBe('review');
-    expect(isComposerControlsExtensionPath('<inline:pichamber:composer-controls>')).toBe(true);
-    expect(isComposerControlsExtensionPath('<inline:pichamber:visuals>')).toBe(false);
   });
 });
 
@@ -152,43 +147,5 @@ describe('createComposerControls', () => {
     expect(controls.resolve('s1', 'review')).toMatchObject({ command: 'review --staged' });
     expect(controls.resolve('s1', 'gone', true)).toEqual({ error: 'CONTROL_NOT_FOUND' });
     expect(controls.resolve('s2', 'mode', 'premium')).toEqual({ error: 'CONTROL_NOT_FOUND' });
-  });
-});
-
-describe('createComposerControlsExtension', () => {
-  const fakePi = () => {
-    const listeners = new Map();
-    const handlers = new Map();
-    return {
-      events: { on: (event, listener) => listeners.set(event, listener), emit: (event, data) => listeners.get(event)?.(data) },
-      on: (event, handler) => handlers.set(event, handler),
-      start: (sessionId) => handlers.get('session_start')?.({ type: 'session_start' }, { sessionManager: { getSessionId: () => sessionId } }),
-    };
-  };
-
-  it('holds controls emitted before session_start, then forwards them with the session id', () => {
-    const received = [];
-    const extension = createComposerControlsExtension((sessionId, data) => received.push([sessionId, data.id]));
-    expect(extension).toMatchObject({ name: 'pichamber:composer-controls', hidden: true });
-    const pi = fakePi();
-    extension.factory(pi);
-    pi.events.emit(COMPOSER_CONTROL_EVENT, { id: 'early' });
-    expect(received).toEqual([]);
-    pi.start('s1');
-    pi.events.emit(COMPOSER_CONTROL_EVENT, { id: 'late' });
-    pi.events.emit('other:event', { id: 'ignored' });
-    expect(received).toEqual([['s1', 'early'], ['s1', 'late']]);
-  });
-
-  it('listens on pichamber.composer only', () => {
-    const received = [];
-    const extension = createComposerControlsExtension((sessionId, data) => received.push([sessionId, data.id]));
-    const pi = fakePi();
-    extension.factory(pi);
-    pi.start('s1');
-    expect(COMPOSER_CONTROL_EVENT).toBe('pichamber.composer');
-    pi.events.emit('pichamber.composer', { id: 'current' });
-    pi.events.emit('pichamber:composer', { id: 'retired' });
-    expect(received).toEqual([['s1', 'current']]);
   });
 });
