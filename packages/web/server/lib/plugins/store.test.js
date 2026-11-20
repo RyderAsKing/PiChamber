@@ -32,7 +32,7 @@ const manifest = parsePluginPackage({
         options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }],
       },
     },
-    contributes: { composerToggles: [{ id: 'demo', state: 'on', label: 'Demo', icon: 'artboard' }] },
+    contributes: { controls: [{ id: 'demo', kind: 'toggle', state: 'on', label: 'Demo', icon: 'artboard' }] },
   },
 }, { packageDir: '/plugins/demo', bundled: true });
 
