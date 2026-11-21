@@ -40,49 +40,6 @@ describe('extension public projections', () => {
       commands: [],
     })).toThrow();
   });
-  it('projects extension.ui panels with caps and removals', () => {
-    const projected = projectEventFrame(frame('extension.ui', {
-      id: 'subagents',
-      title: 'Sub-agents',
-      component: 'table',
-      props: { columns: ['Agent'], rows: [['research']] },
-      actions: [{ label: 'Clear', command: 'agents-clear' }],
-    }));
-    expect(projected).toMatchObject({
-      name: 'extension.ui',
-      payload: { id: 'subagents', title: 'Sub-agents', component: 'table' },
-    });
-
-    // Missing component and title is treated as an unregister.
-    expect(projectEventFrame(frame('extension.ui', { id: 'gone' }))).toMatchObject({
-      payload: { id: 'gone', removed: true },
-    });
-
-    // Invalid ids are dropped entirely.
-    expect(projectEventFrame(frame('extension.ui', { id: '' }))).toBeNull();
-    expect(projectEventFrame(frame('extension.ui', { id: `${'x'.repeat(200)}` }))).toBeNull();
-  });
-
-  it('projects extension.app payloads and rejects oversized html', () => {
-    const projected = projectEventFrame(frame('extension.app', {
-      appId: 'board',
-      title: 'Board',
-      html: '<button data-pichamber-command="run">Run</button>',
-    }));
-    expect(projected?.payload).toMatchObject({ appId: 'board', title: 'Board' });
-    expect(projected?.payload.html).toContain('data-pichamber-command');
-
-    expect(projectEventFrame(frame('extension.app', {
-      appId: 'big',
-      html: `${'<a>'.repeat(70_000)}`,
-    }))).toBeNull();
-
-    expect(projectEventFrame(frame('extension.app', { appId: 'gone', removed: true }))?.payload).toMatchObject({
-      appId: 'gone',
-      removed: true,
-    });
-  });
-
   it('projects bounded editor/title/catalog and tree invalidation events', () => {
     expect(projectEventFrame(frame('extension.editor', { text: 'draft' }))).toMatchObject({
       name: 'extension.editor', payload: { text: 'draft', mode: 'set' },
@@ -211,15 +168,13 @@ describe('extension public projections', () => {
     expect(projectEventFrame(frame('extension.editor.track', {}))).toBeNull();
   });
 
-  it('projects snapshot extensionPanels/extensionApps/extensionDraftTracked for reconnect', () => {
+  it('projects snapshot dialogs, title, working and extensionDraftTracked for reconnect', () => {
     const projected = projectEventFrame(frame('session.snapshot', {
       isStreaming: false,
       lifecycle: 'idle',
       queue: { steering: 0, followUp: 0 },
       lastSequence: 5,
       extensionStatuses: [{ key: 'mode', text: 'economy' }],
-      extensionPanels: [{ id: 'panel-1', component: 'progress', props: { value: 50 } }],
-      extensionApps: [{ appId: 'app-1', html: '<p>x</p>' }],
       extensionTitle: 'Build mode',
       extensionWorking: { message: 'Indexing...', visible: true },
       extensionDraftTracked: true,
@@ -231,8 +186,6 @@ describe('extension public projections', () => {
       }],
     }));
     const snapshot = projected?.payload.snapshot;
-    expect(snapshot.extensionPanels).toHaveLength(1);
-    expect(snapshot.extensionApps).toHaveLength(1);
     expect(snapshot.extensionDialogs[0].fields).toHaveLength(1);
     expect(snapshot.extensionTitle).toBe('Build mode');
     expect(snapshot.extensionWorking).toEqual({ message: 'Indexing...', visible: true });
@@ -758,5 +711,39 @@ describe('composer controls', () => {
     const unavailable = await post({ sessionId: 's1', id: 'ghost' });
     expect(unavailable.status).toBe(409);
     await expect(unavailable.json()).resolves.toEqual({ error: { code: 'CONTROL_UNAVAILABLE' } });
+  });
+
+  it('forwards a card action\'s command by the shared rule', async () => {
+    const calls = [];
+    let answer = { ran: true };
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const url = `http://127.0.0.1:${server.address().port}/api/pi/extensions/command`;
+    const post = (body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+    const ok = await post({ sessionId: 's1', command: '/explore-focus', args: 'src', clientId: 'tab-1', extra: 'x' });
+    expect(ok.status).toBe(200);
+    await expect(ok.json()).resolves.toEqual({ ran: true });
+    expect(calls).toEqual([{ command: 'extensions.command', payload: { sessionId: 's1', command: '/explore-focus', args: 'src', clientId: 'tab-1' } }]);
+
+    for (const bad of [{}, { sessionId: 's1' }, { sessionId: 's1', command: 'a/b' }, { sessionId: 's1', command: '..etc' }, { sessionId: 's1', command: 'run now' }, { sessionId: 's1', command: 'x'.repeat(129) }, { sessionId: 's1', command: 'ok', args: 3 }]) {
+      const res = await post(bad);
+      expect(res.status).toBe(400);
+    }
+    expect(calls).toHaveLength(1);
+
+    answer = Object.assign(new Error('gone'), { code: 'COMMAND_UNAVAILABLE' });
+    const unavailable = await post({ sessionId: 's1', command: 'ghost' });
+    expect(unavailable.status).toBe(409);
+    await expect(unavailable.json()).resolves.toEqual({ error: { code: 'COMMAND_UNAVAILABLE' } });
   });
 });

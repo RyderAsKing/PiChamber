@@ -20,7 +20,6 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import {
-  MAX_EXTENSION_APP_HTML_CHARS,
   isValidCustomInputItems,
   sanitizeExtensionFormFields,
   validateExtensionFormValues,
@@ -29,11 +28,10 @@ import { createPiModelConfigStore } from '../model-config-store.js';
 import { clampThinkingLevel, getSupportedThinkingLevels, isPiThinkingLevel } from '../thinking-levels.js';
 import {
   createExtensionBridge,
-  extractExtensionDescriptor,
   isDisplayedExtensionEntryType,
-  isIddExtensionEntry,
+  isRetiredExtensionEntry,
 } from './extension-bridge.js';
-import { commandName, createComposerControlsExtension, isComposerControlsExtensionPath } from './extension-controls.js';
+import { commandName, normalizeExtensionCommandArgs, parseExtensionCommandName } from '../extension-commands.js';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
 import {
@@ -85,7 +83,7 @@ import { createSessionEngineRouter } from './session-engine-router.js';
 import { createPendingInputIndex } from './pending-input.js';
 import { createExtensionCustomHost } from './extension-custom-host.js';
 import { resolveExtensionMode } from './extension-ui-mode.js';
-import { createPichamberUi } from './pichamber-ui.js';
+import { createPichamberApi } from './pichamber-api.js';
 import { createExtensionPaletteResolver, isTerminalColors } from './extension-palette.js';
 
 const textFromContent = (content) => (
@@ -98,8 +96,10 @@ const textFromContent = (content) => (
 // Extensions should use optional detection, e.g.:
 //   const marker = (globalThis as any).__PICHAMBER__;
 // or `process.env.PICHAMBER === "1"`. The object is frozen and versioned.
-// `globalThis.pichamber` holds PiChamber's own dialog calls (`pichamber.ui`),
-// kept off Pi's `ctx.ui` so a method Pi adds later cannot be shadowed.
+// `globalThis.pichamber` is the extension API (pichamber-api.js), kept off
+// Pi's `ctx.ui` so a method Pi adds later cannot be shadowed. Its presence is
+// the documented way to detect PiChamber; `__PICHAMBER__` is the marker
+// extensions written for 1.0.6 and 1.0.7 check.
 if (!globalThis.__PICHAMBER__) {
   try {
     globalThis.__PICHAMBER__ = Object.freeze({
@@ -115,7 +115,7 @@ if (!globalThis.__PICHAMBER__) {
 }
 if (!globalThis.pichamber) {
   try {
-    globalThis.pichamber = Object.freeze({ version: 1, ui: createPichamberUi() });
+    globalThis.pichamber = createPichamberApi();
   } catch {}
 }
 if (!process.env.PICHAMBER) {
@@ -172,12 +172,10 @@ export async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), se
       cwd: runtimeCwd,
       agentDir: runtimeAgentDir,
       resourceLoaderOptions: {
-        // PiChamber plugins load after Pi's built-ins (plugin-host.js); the
-        // composer-controls listener loads last (extension-controls.js).
+        // PiChamber plugins load after Pi's built-ins (plugin-host.js).
         extensionFactories: [
           ...getBuiltinExtensionFactories(),
           ...(hooks?.pluginExtensionFactories?.() ?? []),
-          ...(hooks?.internalExtensionFactories?.() ?? []),
         ],
       },
     });
@@ -453,6 +451,17 @@ export function createSessionDaemon({
   const retryStateBySession = new Map();
   const compactionStateBySession = new Map();
   const activeRunStartedAt = new Map();
+  // Model and thinking changes clients asked for (sessions.setModel /
+  // setThinking), counted per session, so a command's before/after
+  // comparison never credits another client's change to the extension.
+  const clientModelChangesBySession = new Map();
+  // Sequence of the last `session.model` an extension command chose; sent
+  // with session details and snapshots so a reconnecting composer still
+  // sees a choice it missed live.
+  const extensionModelSequenceBySession = new Map();
+  const noteClientModelChange = (sessionId) => {
+    clientModelChangesBySession.set(sessionId, (clientModelChangesBySession.get(sessionId) ?? 0) + 1);
+  };
   const sendGenerationBySession = new Map();
   const settledSendGenerationBySession = new Map();
   // Pi's reload() is identity-preserving but is not safe during a turn,
@@ -715,7 +724,7 @@ export function createSessionDaemon({
     cwd: outsideSandbox(targetCwd),
     agentDir,
     resourceLoaderOptions: {
-      extensionFactories: [...getBuiltinExtensionFactories(), ...pluginHost.extensionFactories(), ...internalExtensionFactories()],
+      extensionFactories: [...getBuiltinExtensionFactories(), ...pluginHost.extensionFactories()],
     },
   });
 
@@ -858,6 +867,16 @@ export function createSessionDaemon({
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined),
     getDefaultDirectory: () => defaultDirectory(),
     getSequence: () => sequence,
+    // What `pi.appendEntry` does, for `pichamber.card(ctx, ...)`, which has
+    // the session but not the extension's `pi`. It writes through the
+    // extension's own session, as `pi.appendEntry` does, so a card made in
+    // `session_start` (before the runtime is registered) is saved too.
+    appendSessionEntry: (session, customType, data) => {
+      const manager = session?.sessionManager;
+      if (!manager) throw new Error('The session is no longer available.');
+      const entry = manager.getEntry(manager.appendCustomEntry(customType, data));
+      if (entry) publishSessionEvent(session.sessionId, { type: 'entry_appended', entry }, manager.getCwd?.());
+    },
     protocolError: (code, message) => new SessionDaemonProtocolError(code, message),
     renderExtensionMessage: (session, message) => extensionMessageRenderer.renderMessage(session, message),
     requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
@@ -865,12 +884,6 @@ export function createSessionDaemon({
     customHost,
     resolveExtensionMode: resolveBindingExtensionMode,
   });
-  // Factories PiChamber itself adds to every runtime, after plugins: the
-  // listener for composer controls extensions declare on `pi.events`.
-  const composerControlsExtension = createComposerControlsExtension(
-    (sessionId, data) => extensionBridge.setComposerControl(sessionId, data),
-  );
-  const internalExtensionFactories = () => [composerControlsExtension];
 
   // `custom()` commands from browsers. Unknown or closed surfaces answer
   // `accepted: false` instead of throwing, like stale dialog responses, so a
@@ -925,22 +938,12 @@ export function createSessionDaemon({
   const {
     buildExtensionBindings,
     clearExtensionState,
-    mirrorExtensionApp,
-    mirrorExtensionPanel,
-    rebuildSessionPanelsAndApps,
     publishExtensionCustomMessage,
     reloadSession,
     resolveExtensionDialog,
     updateExtensionDraft,
     resetExtensionDraft,
   } = extensionBridge;
-
-  const rebuildSessionExtensionState = (activeRuntime) => {
-    const session = activeRuntime?.session;
-    if (!session?.sessionId) return;
-    const entries = session.sessionManager?.getBranch?.() ?? session.sessionManager?.getEntries?.();
-    rebuildSessionPanelsAndApps(session.sessionId, Array.isArray(entries) ? entries : []);
-  };
 
   // Thread extension hooks through our own default factory. Injected test or
   // host factories keep their single-argument contract and ignore the hooks.
@@ -949,7 +952,6 @@ export function createSessionDaemon({
   const createRuntime = (runtimeOptions, extraHooks) => baseCreateRuntime(runtimeOptions, {
     createExtensionBindings: buildExtensionBindings,
     pluginExtensionFactories: pluginHost.extensionFactories,
-    internalExtensionFactories,
     ...extraHooks,
   });
 
@@ -1045,6 +1047,7 @@ export function createSessionDaemon({
         } : { steering: 0, followUp: 0 },
         ...(model?.provider && model?.id ? { model: { providerId: model.provider, modelId: model.id } } : {}),
         ...(activeSession?.thinkingLevel ? { thinking: activeSession.thinkingLevel } : {}),
+        ...(session.sessionId && extensionModelSequenceBySession.has(session.sessionId) ? { extensionModelSequence: extensionModelSequenceBySession.get(session.sessionId) } : {}),
         ...(typeof lastAssistant?.text === 'string' ? { lastText: lastAssistant.text } : {}),
         ...(typeof lastAssistant?.thinking === 'string' ? { lastThinking: lastAssistant.thinking } : {}),
         ...(session.sessionId && activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
@@ -1056,8 +1059,6 @@ export function createSessionDaemon({
         extensionControls: extensionSnapshot.controls ?? [],
         ...(extensionSnapshot.widgets ? { extensionWidgets: extensionSnapshot.widgets } : {}),
         ...(extensionSnapshot.dialogs ? { extensionDialogs: extensionSnapshot.dialogs } : {}),
-        ...(extensionSnapshot.panels ? { extensionPanels: extensionSnapshot.panels } : {}),
-        ...(extensionSnapshot.apps ? { extensionApps: extensionSnapshot.apps } : {}),
         ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
         ...(extensionSnapshot.working ? { extensionWorking: extensionSnapshot.working } : {}),
         ...(extensionSnapshot.draftTracked ? { extensionDraftTracked: true } : {}),
@@ -1243,7 +1244,6 @@ export function createSessionDaemon({
     // No client asked for it, so listings skip it until it holds a
     // conversation or a name.
     if (!sessionFile && newRuntime.session) implicitSessions.add(newRuntime.session);
-    rebuildSessionExtensionState(newRuntime);
     if (activate) {
       runtime = newRuntime;
       activeDirectory = canonicalRuntimeCwd;
@@ -1532,6 +1532,8 @@ export function createSessionDaemon({
         const released = releaseResult?.released === true;
         shutdownRequestedBySession.delete(sessionId);
         compactionStateBySession.delete(sessionId);
+        clientModelChangesBySession.delete(sessionId);
+        extensionModelSequenceBySession.delete(sessionId);
         userBash.clearSession(sessionId);
         if (targetRuntime === runtime) runtime = undefined;
         // Publish only after a successful lease release so a
@@ -1675,7 +1677,8 @@ export function createSessionDaemon({
       case 'sessions.abortBash':
       case 'sessions.delete':
       case 'sessions.rename':
-      case 'extensions.control': {
+      case 'extensions.control':
+      case 'extensions.command': {
         const candidate = message?.payload?.sessionId;
         return isValidIdleSessionId(candidate) ? candidate : undefined;
       }
@@ -2015,7 +2018,6 @@ export function createSessionDaemon({
     }
     runtime = newRuntime;
     activeDirectory = directory;
-    rebuildSessionExtensionState(newRuntime);
     rememberRuntimeSession();
     return newRuntime;
   };
@@ -2111,14 +2113,12 @@ export function createSessionDaemon({
     let latestUserMessageId;
     return entries.flatMap((entry) => {
       // Extension-authored content: displayed custom messages (`sendMessage`)
-      // and PiChamber GUI entries (`appendEntry('pichamber.*')`) without a stable
-      // id surface as one-off extension-role transcript items. Other custom entries
-      // are private extension state that Pi never displays, and entries with a
-      // stable id are mirrored into live panels/apps instead, so they stay out of the
-      // transcript.
+      // and PiChamber cards (`pichamber.card`, or `pichamber.ui` from 1.0.6)
+      // surface as extension-role transcript items. Other custom entries are
+      // private extension state that Pi never displays.
       if (entry?.type === 'custom') {
         if (!isDisplayedExtensionEntryType(entry.customType) || typeof entry.id !== 'string') return [];
-        if (isIddExtensionEntry(entry)) return [];
+        if (isRetiredExtensionEntry(entry)) return [];
         const timestamp = Date.parse(entry.timestamp);
         return [{
           message: {
@@ -2420,6 +2420,7 @@ export function createSessionDaemon({
         ...(session.sessionName ? { title: session.sessionName } : {}),
         ...(sessionModel ? { model: sessionModel } : {}),
         ...(sessionThinking ? { thinking: sessionThinking } : {}),
+        ...(extensionModelSequenceBySession.has(session.sessionId) ? { extensionModelSequence: extensionModelSequenceBySession.get(session.sessionId) } : {}),
         messageCount: allMessages.length,
       },
       messages: page.messages,
@@ -2438,8 +2439,6 @@ export function createSessionDaemon({
       extensionControls: extensionSnapshot.controls ?? [],
       ...(extensionSnapshot.widgets ? { extensionWidgets: extensionSnapshot.widgets } : {}),
       ...(extensionSnapshot.dialogs ? { extensionDialogs: extensionSnapshot.dialogs } : {}),
-      ...(extensionSnapshot.panels ? { extensionPanels: extensionSnapshot.panels } : {}),
-      ...(extensionSnapshot.apps ? { extensionApps: extensionSnapshot.apps } : {}),
       ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
       ...(extensionSnapshot.working ? { extensionWorking: extensionSnapshot.working } : {}),
       ...(extensionSnapshot.draftTracked ? { extensionDraftTracked: true } : {}),
@@ -2725,13 +2724,11 @@ export function createSessionDaemon({
       // A draft is not the daemon's active session and is not remembered
       // for a restart: nothing has been sent in it. It gets the idle
       // lifetime of any view-only session, so an abandoned draft goes away.
-      rebuildSessionExtensionState(newRuntime);
       touchIdleDisposal(newRuntime.session.sessionId);
       return projectActiveSession(newRuntime, targetCwd);
     }
     runtime = newRuntime;
     activeDirectory = targetCwd;
-    rebuildSessionExtensionState(newRuntime);
     rememberRuntimeSession();
     const created = projectActiveSession(newRuntime, targetCwd);
     const createdTitle = created.session.title
@@ -4143,8 +4140,13 @@ export function createSessionDaemon({
   // `requireExtensionCommand`: the text must be a command the session's
   // extensions register once the runtime is settled, or nothing runs. A
   // composer control sets it, so its `/command` never reaches the model as a
-  // prompt when a queued recreation drops the extension behind it.
-  const runSessionInput = async (payload, delivery, { keepDraft = false, requireExtensionCommand = false } = {}) => {
+  // prompt when a queued recreation drops the extension behind it, and so does
+  // a card action (`extensions.command`), which answers `COMMAND_UNAVAILABLE`.
+  const runSessionInput = async (payload, delivery, {
+    keepDraft = false,
+    requireExtensionCommand = false,
+    unavailableCode = 'CONTROL_UNAVAILABLE',
+  } = {}) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
@@ -4216,7 +4218,9 @@ export function createSessionDaemon({
       && registeredExtensionCommands.some((command) => command?.invocationName === slashInvocation),
     );
     if (requireExtensionCommand && !isExtensionCommand) {
-      throw new SessionDaemonProtocolError('CONTROL_UNAVAILABLE', 'The command for this control is not available.');
+      throw new SessionDaemonProtocolError(unavailableCode, unavailableCode === 'CONTROL_UNAVAILABLE'
+        ? 'The command for this control is not available.'
+        : 'The extension command is not available.');
     }
     // Like the Pi CLI, never persist an auto-title. Lists derive the display
     // title from the first user prompt; publish that derived title live (not
@@ -4258,6 +4262,8 @@ export function createSessionDaemon({
     const prevModel = activeRuntime.session?.model
       ? { provider: activeRuntime.session.model.provider, id: activeRuntime.session.model.id }
       : null;
+    const prevThinking = activeRuntime.session?.thinkingLevel;
+    const prevClientModelChanges = clientModelChangesBySession.get(payload.sessionId) ?? 0;
     let promptPromise;
     // A command's custom() surfaces are titled with its name (see
     // describeCustomOrigin). Cleared when the command settles.
@@ -4376,12 +4382,27 @@ export function createSessionDaemon({
       if (!shouldRetain) {
         removeUserStart(payload.sessionId, generation);
       }
-      if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       const curModel = activeRuntime.session?.model;
-      if (
-        curModel?.provider && curModel?.id
-        && (curModel.provider !== prevModel?.provider || curModel.id !== prevModel?.id)
-      ) {
+      const modelChanged = curModel?.provider !== prevModel?.provider || curModel?.id !== prevModel?.id;
+      // An extension command that switched the model or thinking (a mode
+      // command such as /balance) made a choice of its own: `source:
+      // 'extension'` tells clients to replace any unsent composer pick with
+      // it, also when only thinking changed and the model stayed the same.
+      // A change a client asked for while the command ran is that client's,
+      // so it is not credited to the extension. This belongs to the command,
+      // not the send generation: a steer sent while it ran must not skip it.
+      const extensionChoice = isExtensionCommand
+        && (clientModelChangesBySession.get(payload.sessionId) ?? 0) === prevClientModelChanges
+        && (modelChanged || activeRuntime.session?.thinkingLevel !== prevThinking);
+      if (extensionChoice && curModel?.provider && curModel?.id) {
+        publish('session.model', {
+          model: { providerId: curModel.provider, modelId: curModel.id },
+          source: 'extension',
+        }, payload.sessionId, activeRuntime.cwd);
+        extensionModelSequenceBySession.set(payload.sessionId, sequence);
+      }
+      if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
+      if (modelChanged && !extensionChoice && curModel?.provider && curModel?.id) {
         publish('session.model', {
           model: { providerId: curModel.provider, modelId: curModel.id },
         }, payload.sessionId, activeRuntime.cwd);
@@ -4494,6 +4515,43 @@ export function createSessionDaemon({
       runs.delete(run);
       if (runs.size === 0 && controlRunsBySession.get(sessionId) === runs) controlRunsBySession.delete(sessionId);
     }
+    return { ran: true };
+  };
+
+  // A click on a card action:
+  // the extension's own command, run the way a composer control runs one.
+  // The name must be one the session's extensions register right now
+  // (`COMMAND_UNAVAILABLE` otherwise), so a typo or a stale card never
+  // reaches the model as a prompt, and it runs at once, also mid-turn,
+  // without adding anything to the transcript.
+  const runExtensionCommand = async (payload) => {
+    const sessionId = payload?.sessionId;
+    const name = parseExtensionCommandName(payload?.command);
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 256 || !name
+      || (payload.args !== undefined && typeof payload.args !== 'string')) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The command request is invalid.');
+    }
+    const args = normalizeExtensionCommandArgs(payload.args);
+    const target = runtimeRegistry?.findBySessionId(sessionId)
+      || (runtime?.session?.sessionId === sessionId ? runtime : undefined)
+      || await activateSession(sessionId, payload.directory);
+    const registered = target?.session?.extensionRunner?.getRegisteredCommands?.();
+    if (!Array.isArray(registered) || !registered.some((command) => command?.invocationName === name)) {
+      throw new SessionDaemonProtocolError('COMMAND_UNAVAILABLE', 'The extension command is not available.');
+    }
+    const clientId = typeof payload.clientId === 'string' && payload.clientId.length > 0 && payload.clientId.length <= 128
+      ? payload.clientId
+      : undefined;
+    await runSessionInput({
+      sessionId,
+      text: args ? `/${name} ${args}` : `/${name}`,
+      directory: target.cwd,
+      ...(clientId ? { clientId } : {}),
+    }, target.session.isStreaming ? 'steer' : undefined, {
+      keepDraft: true,
+      requireExtensionCommand: true,
+      unavailableCode: 'COMMAND_UNAVAILABLE',
+    });
     return { ran: true };
   };
 
@@ -4687,26 +4745,14 @@ export function createSessionDaemon({
       case 'entry_appended': {
         const entry = event.entry;
         if (entry?.type !== 'custom' || !isDisplayedExtensionEntryType(entry.customType)) break;
-        const descriptor = extractExtensionDescriptor(entry);
-        const isIdd = isIddExtensionEntry(entry);
-        if (!isIdd) {
-          const timestamp = Date.parse(entry.timestamp);
-          publish('extension.entry', {
-            id: typeof entry.id === 'string' ? entry.id : `ext-${sessionId}-${sequence + 1}`,
-            customType: entry.customType,
-            ...(entry.data !== undefined ? { data: redactAttachmentValues(entry.data) } : {}),
-            createdAt: Number.isFinite(timestamp) ? timestamp : Date.now(),
-          }, sessionId, directory);
-        }
-        // Declarative GUI payloads are additionally mirrored into normalized
-        // live state so panels/apps update in place and survive reconnects.
-        if (descriptor) {
-          if (entry.customType === 'pichamber.app') {
-            mirrorExtensionApp(sessionId, descriptor, directory);
-          } else {
-            mirrorExtensionPanel(sessionId, descriptor, directory);
-          }
-        }
+        if (isRetiredExtensionEntry(entry)) break;
+        const timestamp = Date.parse(entry.timestamp);
+        publish('extension.entry', {
+          id: typeof entry.id === 'string' ? entry.id : `ext-${sessionId}-${sequence + 1}`,
+          customType: entry.customType,
+          ...(entry.data !== undefined ? { data: redactAttachmentValues(entry.data) } : {}),
+          createdAt: Number.isFinite(timestamp) ? timestamp : Date.now(),
+        }, sessionId, directory);
         break;
       }
       case 'tool_execution_start': {
@@ -4957,7 +5003,9 @@ export function createSessionDaemon({
         if (event.model?.provider && event.model?.id) {
           publish('session.model', {
             model: { providerId: event.model.provider, modelId: event.model.id },
+            ...(event.source === 'extension' ? { source: 'extension' } : {}),
           }, sessionId, directory);
+          if (event.source === 'extension') extensionModelSequenceBySession.set(sessionId, sequence);
         }
         break;
       case 'thinking_level_changed':
@@ -5044,6 +5092,16 @@ export function createSessionDaemon({
     protocolVersion: PROTOCOL_VERSION,
     pendingInput,
     getSequence: () => sequence,
+    // What `pi.appendEntry` does, for `pichamber.card(ctx, ...)`, which has
+    // the session but not the extension's `pi`. It writes through the
+    // extension's own session, as `pi.appendEntry` does, so a card made in
+    // `session_start` (before the runtime is registered) is saved too.
+    appendSessionEntry: (session, customType, data) => {
+      const manager = session?.sessionManager;
+      if (!manager) throw new Error('The session is no longer available.');
+      const entry = manager.getEntry(manager.appendCustomEntry(customType, data));
+      if (entry) publishSessionEvent(session.sessionId, { type: 'entry_appended', entry }, manager.getCwd?.());
+    },
   });
 
   const handleRequest = async (socket, message) => {
@@ -5086,7 +5144,7 @@ export function createSessionDaemon({
               'sessions.setThinking', 'sessions.discardDraft', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'sessions.release', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.hosts', 'providers.oauth.refresh', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
-              'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.draft', 'extensions.palette',
+              'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.command', 'extensions.draft', 'extensions.palette',
               'extensions.config.list', 'extensions.config.set', 'extensions.packages.remove',
               'extensions.packages.install', 'extensions.packages.update',
               'openUrl.publish', 'archive.publish', 'plugins.configure',
@@ -5337,6 +5395,11 @@ export function createSessionDaemon({
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
+      case 'extensions.command': {
+        const result = await runExtensionCommand(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
       case 'extensions.custom.input':
       case 'extensions.custom.viewport':
       case 'extensions.custom.close':
@@ -5390,8 +5453,6 @@ export function createSessionDaemon({
             directory: activeRuntime.cwd,
             extensions: (Array.isArray(extensionPaths) ? extensionPaths : [])
               .filter((extensionPath) => typeof extensionPath === 'string' && extensionPath.length > 0)
-              // PiChamber's own listener is part of the app, not an extension.
-              .filter((extensionPath) => !isComposerControlsExtensionPath(extensionPath))
               // Opaque id only: server filesystem paths must never reach the
               // browser (see DOCUMENTATION.md route invariants).
               .map((extensionPath) => ({
@@ -5529,7 +5590,6 @@ export function createSessionDaemon({
       }
       case 'sessions.open': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        rebuildSessionExtensionState(activeRuntime);
         const detail = projectActiveSession(activeRuntime, activeRuntime.cwd, { limit: message.payload?.limit });
         writeDetailResponse(socket, message.requestId, detail);
         return;
@@ -5592,7 +5652,6 @@ export function createSessionDaemon({
         const previousLeafId = activeRuntime.session.sessionManager?.getLeafId?.() ?? null;
         const result = await activeRuntime.session.navigateTree(messageId);
         if (result?.cancelled) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi cancelled tree navigation.');
-        rebuildSessionExtensionState(activeRuntime);
         const newLeafId = activeRuntime.session.sessionManager?.getLeafId?.() ?? null;
         const navigation = {
           targetEntryId: messageId,
@@ -5623,7 +5682,6 @@ export function createSessionDaemon({
           await acquireResidentLease({ cwd: activeRuntime.cwd, sessionId: activeRuntime.session.sessionId });
         }
         rememberRuntimeSession();
-        rebuildSessionExtensionState(activeRuntime);
         const forkedDetail = projectActiveSession(activeRuntime, activeRuntime.cwd);
         // The guard re-arms the source session on release; arm the forked
         // identity explicitly since it was created inside this dispatch.
@@ -5693,6 +5751,7 @@ export function createSessionDaemon({
       }
       case 'sessions.setModel': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        noteClientModelChange(message.payload.sessionId);
         await setSessionModel(activeRuntime, message.payload?.model);
         publishSessionModel(activeRuntime.session, message.payload.sessionId, activeRuntime.cwd);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
@@ -5700,6 +5759,7 @@ export function createSessionDaemon({
       }
       case 'sessions.setThinking': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        noteClientModelChange(message.payload.sessionId);
         applyThinking(activeRuntime, message.payload?.thinking, message.payload.sessionId, activeRuntime.cwd);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;

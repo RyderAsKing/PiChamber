@@ -2,9 +2,7 @@ import { CowMap } from '../cow-map';
 import type {
   PiBashExecution,
   PiComposerControl,
-  PiExtensionAppPayload,
   PiExtensionDialogPayload,
-  PiExtensionPanelPayload,
   PiToolRender,
 } from '../protocol';
 import type {
@@ -130,6 +128,9 @@ export interface PiReducerSessionState {
   /** Active model/thinking the session is using. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
+  /** Sequence of the last `session.model` an extension command published
+   *  (`source: 'extension'`): a newer choice than any unsent composer pick. */
+  extensionModelSequence?: number;
   /** Whether the server has older projected messages before this resident page. */
   hasMoreBefore?: boolean;
   /** Opaque cursor for the next older page. */
@@ -155,7 +156,7 @@ export interface PiReducerSessionState {
   queue: { steering: number; followUp: number };
   /** Live extension status texts (`ctx.ui.setStatus`). Key → text. */
   extensionStatuses: Map<string, string>;
-  /** Composer controls extensions declared (`pichamber:composer`). Id → control; absent means none. */
+  /** Composer controls extensions declared (`pichamber.control`). Id → control; absent means none. */
   extensionControls?: Map<string, PiComposerControl>;
   /** Live extension widgets (`ctx.ui.setWidget`). Key → lines + placement. */
   extensionWidgets: Map<string, { lines: string[]; placement: 'aboveEditor' | 'belowEditor' }>;
@@ -165,10 +166,6 @@ export interface PiReducerSessionState {
   extensionNotices: PiExtensionNotice[];
   /** Bounded feed of extension runtime errors. */
   extensionErrors: Array<{ id: string; source: string; event?: string; message: string; createdAt: number }>;
-  /** Live declarative GUI panels keyed by stable id (latest wins). */
-  extensionPanels: Map<string, PiExtensionPanelPayload>;
-  /** Registered sandboxed extension app surfaces keyed by appId. */
-  extensionApps: Map<string, PiExtensionAppPayload>;
   /** Low-frequency invalidation counters for extension-owned catalogs and labels. */
   extensionCatalogRevision?: number;
   sessionTreeRevision?: number;

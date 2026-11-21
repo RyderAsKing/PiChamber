@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,6 +36,9 @@ const fakePi = (activeTools = ['read', 'bash']) => {
   };
   return pi;
 };
+
+// The tests that need PiChamber install their own `globalThis.pichamber`.
+afterEach(() => { delete globalThis.pichamber; });
 
 describe('Visuals render_html', () => {
   it('returns a short line and the page in details', async () => {
@@ -105,21 +108,19 @@ describe('Visuals extension', () => {
     expect(pi.active).toEqual(['read', 'bash', TOOL_NAME, CHOICES_TOOL_NAME]);
   });
 
-  it('shows the options, then asks through pichamber.ui.choose with its own tool call id', async () => {
+  it('shows the options, then asks through pichamber.choose with its own tool call id', async () => {
     const pi = fakePi();
     const order = [];
     const asked = [];
     const ctx = { cwd: '/p', ui: {} };
-    const pichamber = {
-      ui: {
-        choose: async (askedCtx, title, choices, opts) => {
-          order.push('asked');
-          asked.push({ ctx: askedCtx, title, choices, opts });
-          return { id: 'b', note: 'darker header' };
-        },
+    globalThis.pichamber = {
+      choose: async (askedCtx, title, choices, opts) => {
+        order.push('asked');
+        asked.push({ ctx: askedCtx, title, choices, opts });
+        return { id: 'b', note: 'darker header' };
       },
     };
-    visuals(pi, pichamber);
+    visuals(pi);
     const tool = pi.tools.find((entry) => entry.name === CHOICES_TOOL_NAME);
     const signal = new AbortController().signal;
     const result = await tool.execute('call-9', {
@@ -213,12 +214,13 @@ describe('Visuals render_choices', () => {
     const choices = await renderChoices({ title: 'Which?', options: two });
     const listed = [];
     const withSelect = { hasUI: true, ui: { select: async (title, names) => { listed.push({ title, names }); return 'B: Two'; } } };
-    await expect(askChoice(undefined, withSelect, 'call-1', choices)).resolves.toEqual({ asked: true, id: 'b' });
+    await expect(askChoice(withSelect, 'call-1', choices)).resolves.toEqual({ asked: true, id: 'b' });
     expect(listed).toEqual([{ title: 'Which?', names: ['A: One', 'B: Two'] }]);
-    await expect(askChoice(undefined, { hasUI: true, ui: { select: async () => undefined } }, 'call-1', choices)).resolves.toEqual({ asked: true });
-    await expect(askChoice(undefined, { hasUI: false, ui: {} }, 'call-1', choices)).resolves.toEqual({ asked: false });
+    await expect(askChoice({ hasUI: true, ui: { select: async () => undefined } }, 'call-1', choices)).resolves.toEqual({ asked: true });
+    await expect(askChoice({ hasUI: false, ui: {} }, 'call-1', choices)).resolves.toEqual({ asked: false });
     // An id the question never offered counts as no answer.
-    await expect(askChoice({ ui: { choose: async () => ({ id: 'z' }) } }, {}, 'call-1', choices)).resolves.toEqual({ asked: true });
+    globalThis.pichamber = { choose: async () => ({ id: 'z' }) };
+    await expect(askChoice({}, 'call-1', choices)).resolves.toEqual({ asked: true });
   });
 
   it('tells the agent what happened and keeps the answer in details', async () => {

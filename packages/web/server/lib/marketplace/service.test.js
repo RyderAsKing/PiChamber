@@ -80,17 +80,17 @@ describe('search', () => {
     expect(result.nextFrom).toBe(20);
   });
 
-  it('asks npm for pichamber-plugin only and requires both keywords', async () => {
+  it('asks npm for pichamber only and requires both keywords', async () => {
     const { registry, service } = setup({
       objects: [
-        hit('pi-both', { keywords: ['pi-package', 'pichamber-plugin'] }),
-        hit('pi-narrow', { keywords: ['pichamber-plugin'] }),
+        hit('pi-both', { keywords: ['pi-package', 'pichamber'] }),
+        hit('pi-narrow', { keywords: ['pichamber'] }),
       ],
       total: 2,
     });
     const result = await service.search({ query: '', from: 0, pichamberOnly: true });
     expect(registry.searchRaw).toHaveBeenCalledWith(
-      expect.objectContaining({ keywords: ['pichamber-plugin'] }),
+      expect.objectContaining({ keywords: ['pichamber'] }),
     );
     expect(result.packages.map((entry) => entry.name)).toEqual(['pi-both']);
   });

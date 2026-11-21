@@ -158,6 +158,7 @@ import {
   MobileDraftTargetSheets,
   MobileDraftTargetTriggers,
 } from "./composer/ui/DraftTargetSelectors";
+import { ExtensionStatusStrip } from "./ExtensionStatusWidgets";
 import { DraftBranchCheckoutDialog } from "./composer/ui/DraftBranchCheckoutDialog";
 import { ComposerAutocompletePopups } from "./composer/ui/ComposerAutocompletePopups";
 import { useExtensionOverlayDims } from "./extension/custom/useOverlayDims";
@@ -219,6 +220,8 @@ const MemoStatusRow = React.memo(StatusRow);
 interface ChatInputProps {
   onOpenSettings?: () => void;
   scrollToBottom?: () => void;
+  /** Show the session's extension statuses between the row above the card and the card. */
+  showExtensionStatus?: boolean;
 }
 
 const resolveChatDraftIdentity = (
@@ -238,6 +241,7 @@ const resolveChatDraftIdentity = (
 const ChatInputComponent: React.FC<ChatInputProps> = ({
   onOpenSettings,
   scrollToBottom,
+  showExtensionStatus = false,
 }) => {
   // Track if we restored a draft on mount (for text selection)
   const initialDraftRef = React.useRef<string | null>(null);
@@ -2691,6 +2695,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 onOpenPicker={setMobileDraftPicker}
               />
             </div>
+          ) : null}
+          {/* Below the folder, branch and changes row, right above the card. */}
+          {showExtensionStatus ? (
+            <ExtensionStatusStrip sessionId={currentSessionId} />
           ) : null}
           <div
             className={cn(

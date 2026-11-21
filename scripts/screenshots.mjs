@@ -77,7 +77,7 @@ const demoNpmPackage = (name, version, description, keywords, extra = {}) => ({
 });
 const DEMO_NPM_PACKAGES = [
   demoNpmPackage('pi-web-reader', '2.4.1', 'Search the web and read pages as clean markdown, with citations the agent can quote.', ['web', 'search', 'fetch'], { downloads: 18_400, maintainer: 'lena-k' }),
-  demoNpmPackage('@acme/pi-review-gate', '1.3.0', 'Ask before risky shell commands, with a review panel in PiChamber and a prompt in the terminal.', ['pichamber-plugin', 'review', 'permissions', 'safety'], { downloads: 2_150, maintainer: 'acme-tools', pichamber: true }),
+  demoNpmPackage('@acme/pi-review-gate', '1.3.0', 'Ask before risky shell commands, with a review panel in PiChamber and a prompt in the terminal.', ['pichamber', 'review', 'permissions', 'safety'], { downloads: 2_150, maintainer: 'acme-tools', pichamber: true }),
   demoNpmPackage('pi-todo-board', '0.9.3', 'A todo list the agent keeps up to date as it works, with a /todos command.', ['todo', 'tasks', 'planning'], { downloads: 7_830, maintainer: 'mo-ellis' }),
   demoNpmPackage('pi-lint-lens', '1.1.0', 'Runs your linters after each edit and hands the agent the errors it introduced.', ['lint', 'eslint', 'diagnostics'], { downloads: 5_020, pi: { extensions: ['./index.ts'], skills: ['./skills'] } }),
   demoNpmPackage('pi-team-agents', '0.4.2', 'Send tasks to parallel subagents with their own models and context.', ['subagent', 'agents', 'parallel'], { downloads: 1_260, maintainer: 'quill-labs' }),
@@ -1296,7 +1296,7 @@ const PAGES = {
   },
   'composer-controls': {
     // The seed's demo extension declares a Mode cycle and a Plan toggle with
-    // `pichamber:composer`; they follow the plugin toggles in the footer.
+    // `pichamber.control`; they follow the plugin toggles in the footer.
     path: DEMO_SESSION_PATH,
     readyText: [DEMO_REPLY],
     settledScript: `Boolean(document.querySelector('[data-extension-control="mode"]'))`,
@@ -1954,7 +1954,7 @@ const writeDemoPackage = async (home) => {
   const gate = join(home, '.pi', 'agent', 'npm', 'node_modules', '@acme', 'pi-review-gate');
   await mkdir(gate, { recursive: true });
   await writeFile(join(gate, 'package.json'), `${JSON.stringify({
-    name: '@acme/pi-review-gate', version: '1.2.0', keywords: ['pi-package', 'pichamber-plugin'],
+    name: '@acme/pi-review-gate', version: '1.2.0', keywords: ['pi-package', 'pichamber'],
     pi: { extensions: ['./index.ts'] }, pichamber: { apiVersion: 1 },
   }, null, 2)}\n`);
   await writeFile(join(gate, 'index.ts'), 'export default function () {}\n');
@@ -1966,7 +1966,7 @@ const writeDemoPackage = async (home) => {
   }, null, 2)}\n`);
 };
 
-// Composer controls a plain Pi extension declares with `pichamber:composer`:
+// Composer controls a plain Pi extension declares with `pichamber.control`:
 // a mode picker that cycles through its own `/demo-mode <name>` command and a
 // plan toggle. A mode switches model and thinking, as a real mode extension
 // does, so the composer can be seen following it: the cheapest, middle, or
@@ -1990,12 +1990,12 @@ const label = (name) => name[0].toUpperCase() + name.slice(1);
 export default function (pi) {
   let mode = 'balance';
   let plan = false;
-  const publish = () => {
-    pi.events.emit('pichamber:composer', {
+  const publish = async (ctx) => {
+    await globalThis.pichamber?.control(ctx, {
       id: 'mode', kind: 'cycle', label: 'Mode', description: 'Model and thinking presets', value: mode,
       options: MODES.map((name) => ({ value: name, label: label(name), command: 'demo-mode ' + name })),
     });
-    pi.events.emit('pichamber:composer', {
+    await globalThis.pichamber?.control(ctx, {
       id: 'plan', kind: 'toggle', label: 'Plan', description: 'Read-only planning before edits', value: plan, command: 'demo-plan',
     });
   };
@@ -2007,14 +2007,14 @@ export default function (pi) {
       const model = pickModel(ctx, mode);
       if (model) await pi.setModel(model);
       pi.setThinkingLevel(THINKING[mode]);
-      publish();
+      await publish(ctx);
     },
   });
   pi.registerCommand('demo-plan', {
     description: 'Toggle demo plan mode',
-    handler: async () => { plan = !plan; publish(); },
+    handler: async (_args, ctx) => { plan = !plan; await publish(ctx); },
   });
-  pi.on('session_start', async () => publish());
+  pi.on('session_start', async (_event, ctx) => publish(ctx));
 }
 `;
 

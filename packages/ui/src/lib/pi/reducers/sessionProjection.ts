@@ -1,10 +1,8 @@
 import type {
   PiBashExecution,
   PiComposerControl,
-  PiExtensionAppPayload,
   PiExtensionDialogPayload,
   PiExtensionSurfaceSnapshot,
-  PiExtensionPanelPayload,
   PiToolRender,
 } from '../protocol';
 import { resolveExistingSessionComposerSelection } from '../thinking';
@@ -280,6 +278,7 @@ export const hydrateSessionFromDetail = (
       directory: string;
       model?: PiModelRef;
       thinking?: PiThinkingLevel;
+      extensionModelSequence?: number;
     };
     lastSequence: number;
     hasMoreBefore?: boolean;
@@ -297,8 +296,6 @@ export const hydrateSessionFromDetail = (
     extensionControls?: PiComposerControl[];
     extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
     extensionDialogs?: PiExtensionDialogPayload[];
-    extensionPanels?: PiExtensionPanelPayload[];
-    extensionApps?: PiExtensionAppPayload[];
     extensionTitle?: string;
     extensionWorking?: { message?: string; visible?: boolean };
     extensionDraftTracked?: boolean;
@@ -368,16 +365,6 @@ export const hydrateSessionFromDetail = (
     session.extensionDialogs = detail.extensionDialogs.filter(
       (dialog) => typeof dialog.requestId === 'string' && typeof dialog.method === 'string' && typeof dialog.title === 'string',
     );
-  }
-  if (Array.isArray(detail.extensionPanels)) {
-    session.extensionPanels = new Map(detail.extensionPanels
-      .filter((panel) => typeof panel?.id === 'string' && panel.id.length > 0)
-      .map((panel) => [panel.id, panel]));
-  }
-  if (Array.isArray(detail.extensionApps)) {
-    session.extensionApps = new Map(detail.extensionApps
-      .filter((app) => typeof app?.appId === 'string' && app.appId.length > 0)
-      .map((app) => [app.appId, app]));
   }
   session.extensionTitle = detail.extensionTitle;
   if (detail.extensionWorking) {
@@ -478,6 +465,7 @@ export const hydrateSessionFromDetail = (
   });
   if (resolved.model) session.model = resolved.model;
   if (resolved.thinking) session.thinking = resolved.thinking;
+  if (Number.isSafeInteger(detail.session.extensionModelSequence)) session.extensionModelSequence = detail.session.extensionModelSequence;
   session.compaction = detail.compaction;
   markHydratedLiveActivity(session, {
     ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),

@@ -13,7 +13,7 @@ When a tool on the server machine wants to show the person a URL (an extension s
 4. Devices ask the person whether to open it (`packages/ui/src/components/chat/OpenRequestAlerts.tsx`). Nothing opens without a click.
 5. The intake answers `{ delivered }`. `delivered` is true only when a device holds a live `/api/pi/events` stream and the daemon published. Otherwise the handler falls back to the original `$BROWSER` list, then `open` (macOS) or `xdg-open`, with `$BROWSER` restored in that child's environment so it cannot loop back.
 
-Extensions in PiChamber can call `pichamber.ui.openUrl(ctx, url)` (`globalThis.pichamber`, absent in plain Pi). The older `ctx.ui.openUrl(url)` is removed. The call runs the same handler in-process with the exact session id and resolves whether the URL was shown or opened.
+Extensions in PiChamber can call `pichamber.openUrl(ctx, url)` (`globalThis.pichamber`, absent in plain Pi). The older `ctx.ui.openUrl(url)` is removed. The call runs the same handler in-process with the exact session id and resolves whether the URL was shown or opened.
 
 ## Invariants
 

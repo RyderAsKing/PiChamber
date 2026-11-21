@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { normalizeExtensionCommandArgs, parseExtensionChatItem, PI_EXTENSION_UI_CUSTOM_TYPE } from './extension-ui'
+import { normalizeExtensionCommandArgs, parseExtensionChatItem, PI_EXTENSION_CARD_TYPE } from './extension-ui'
 
 describe('normalizeExtensionCommandArgs', () => {
   test('removes command separators and control characters', () => {
@@ -8,9 +8,16 @@ describe('normalizeExtensionCommandArgs', () => {
 })
 
 describe('parseExtensionChatItem', () => {
-  test('parses a pichamber.ui entry descriptor', () => {
+  test('reads a card saved as pichamber.ui by 1.0.6 the same as a pichamber.card', () => {
+    const data = { title: 'Deploy', component: 'badges', props: { items: [{ label: 'ok' }] }, actions: [{ label: 'Go', command: 'go' }] }
+    const saved = parseExtensionChatItem({ customType: 'pichamber.ui', data: { protocol: 'pichamber-extension-ui', version: 1, ...data } })
+    expect(saved.kind).toBe('ui')
+    expect(saved).toEqual(parseExtensionChatItem({ customType: PI_EXTENSION_CARD_TYPE, data }))
+  })
+
+  test('parses a pichamber.card entry descriptor', () => {
     const parsed = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: {
         title: 'Explore',
         component: 'progress',
@@ -47,20 +54,20 @@ describe('parseExtensionChatItem', () => {
 
   test('falls back to a generic card for unknown components', () => {
     const parsed = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: { component: 'hologram', props: { whatever: true } },
       text: 'note',
     })
     expect(parsed.kind).toBe('fallback')
     if (parsed.kind !== 'fallback') return
-    expect(parsed.title).toBe(PI_EXTENSION_UI_CUSTOM_TYPE)
+    expect(parsed.title).toBe(PI_EXTENSION_CARD_TYPE)
     expect(parsed.body).toContain('hologram')
     expect(parsed.body).toContain('note')
   })
 
   test('renders actions even when the component is unknown', () => {
     const parsed = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: {
         component: 'unknown-thing',
         actions: [{ label: 'Run', command: 'ext.run' }],
@@ -73,21 +80,24 @@ describe('parseExtensionChatItem', () => {
 
   test('rejects unsafe action commands', () => {
     const parsed = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: {
         component: 'badges',
         props: { items: ['a'] },
         actions: [
           { label: 'ok', command: 'good' },
+          { label: 'leading slash', command: '/review' },
           { label: 'slash', command: 'a/b' },
           { label: 'traversal', command: '..etc' },
+          { label: 'space', command: 'run now' },
           { label: 'no label' },
         ],
       },
     })
     expect(parsed.kind).toBe('ui')
     if (parsed.kind !== 'ui') return
-    expect(parsed.descriptor.actions?.map((action) => action.command)).toEqual(['good'])
+    // Same rule as composer controls: one leading `/` is dropped.
+    expect(parsed.descriptor.actions?.map((action) => action.command)).toEqual(['good', 'review'])
   })
 
   test('non-pichamber custom types render as fallback with their content', () => {
@@ -110,7 +120,7 @@ describe('parseExtensionChatItem', () => {
 
   test('handles versioned protocol and unknown versions as fallback', () => {
     const versioned = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: {
         protocol: 'pichamber-extension-ui',
         version: 1,
@@ -121,7 +131,7 @@ describe('parseExtensionChatItem', () => {
     expect(versioned.kind).toBe('ui')
 
     const future = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: {
         protocol: 'pichamber-extension-ui',
         version: 99,
@@ -134,7 +144,7 @@ describe('parseExtensionChatItem', () => {
 
   test('validates table and badge payloads', () => {
     const table = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: {
         component: 'table',
         props: { columns: ['File', 'Status'], rows: [['a.ts', 'done'], ['ignored']] },
@@ -148,7 +158,7 @@ describe('parseExtensionChatItem', () => {
     }
 
     const badges = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: {
         component: 'badges',
         props: { items: [{ label: 'ok', tone: 'success' }, 'plain', 42] },
@@ -167,7 +177,7 @@ describe('parseExtensionChatItem', () => {
 describe('generalized card actions', () => {
   test('parses icon, disabled, loading, confirm, and promptForArgs fields', () => {
     const parsed = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: {
         component: 'markdown',
         props: { body: 'Agents' },
@@ -208,7 +218,7 @@ describe('generalized card actions', () => {
 
   test('truncates oversized action text and drops hostile commands', () => {
     const parsed = parseExtensionChatItem({
-      customType: PI_EXTENSION_UI_CUSTOM_TYPE,
+      customType: PI_EXTENSION_CARD_TYPE,
       data: {
         component: 'markdown',
         props: { body: '' },

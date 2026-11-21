@@ -27,9 +27,7 @@
  */
 
 import type {
-  PiExtensionAppPayload,
   PiExtensionDialogPayload,
-  PiExtensionPanelPayload,
   PiSessionEvent,
 } from './protocol';
 import type {
@@ -66,7 +64,6 @@ import {
 } from './reducers/streamReducers';
 import {
   dismissExtensionDialog,
-  reduceExtensionApp,
   reduceExtensionCatalog,
   reduceExtensionDialog,
   reduceExtensionDialogDismiss,
@@ -78,7 +75,6 @@ import {
   reduceExtensionStatus,
   reduceExtensionControl,
   reduceExtensionTitle,
-  reduceExtensionUi,
   reduceExtensionWidget,
   reduceExtensionWorking,
 } from './reducers/extensionReducers';
@@ -203,8 +199,6 @@ export const applyPiEvent = (
         extensionDialogs: [],
         extensionNotices: [],
         extensionErrors: [],
-        extensionPanels: new Map(),
-        extensionApps: new Map(),
       };
   switch (event.name) {
     case 'session.snapshot':
@@ -214,6 +208,10 @@ export const applyPiEvent = (
         session.compaction = event.payload.snapshot.compaction;
         if (event.payload.snapshot.model) session.model = event.payload.snapshot.model;
         if (event.payload.snapshot.thinking) session.thinking = event.payload.snapshot.thinking;
+        // A choice an extension made while this client was away (reconnect).
+        if (Number.isSafeInteger(event.payload.snapshot.extensionModelSequence)) {
+          session.extensionModelSequence = event.payload.snapshot.extensionModelSequence;
+        }
         if (event.payload.snapshot.queue) session.queue = { ...event.payload.snapshot.queue };
         // Snapshot may carry current extension live state for reconnect after
         // the replay window. Replace the session's extension maps so a phone
@@ -235,20 +233,6 @@ export const applyPiEvent = (
           session.extensionDialogs = event.payload.snapshot.extensionDialogs.filter(
             (dialog) => typeof dialog.requestId === 'string' && typeof dialog.method === 'string' && typeof dialog.title === 'string',
           ) as PiExtensionDialogPayload[];
-        }
-        if (Array.isArray(event.payload.snapshot.extensionPanels)) {
-          const panels = new Map<string, PiExtensionPanelPayload>();
-          for (const panel of event.payload.snapshot.extensionPanels) {
-            if (typeof panel?.id === 'string' && panel.id.length > 0) panels.set(panel.id, panel);
-          }
-          session.extensionPanels = panels;
-        }
-        if (Array.isArray(event.payload.snapshot.extensionApps)) {
-          const apps = new Map<string, PiExtensionAppPayload>();
-          for (const app of event.payload.snapshot.extensionApps) {
-            if (typeof app?.appId === 'string' && app.appId.length > 0) apps.set(app.appId, app);
-          }
-          session.extensionApps = apps;
         }
         session.extensionTitle = event.payload.snapshot.extensionTitle;
         if (event.payload.snapshot.extensionWorking) {
@@ -353,6 +337,7 @@ export const applyPiEvent = (
       break;
     case 'session.model':
       session.model = event.payload.model;
+      if (event.payload.source === 'extension') session.extensionModelSequence = event.sequence;
       break;
     case 'session.thinking':
       session.thinking = event.payload.thinking;
@@ -448,12 +433,6 @@ export const applyPiEvent = (
       break;
     case 'extension.dialog.dismiss':
       reduceExtensionDialogDismiss(session, event.payload);
-      break;
-    case 'extension.ui':
-      reduceExtensionUi(session, event.payload);
-      break;
-    case 'extension.app':
-      reduceExtensionApp(session, event.payload);
       break;
     case 'extension.working':
       reduceExtensionWorking(session, event.payload);

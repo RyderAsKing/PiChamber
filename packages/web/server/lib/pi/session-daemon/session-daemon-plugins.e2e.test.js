@@ -10,7 +10,7 @@ import { createSessionDaemon } from './session-daemon.js';
 // Real SDK: the bundled plugins load through `plugins.configure`, which
 // recreates the runtime. Visuals has no switch: `render_html` is declared and
 // runs while the plugin is configured, and `render_choices` shows its options,
-// asks through `pichamber.ui.choose` tied to its tool call, and returns the answer.
+// asks through `pichamber.choose` tied to its tool call, and returns the answer.
 // Sub-agents follows its `on` state: a
 // state-only change removes `subagent` from the declared tools without
 // recreation, and a session's own value (its composer switch) applies to

@@ -1,7 +1,7 @@
 import type { PiComposerControl } from '@/lib/pi/protocol';
 
 /**
- * Composer controls a Pi extension declares by emitting `pichamber:composer`
+ * Composer controls a Pi extension declares with `pichamber.control(ctx, ...)`
  * (see the session daemon's `extension-controls.js`). The extension owns the
  * value; a click asks the daemon to run the command for the value the user
  * picked, and the new value arrives as an `extension.control` event.

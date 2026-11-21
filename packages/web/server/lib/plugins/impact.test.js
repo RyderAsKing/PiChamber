@@ -22,7 +22,6 @@ describe('plugin impact', () => {
     const manifest = await fixture(`
       export default function (pi, pichamber) {
         if (pichamber.state().on !== true) throw new Error('defaults missing');
-        pichamber.ui.choose({}, 'T', []).then(() => {});
         pi.registerTool({ name: 'a_tool', description: 'Does a.', parameters: { type: 'object' } });
         pi.registerTool({ name: 'b_tool', description: 'Does b.', parameters: { type: 'object' }, exposure: 'deferred' });
         pi.on('before_agent_start', () => {});

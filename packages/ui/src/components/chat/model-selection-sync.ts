@@ -12,11 +12,23 @@ export const classifyAuthoritativeComposerSelection = ({
   authoritative,
   observed,
   composer,
+  extensionChoice = false,
 }: {
   authoritative: ComposerModelSelection;
   observed: ComposerModelSelection | null;
   composer: ComposerModelSelection;
+  /** An extension command chose this selection since the composer last
+   *  looked (a mode command): it is newer than any unsent composer pick. */
+  extensionChoice?: boolean;
 }): AuthoritativeSelectionAction => {
+  const composerMatches = composer.providerId === authoritative.providerId
+    && composer.modelId === authoritative.modelId
+    && (authoritative.thinking === undefined || composer.thinking === authoritative.thinking);
+
+  if (extensionChoice) {
+    return composerMatches ? 'observe' : 'apply';
+  }
+
   if (
     observed
     && observed.providerId === authoritative.providerId
@@ -36,10 +48,6 @@ export const classifyAuthoritativeComposerSelection = ({
     // over the newer manual composer choice.
     return 'observe';
   }
-
-  const composerMatches = composer.providerId === authoritative.providerId
-    && composer.modelId === authoritative.modelId
-    && (authoritative.thinking === undefined || composer.thinking === authoritative.thinking);
 
   return composerMatches ? 'observe' : 'apply';
 };

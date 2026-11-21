@@ -50,6 +50,9 @@ export interface PiSession {
    */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
+  /** Event sequence of the last model/thinking an extension command chose
+   *  (`session.model` with `source: 'extension'`), for reconnect. */
+  extensionModelSequence?: number;
   /**
    * The Pi `agent` is preserved for reference; PiChamber does not expose it
    * as a user-facing agent selector.
@@ -155,7 +158,7 @@ export interface PiExtensionMessageRender {
 
 export interface PiExtensionMessage extends PiMessageBase {
   role: 'extension';
-  /** The pi customType that authored this item (e.g. `pichamber.ui`). */
+  /** The pi customType that authored this item (e.g. `pichamber.card`). */
   customType: string;
   /** Text content for custom messages. Absent for custom entries. */
   text?: string;
@@ -316,6 +319,8 @@ export interface PiSessionSnapshot {
   /** The active model/thinking for this session at snapshot time. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
+  /** See `PiSession.extensionModelSequence`. */
+  extensionModelSequence?: number;
   /** Last finalized assistant text/thinking at snapshot time. */
   lastText?: string;
   lastThinking?: string;
@@ -331,10 +336,6 @@ export interface PiSessionSnapshot {
   extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
   /** Pending blocking extension dialogs at snapshot time. */
   extensionDialogs?: import('./protocol').PiExtensionDialogPayload[];
-  /** Live declarative GUI panels (latest-wins per id) at snapshot time. */
-  extensionPanels?: Array<import('./protocol').PiExtensionPanelPayload>;
-  /** Registered sandboxed extension app surfaces at snapshot time. */
-  extensionApps?: Array<import('./protocol').PiExtensionAppPayload>;
   /** Session-scoped window/tab title set by an extension. */
   extensionTitle?: string;
   /** Live extension working message/visibility at snapshot time. */

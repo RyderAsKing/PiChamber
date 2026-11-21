@@ -338,6 +338,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         modelId?: string;
         thinking?: PiThinkingLevel;
     } | null>(null);
+    // The last extension choice (`extensionModelSequence`) this composer has
+    // handled, so each one replaces an unsent pick once.
+    const handledExtensionModelSequenceRef = React.useRef<number | undefined>(undefined);
 
     const currentSessionDirectory = currentSessionId ? getDirectoryForSession(currentSessionId) : undefined;
     const hasRenderableCurrentSessionSnapshot = useSessionRenderable(
@@ -349,14 +352,19 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             if (!currentSessionId) return null;
             const session = state.reducer.bySession.get(currentSessionId);
             if (!session) return null;
-            return { model: session.model, thinking: session.thinking };
+            return {
+                model: session.model,
+                thinking: session.thinking,
+                extensionModelSequence: session.extensionModelSequence,
+            };
         },
         (previous, next) => {
             if (previous === next) return true;
             if (!previous || !next) return false;
             return previous.model?.providerId === next.model?.providerId
                 && previous.model?.modelId === next.model?.modelId
-                && previous.thinking === next.thinking;
+                && previous.thinking === next.thinking
+                && previous.extensionModelSequence === next.extensionModelSequence;
         },
         currentSessionId ? `session:${currentSessionId}` : '*',
     );
@@ -545,6 +553,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         if (existingSessionRestoreRef.current === currentSessionId) {
             return;
         }
+        // The restore applies the session's current selection, so earlier
+        // extension choices are already in it.
+        handledExtensionModelSequenceRef.current = existingSessionSelection?.extensionModelSequence;
 
         const lockThinking = (thinking: PiThinkingLevel | undefined) => {
             if (thinking && currentProviderId && currentModelId) {
@@ -629,7 +640,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             lastObservedSessionModelRef.current = null;
             return;
         }
+        const extensionSequence = existingSessionSelection?.extensionModelSequence;
+        const extensionChoice = extensionSequence !== undefined
+            && extensionSequence !== handledExtensionModelSequenceRef.current;
+        handledExtensionModelSequenceRef.current = extensionSequence;
         const action = classifyAuthoritativeComposerSelection({
+            extensionChoice,
             authoritative: {
                 providerId: authModel.providerId,
                 modelId: authModel.modelId,

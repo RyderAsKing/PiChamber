@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.8-rc.4] - 2026-11-22
+
+The fourth 1.0.8 candidate gives extension authors one API on `globalThis.pichamber`, puts extension statuses right above the composer, and has the composer follow an extension's mode switch.
+
+- **One API for extension authors: five functions on `globalThis.pichamber` (#265).** Everything PiChamber adds for a Pi extension is now `pichamber.choose`, `pichamber.form`, `pichamber.openUrl`, `pichamber.card` and `pichamber.control`. Each takes the tool or handler `ctx` first, returns a promise, and rejects bad input with a `TypeError`. `pichamber.apiVersion` is the one version number (1); it rises only for a change that breaks extensions, so test for a function (`if (pichamber?.card)`) rather than compare versions. Types ship as `pichamber.d.ts` in `@pi-chamber/web`. For people using PiChamber nothing looks different, and cards already saved in sessions still show. If you wrote an extension against 1.0.6, 1.0.7 or a 1.0.8 release candidate:
+  - `pichamber.ui.choose`, `.ui.form`, `.ui.openUrl` are now `pichamber.choose`, `pichamber.form`, `pichamber.openUrl`.
+  - `pi.appendEntry('pichamber.ui', card)` is now `pichamber.card(ctx, card)`. The old entry still renders, and so do cards saved before.
+  - `pi.events.emit('pichamber:composer', control)` (release candidates only) is now `pichamber.control(ctx, control)`, called from `session_start` and from your command handlers.
+  - `pichamber.version` is now `pichamber.apiVersion`. Detect PiChamber with `globalThis.pichamber`; `__PICHAMBER__` is still set but no longer documented.
+  - Live panels (a card with an `id`) and `pichamber.app` surfaces are removed. No client ever drew them, so nothing disappears from the screen; entries of those kinds saved in a session stay hidden.
+  - A bundled plugin's manifest lists its composer switches under `contributes.controls` with `"kind": "toggle"` (was `contributes.composerToggles`), and its handle no longer carries `ui`.
+  - A card's buttons run the extension's command at once, also while the agent works, and add nothing to the transcript, as composer controls already did. A command the extension did not register is refused with a short error instead of being sent to the model.
+
+- **Extension statuses sit right above the composer (#263).** The pill with an extension's statuses (for example a mode indicator) now comes below the folder, branch and changes row instead of above it, so the changes summary stays at the top and the status sits next to the box it describes (`ExtensionStatusStrip`).
+- **The composer follows an extension's mode switch (#264).** When an extension command changes the session's model or thinking (a mode command such as `/balance`, typed or from a composer control), the composer now shows that model and level, even if it was holding a model you had picked but not sent, and even when only the thinking level changed. Before, the composer kept your unsent pick, and the next message switched the session back to it (`session.model` `source: 'extension'`).
+
 ## [1.0.8-rc.3] - 2026-11-19
 
 The third 1.0.8 candidate adds wallpapers for the new-session screen, one theme picker with a separate Mode, a borderless composer, a one-line summary of what each turn did, and Visuals pages at their full height.

@@ -1,250 +1,79 @@
 /**
- * Reference pi extension that works in plain pi CLI via normal pi APIs and
- * optionally renders rich UI in PiChamber.
- *
- * Drop this file into `~/.pi/agent/extensions/pichamber-gui-demo.ts` to try it:
+ * Reference Pi extension that works in the plain Pi CLI and uses PiChamber's
+ * extension API when it is there.
  *
  *   pi -e ./pichamber-gui-demo.ts
  *
- * Or place it under `.pi/extensions/` for a single project.
+ * Or drop it into `~/.pi/agent/extensions/`, or `.pi/extensions/` for one
+ * project. `globalThis.pichamber` is undefined in the CLI, so every PiChamber
+ * call below sits behind that one check and has a plain fallback.
  *
- * PiChamber detection is optional and never required: the tool, commands,
- * and hooks work without PiChamber, and the `pichamber.ui` card degrades to a
- * generic JSON card in the CLI transcript.
+ * Types: `@pi-chamber/web/pichamber` (`pichamber.d.ts`).
  */
 
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { Type } from 'typebox';
+import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
+import type { PiChamber } from '../../../../pichamber.js';
 
-// Inline helpers keep the extension independent of PiChamber packages. Copy
-// the same detection and descriptor shape into extensions that opt into the GUI.
-const isPiChamber = (ctx: { mode: string; hasUI: boolean }): boolean => {
-  const marker = (globalThis as unknown as Record<string, unknown>).__PICHAMBER__ as
-    | { version?: number }
-    | undefined;
-  if (marker?.version) return true;
-  try {
-    if (typeof process !== 'undefined' && (process as unknown as { env?: Record<string, string> }).env?.PICHAMBER === '1') return true;
-  } catch {}
-  return ctx.mode === 'rpc' && ctx.hasUI === true;
-};
-
-const publishUi = (
-  pi: Pick<ExtensionAPI, 'appendEntry'>,
-  payload: Record<string, unknown>,
-) => {
-  pi.appendEntry('pichamber.ui', {
-    protocol: 'pichamber-extension-ui',
-    version: 1,
-    ...payload,
-  });
-};
-
-const publishApp = (
-  pi: Pick<ExtensionAPI, 'appendEntry'>,
-  payload: Record<string, unknown>,
-) => {
-  pi.appendEntry('pichamber.app', {
-    protocol: 'pichamber-extension-ui',
-    version: 1,
-    ...payload,
-  });
-};
-
-type SubagentRecord = {
-  id: string;
-  name: string;
-  status: 'running' | 'done' | 'error';
-  task: string;
-};
+const pichamber = (globalThis as { pichamber?: PiChamber }).pichamber;
 
 export default function (pi: ExtensionAPI): void {
-  // In-memory state owned by the extension. PiChamber mirrors the `subagents`
-  // snapshot as a server-side normalized map (statuses/widgets) so a phone
-  // that connects later sees the current list without the extension resending.
-  const subagents = new Map<string, SubagentRecord>();
-  let appVisible = false;
+  let plan = false;
 
-  const renderSubagents = () => {
-    const agents = [...subagents.values()];
-    if (agents.length === 0) {
-      publishUi(pi, {
-        id: 'pichamber-demo-subagents',
-        title: 'Sub-agents',
-        component: 'markdown',
-        props: { body: '_No sub-agents running._' },
-      });
-      return;
-    }
-
-    publishUi(pi, {
-      id: 'pichamber-demo-subagents',
-      title: 'Sub-agents',
-      component: 'table',
-      props: {
-        columns: ['Agent', 'Status', 'Task'],
-        rows: agents.map((agent) => [agent.name, agent.status, agent.task]),
-      },
-      actions: [
-        { label: 'Clear finished', command: 'pichamber-demo-clear', variant: 'ghost' as const },
-        { label: 'Spawn…', command: 'pichamber-demo-spawn', promptForArgs: { label: 'Agent name' } },
-      ],
-    });
-  };
-
-  // Standard pi tool: callable by the model from any host.
-  pi.registerTool({
-    name: 'pichamber_demo_spawn',
-    label: 'Demo: spawn sub-agent',
-    description: 'Demo tool that pretends to spawn a sub-agent and publishes PiChamber GUI state.',
-    parameters: Type.Object({
-      name: Type.String({ description: 'Sub-agent name' }),
-      task: Type.String({ description: 'Task description' }),
-    }),
-    async execute(_toolCallId, params) {
-      const id = `agent-${Date.now().toString(36)}`;
-      subagents.set(id, { id, name: params.name, status: 'running', task: params.task });
-
-      // Optional PiChamber enhancement: publish a table that updates in place
-      // (same `id` replaces the previous card; transcript history stays as fallback).
-      renderSubagents();
-
-      // Simulate async completion without actually spawning work, so the demo
-      // remains useful without credentials or side effects.
-      setTimeout(() => {
-        const existing = subagents.get(id);
-        if (existing) {
-          existing.status = 'done';
-          renderSubagents();
-        }
-      }, 800).unref?.();
-
-      return {
-        content: [{ type: 'text', text: `Spawned demo sub-agent "${params.name}" (${id}) for: ${params.task}` }],
-        details: { subagentId: id, name: params.name, task: params.task },
-      };
+  // A toggle in the composer. The extension keeps the value; a click runs
+  // `/demo-plan`, which declares the control again with the new value.
+  const declarePlan = (ctx: ExtensionContext) => pichamber?.control(ctx, {
+    id: 'plan', kind: 'toggle', label: 'Plan', description: 'Plan before editing', value: plan, command: 'demo-plan',
+  });
+  pi.on('session_start', async (_event, ctx) => { await declarePlan(ctx); });
+  pi.registerCommand('demo-plan', {
+    description: 'Toggle plan mode',
+    handler: async (_args, ctx) => {
+      plan = !plan;
+      await declarePlan(ctx);
+      if (!pichamber) ctx.ui.notify(`Plan mode ${plan ? 'on' : 'off'}`, 'info');
     },
   });
 
-  // Standard slash commands: discoverable via `extensions.list` and invokable
-  // through PiChamber's prompt path (action buttons also use this path).
-  pi.registerCommand('pichamber-demo-subagents', {
-    description: 'Show demo sub-agents',
+  // A card in the chat with a button that runs `/demo-plan`.
+  pi.registerCommand('demo-status', {
+    description: 'Show the demo status',
     handler: async (_args, ctx) => {
-      if (isPiChamber(ctx)) {
-        renderSubagents();
-        ctx.ui.notify(`Demo sub-agents: ${subagents.size} tracked`, 'info');
+      if (!pichamber) {
+        ctx.ui.notify(`Plan mode is ${plan ? 'on' : 'off'}`, 'info');
         return;
       }
-      // CLI fallback: plain notification, no PiChamber card needed.
-      ctx.ui.notify(`Demo sub-agents (${subagents.size}): ${[...subagents.values()].map((agent) => `${agent.name}:${agent.status}`).join(', ') || 'none'}`, 'info');
-    },
-  });
-
-  pi.registerCommand('pichamber-demo-clear', {
-    description: 'Clear finished demo sub-agents',
-    handler: async (_args, ctx) => {
-      for (const [id, agent] of subagents) {
-        if (agent.status === 'done') subagents.delete(id);
-      }
-      if (isPiChamber(ctx)) renderSubagents();
-      ctx.ui.notify('Cleared finished demo sub-agents', 'info');
-    },
-  });
-
-  pi.registerCommand('pichamber-demo-progress', {
-    description: 'Show a progress demo card',
-    handler: async (args) => {
-      const value = Math.max(0, Math.min(100, Number(args) || 40));
-      publishUi(pi, {
-        id: 'pichamber-demo-progress',
-        title: 'Demo progress',
-        component: 'progress',
-        props: { label: 'Indexing', value, max: 100 },
-        actions: [{ label: 'Reset', command: 'pichamber-demo-progress', args: '0' }],
+      await pichamber.card(ctx, {
+        title: 'Demo status',
+        component: 'kv',
+        props: { rows: [{ label: 'Plan mode', value: plan ? 'On' : 'Off', tone: plan ? 'success' : 'neutral' }] },
+        actions: [{ label: plan ? 'Turn plan off' : 'Turn plan on', command: 'demo-plan' }],
       });
     },
   });
 
-  // Structured multi-input dialog. PiChamber renders a native form and
-  // resolves with a values object; plain pi falls back to sequential prompts.
-  type PichamberHandle = {
-    ui: { form: (ctx: unknown, title: string, fields: Array<Record<string, unknown>>) => Promise<Record<string, string> | undefined> };
-  };
-  type FormCtx = Parameters<NonNullable<Parameters<ExtensionAPI['registerCommand']>[1]['handler']>>[1];
-  const askAgent = async (ctx: FormCtx): Promise<{ name: string; task: string } | undefined> => {
-    const pichamber = (globalThis as { pichamber?: PichamberHandle }).pichamber;
-    if (isPiChamber(ctx) && pichamber) {
-      const values = await pichamber.ui.form(ctx, 'Spawn sub-agent', [
-        { id: 'name', label: 'Name', type: 'text', required: true, placeholder: 'research' },
-        { id: 'task', label: 'Task', type: 'textarea', required: true },
-        { id: 'priority', label: 'Priority', type: 'select', options: ['low', 'normal', 'high'], initial: 'normal' },
-      ]);
-      if (!values?.name || !values.task) return undefined;
-      return { name: values.name, task: values.task };
-    }
-    const name = await ctx.ui.input('Sub-agent name');
-    if (!name) return undefined;
-    const task = await ctx.ui.input('Task description');
-    if (!task) return undefined;
-    return { name, task };
-  };
-
-  pi.registerCommand('pichamber-demo-spawn', {
-    description: 'Spawn a demo sub-agent interactively (form dialog in PiChamber)',
-    handler: async (args, ctx) => {
-      let name = args?.trim() ?? '';
-      let task = name ? `demo task for ${name}` : '';
-      if (!name) {
-        const answers = await askAgent(ctx);
-        if (!answers) return;
-        ({ name, task } = answers);
-      }
-      const id = `agent-${Date.now().toString(36)}`;
-      subagents.set(id, { id, name, status: 'running', task });
-      renderSubagents();
-      ctx.ui.notify(`Spawned ${name}`, 'info');
-    },
-  });
-
-  // Sandboxed app surface: self-contained HTML rendered in an iframe that can
-  // only invoke registered commands through data-pichamber-command buttons.
-  pi.registerCommand('pichamber-demo-app', {
-    description: 'Toggle a sandboxed demo app surface (PiChamber only)',
+  // A question with described choices, and a form; Pi's own dialogs otherwise.
+  pi.registerCommand('demo-ask', {
+    description: 'Ask a question',
     handler: async (_args, ctx) => {
-      if (!isPiChamber(ctx)) {
-        ctx.ui.notify('App surfaces are a PiChamber feature', 'warning');
-        return;
+      const sizes = [
+        { id: 's', label: 'Small', description: 'One file' },
+        { id: 'l', label: 'Large', description: 'The whole package' },
+      ];
+      let size: string | undefined;
+      if (pichamber) {
+        size = (await pichamber.choose(ctx, 'How big is the change?', sizes, { allowNote: true }))?.id;
+      } else {
+        const label = await ctx.ui.select('How big is the change?', sizes.map((choice) => choice.label));
+        size = sizes.find((choice) => choice.label === label)?.id;
       }
-      if (appVisible) {
-        publishApp(pi, { appId: 'demo-board', removed: true });
-        appVisible = false;
-        return;
-      }
-      publishApp(pi, {
-        appId: 'demo-board',
-        title: 'Demo board',
-        html: `<!doctype html><html><body style="font-family:system-ui;padding:12px">
-          <h3 style="margin:0 0 8px">Demo board</h3>
-          <button data-pichamber-command="pichamber-demo-subagents">Refresh panel</button>
-          <button data-pichamber-command="pichamber-demo-clear">Clear finished</button>
-          <p style="color:#666">Buttons fire slash commands through PiChamber's authenticated prompt path.</p>
-        </body></html>`,
-      });
-      appVisible = true;
+      if (!size) return;
+      const answers = pichamber
+        ? await pichamber.form(ctx, 'Describe it', [
+            { id: 'title', label: 'Title', required: true },
+            { id: 'tests', label: 'Add tests', type: 'checkbox' },
+          ])
+        : { title: await ctx.ui.input('Title') ?? '' };
+      if (answers?.title) ctx.ui.notify(`${size === 's' ? 'Small' : 'Large'} change: ${answers.title}`, 'info');
     },
-  });
-
-  // Lifecycle hooks run identically inside PiChamber and plain pi. They do not
-  // need PiChamber-specific branching, but can optionally publish UI when that
-  // capability is present.
-  pi.on('session_start', async (_event, ctx) => {
-    if (isPiChamber(ctx)) {
-      ctx.ui.setStatus('pichamber-demo', 'Demo extension active');
-    }
-  });
-
-  pi.on('session_shutdown', async () => {
-    subagents.clear();
   });
 }

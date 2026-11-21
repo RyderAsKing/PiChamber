@@ -20,7 +20,7 @@ const MAX_TOGGLES = 4;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 // Discovery keywords every Pi package or PiChamber plugin carries; they say
 // nothing about what one plugin does, so they are left out of its keywords.
-const DISCOVERY_KEYWORDS = new Set(['pi-package', 'pichamber-plugin']);
+const DISCOVERY_KEYWORDS = new Set(['pi-package', 'pichamber']);
 const MAX_KEYWORDS = 16;
 const MAX_KEYWORD_LENGTH = 40;
 
@@ -99,12 +99,16 @@ const parseState = (value) => {
 const parseContributes = (value, stateSchema) => {
   if (value === undefined) return { composerToggles: [], settings: [] };
   if (!isRecord(value)) fail('contributes is invalid');
-  const toggles = value.composerToggles ?? [];
-  if (!Array.isArray(toggles) || toggles.length > MAX_TOGGLES) fail('contributes.composerToggles is invalid');
+  // `contributes.controls` are composer controls whose value PiChamber
+  // stores (`state`), where `pichamber.control()` declares ones the
+  // extension stores (`command`). Only toggles can be stored today.
+  const toggles = value.controls ?? [];
+  if (!Array.isArray(toggles) || toggles.length > MAX_TOGGLES) fail('contributes.controls is invalid');
   const toggleIds = new Set();
   const composerToggles = toggles.map((toggle, index) => {
-    const field = `contributes.composerToggles[${index}]`;
+    const field = `contributes.controls[${index}]`;
     if (!isRecord(toggle)) fail(`${field} is invalid`);
+    if (toggle.kind !== 'toggle') fail(`${field}.kind must be toggle`);
     const id = pluginId(toggle.id, `${field}.id`);
     if (toggleIds.has(id)) fail(`${field}.id repeats`);
     toggleIds.add(id);
@@ -128,7 +132,7 @@ const parseContributes = (value, stateSchema) => {
     if (settings.includes(key)) fail(`contributes.settings repeats ${key}`);
     // A composer switch's default is the plugin's own switch in Settings; a
     // second Settings control for it would be a confusing duplicate.
-    if (composerToggles.some((toggle) => toggle.state === key)) fail(`contributes.settings lists ${key}, which a composer toggle sets`);
+    if (composerToggles.some((toggle) => toggle.state === key)) fail(`contributes.settings lists ${key}, which a composer control sets`);
     settings.push(key);
   }
   const contributes = { composerToggles, settings };

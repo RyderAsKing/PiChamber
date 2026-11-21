@@ -67,8 +67,6 @@ export const getOrCreateSession = (
     extensionDialogs: [],
     extensionNotices: [],
     extensionErrors: [],
-    extensionPanels: new Map(),
-    extensionApps: new Map(),
   };
   state.bySession.set(sessionId, fresh);
   return fresh;

@@ -21,8 +21,6 @@ const createTestSession = (sessionId: string, directory = '/repo'): PiReducerSes
   extensionDialogs: [],
   extensionNotices: [],
   extensionErrors: [],
-  extensionPanels: new Map(),
-  extensionApps: new Map(),
 });
 
 describe('ExtensionsSurface', () => {
@@ -56,26 +54,13 @@ describe('ExtensionsSurface', () => {
     expect(markup).not.toContain('\x1b');
   });
 
-  test('does not render statuses, panels, or apps', () => {
+  test('does not render statuses', () => {
     const session = createTestSession('sess-2', '/repo');
     session.extensionStatuses.set('token-speed', 'TPS: 54.2 tok/s');
-    session.extensionPanels.set('panel-1', {
-      id: 'panel-1',
-      title: 'Indexing Status',
-      component: 'progress',
-      props: { label: 'Building Index', value: 45, max: 100 },
-    });
-    session.extensionApps.set('app-preview', {
-      appId: 'app-preview',
-      title: 'Preview App',
-      html: '<p>Interactive App</p>',
-    });
     store.getState().reducer.bySession.set('sess-2', session);
 
     const markup = renderToStaticMarkup(<ExtensionsSurface sessionId="sess-2" />);
     expect(markup).toContain('data-testid="extensions-surface-empty"');
     expect(markup).not.toContain('TPS:');
-    expect(markup).not.toContain('Indexing Status');
-    expect(markup).not.toContain('iframe');
   });
 });

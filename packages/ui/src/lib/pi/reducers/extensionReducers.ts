@@ -1,10 +1,8 @@
 import type {
   PiComposerControl,
-  PiExtensionAppPayload,
   PiExtensionDialogPayload,
   PiExtensionEntryEvent,
   PiExtensionMessageEvent,
-  PiExtensionPanelPayload,
 } from '../protocol';
 import type {
   PiExtensionEditorOp,
@@ -182,31 +180,6 @@ export const reduceExtensionTitle = (
   payload: { title?: string },
 ): void => {
   session.extensionTitle = payload.title;
-};
-
-export const reduceExtensionUi = (
-  session: PiReducerSessionState,
-  panel: PiExtensionPanelPayload,
-): void => {
-  session.extensionPanels = new Map(session.extensionPanels);
-  const hasBody = panel.component !== undefined || panel.title !== undefined || panel.actions !== undefined;
-  if (panel.removed === true || !hasBody) {
-    session.extensionPanels.delete(panel.id);
-  } else {
-    session.extensionPanels.set(panel.id, panel);
-  }
-};
-
-export const reduceExtensionApp = (
-  session: PiReducerSessionState,
-  app: PiExtensionAppPayload,
-): void => {
-  session.extensionApps = new Map(session.extensionApps);
-  if (app.removed === true || typeof app.html !== 'string' || app.html.length === 0) {
-    session.extensionApps.delete(app.appId);
-  } else {
-    session.extensionApps.set(app.appId, app);
-  }
 };
 
 export const reduceExtensionError = (

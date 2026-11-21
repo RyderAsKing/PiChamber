@@ -1552,7 +1552,28 @@ export class PiService {
     // to the daemon that runs its project.
     const body = { ...input, ...(scope?.directory ? { directory: scope.directory } : {}) };
     const result = await jsonRequest<typeof body, { ran?: unknown }>('/api/pi/extensions/control', {
-      method: 'POST', body, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      // A click runs a command once; a lost answer must not run it again.
+      method: 'POST', body, retry: false, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    return { ran: result?.ran === true };
+  }
+
+  /**
+   * Click on a card action: runs
+   * the extension's own `command` with `args`, like a composer control. The
+   * daemon refuses a command the session's extensions do not register
+   * (`COMMAND_UNAVAILABLE`), so it never reaches the model as a prompt, and
+   * nothing is added to the transcript.
+   */
+  async runExtensionCommand(
+    input: { sessionId: string; command: string; args?: string; clientId?: string },
+    scope?: PiClientScope,
+  ): Promise<{ ran: boolean }> {
+    assertRuntimeUnchanged(scope);
+    const body = { ...input, ...(scope?.directory ? { directory: scope.directory } : {}) };
+    const result = await jsonRequest<typeof body, { ran?: unknown }>('/api/pi/extensions/command', {
+      // A click runs a command once; a lost answer must not run it again.
+      method: 'POST', body, retry: false, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
     return { ran: result?.ran === true };
   }
