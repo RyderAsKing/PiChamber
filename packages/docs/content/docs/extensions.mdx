@@ -213,7 +213,7 @@ is `packages/web/server/lib/pi/fixtures/pichamber-gui-demo.ts`.
 |---|---|
 | `pichamber.ui.choose(ctx, …)`, `.ui.form`, `.ui.openUrl` | `pichamber.choose(ctx, …)`, `pichamber.form`, `pichamber.openUrl` |
 | `pi.appendEntry('pichamber.ui', card)` | `pichamber.card(ctx, card)` |
-| `pi.events.emit('pichamber.composer', control)` | `pichamber.control(ctx, control)` |
+| `pi.events.emit('pichamber:composer', control)` | `pichamber.control(ctx, control)` |
 | `pichamber.version` | `pichamber.apiVersion` |
 | `globalThis.__PICHAMBER__` to detect PiChamber | `globalThis.pichamber` |
 | `ctx.ui.form(…)`, `ctx.ui.openUrl(…)` | `pichamber.form(ctx, …)`, `pichamber.openUrl(ctx, …)` |
