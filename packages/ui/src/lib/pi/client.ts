@@ -1552,7 +1552,8 @@ export class PiService {
     // to the daemon that runs its project.
     const body = { ...input, ...(scope?.directory ? { directory: scope.directory } : {}) };
     const result = await jsonRequest<typeof body, { ran?: unknown }>('/api/pi/extensions/control', {
-      method: 'POST', body, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      // A click runs a command once; a lost answer must not run it again.
+      method: 'POST', body, retry: false, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
     return { ran: result?.ran === true };
   }
@@ -1571,7 +1572,8 @@ export class PiService {
     assertRuntimeUnchanged(scope);
     const body = { ...input, ...(scope?.directory ? { directory: scope.directory } : {}) };
     const result = await jsonRequest<typeof body, { ran?: unknown }>('/api/pi/extensions/command', {
-      method: 'POST', body, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      // A click runs a command once; a lost answer must not run it again.
+      method: 'POST', body, retry: false, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
     return { ran: result?.ran === true };
   }

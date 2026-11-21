@@ -5,6 +5,7 @@ import { piClient } from '@/lib/pi/client';
 import { normalizeCommandArgs } from '@/lib/pi/command-triggers';
 import { getTabClientId } from '@/lib/pi/tab-client-id';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { useSessionDirectory } from '@/sync/sync-context';
 import { parseExtensionChatItem } from '@/lib/pi/extension-ui';
 import type { ExtensionUiAction } from '@/lib/pi/extension-ui';
 import { cn } from '@/lib/utils';
@@ -47,6 +48,9 @@ const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, s
     const [confirming, setConfirming] = React.useState(false);
     const [prompting, setPrompting] = React.useState(false);
     const [promptValue, setPromptValue] = React.useState('');
+    // The folder routes a session the server has not written yet (a draft)
+    // to the daemon that runs its project, as composer controls do.
+    const directory = useSessionDirectory(sessionId);
 
     const runCommand = React.useCallback(async (args?: string) => {
         if (!sessionId || pending) return;
@@ -62,14 +66,14 @@ const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, s
                     ...(normalizedArgs ? { args: normalizedArgs } : {}),
                     clientId: getTabClientId(),
                 },
-                { runtimeKey: getRuntimeKey() },
+                { ...(directory ? { directory } : {}), runtimeKey: getRuntimeKey() },
             );
         } catch {
             toast.error(`Could not run ${action.label}`);
         } finally {
             setPending(false);
         }
-    }, [sessionId, pending, action.command, action.label]);
+    }, [sessionId, pending, action.command, action.label, directory]);
 
     const runAction = React.useCallback(async () => {
         if (action.promptForArgs) {

@@ -20,6 +20,7 @@ describe('normalizeExtensionCard', () => {
       { component: 'kv', actions: Array.from({ length: 9 }, () => ({ label: 'A', command: 'a' })) },
       { component: 'kv', actions: [{ label: ' ', command: 'a' }] },
       { component: 'kv', actions: [{ label: 'Run', command: 'bad;name' }] },
+      { component: 'kv', actions: [{ label: 'Run', command: 'run', args: 3 }] },
     ]) {
       expect(normalizeExtensionCard(bad).error).toEqual(expect.any(String));
     }

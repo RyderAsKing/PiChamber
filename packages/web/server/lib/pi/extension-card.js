@@ -2,8 +2,10 @@
 // extension appends itself. Releases up to 1.0.7 used the `pichamber.ui`
 // label, which saved sessions still hold, so the browser draws both
 // (packages/ui/src/lib/pi/extension-ui.ts, the parser every card goes
-// through). This module only checks a card before the daemon saves it, so
-// `pichamber.card()` rejects what the browser could not draw as a card.
+// through). This module checks a card's shape before the daemon saves it, so
+// `pichamber.card()` rejects what the browser could not take for a card. It
+// does not check each component's props: the browser does, and draws props
+// it cannot read as the generic card.
 
 import { parseExtensionCommandName } from './extension-commands.js';
 
@@ -32,6 +34,7 @@ export const normalizeExtensionCard = (raw) => {
     for (const action of raw.actions) {
       if (!isRecord(action) || typeof action.label !== 'string' || action.label.trim() === '') return { error: 'every action has a `label`' };
       if (!parseExtensionCommandName(action.command)) return { error: `action "${action.label}" names no valid command` };
+      if (action.args !== undefined && typeof action.args !== 'string') return { error: `action "${action.label}" has \`args\` that is not a string` };
     }
   }
   return {
