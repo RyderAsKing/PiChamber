@@ -868,14 +868,14 @@ export function createSessionDaemon({
     getDefaultDirectory: () => defaultDirectory(),
     getSequence: () => sequence,
     // What `pi.appendEntry` does, for `pichamber.card(ctx, ...)`, which has
-    // the session but not the extension's `pi`.
-    appendSessionEntry: (sessionId, customType, data) => {
-      const owner = runtimeRegistry?.findBySessionId(sessionId)
-        || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
-      const manager = owner?.session?.sessionManager;
+    // the session but not the extension's `pi`. It writes through the
+    // extension's own session, as `pi.appendEntry` does, so a card made in
+    // `session_start` (before the runtime is registered) is saved too.
+    appendSessionEntry: (session, customType, data) => {
+      const manager = session?.sessionManager;
       if (!manager) throw new Error('The session is no longer available.');
       const entry = manager.getEntry(manager.appendCustomEntry(customType, data));
-      if (entry) publishSessionEvent(sessionId, { type: 'entry_appended', entry }, owner.cwd);
+      if (entry) publishSessionEvent(session.sessionId, { type: 'entry_appended', entry }, manager.getCwd?.());
     },
     protocolError: (code, message) => new SessionDaemonProtocolError(code, message),
     renderExtensionMessage: (session, message) => extensionMessageRenderer.renderMessage(session, message),
@@ -5093,14 +5093,14 @@ export function createSessionDaemon({
     pendingInput,
     getSequence: () => sequence,
     // What `pi.appendEntry` does, for `pichamber.card(ctx, ...)`, which has
-    // the session but not the extension's `pi`.
-    appendSessionEntry: (sessionId, customType, data) => {
-      const owner = runtimeRegistry?.findBySessionId(sessionId)
-        || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
-      const manager = owner?.session?.sessionManager;
+    // the session but not the extension's `pi`. It writes through the
+    // extension's own session, as `pi.appendEntry` does, so a card made in
+    // `session_start` (before the runtime is registered) is saved too.
+    appendSessionEntry: (session, customType, data) => {
+      const manager = session?.sessionManager;
       if (!manager) throw new Error('The session is no longer available.');
       const entry = manager.getEntry(manager.appendCustomEntry(customType, data));
-      if (entry) publishSessionEvent(sessionId, { type: 'entry_appended', entry }, owner.cwd);
+      if (entry) publishSessionEvent(session.sessionId, { type: 'entry_appended', entry }, manager.getCwd?.());
     },
   });
 

@@ -16,6 +16,11 @@ const DEMO_EXTENSION = `
 const answer = Symbol.for('pichamber-demo-answer');
 
 export default function (pi) {
+  // A card made while the session starts, before the daemon has registered
+  // the runtime, is saved like one from a command.
+  pi.on("session_start", async (_event, ctx) => {
+    await globalThis.pichamber.card(ctx, { title: "Started", component: "markdown", props: { body: "ready" } });
+  });
   pi.registerCommand("demo-state", {
     description: "Mutate extension-owned runtime state",
     handler: async (_args, ctx) => {
@@ -177,7 +182,7 @@ describe('pi extensions end-to-end through the real SDK', () => {
     await dialogPrompt;
 
     // Extension saw the answer and emitted its GUI card + custom message.
-    const card = await client.next((message) => message.kind === 'event' && message.event === 'extension.entry');
+    const card = await client.next((message) => message.kind === 'event' && message.event === 'extension.entry' && message.payload.data?.component === 'badges');
     expect(card.payload.customType).toBe('pichamber.card');
     expect(card.payload.data.component).toBe('badges');
 
@@ -190,7 +195,7 @@ describe('pi extensions end-to-end through the real SDK', () => {
     // A fresh projection includes both items for reconnect/hydration.
     const opened = await client.request('sessions.open', { sessionId: created.result.session.id });
     const extensionItems = opened.result.messages.filter((item) => item.message.role === 'extension');
-    expect(extensionItems.map((item) => item.message.customType).sort()).toEqual(['demo-note', 'pichamber.card']);
+    expect(extensionItems.map((item) => item.message.customType).sort()).toEqual(['demo-note', 'pichamber.card', 'pichamber.card']);
 
     const sessionUpdated = client.next((message) => message.event === 'session.updated' && message.payload?.title === 'Extension-owned title');
     const treeUpdated = client.next((message) => message.event === 'session.tree.updated');

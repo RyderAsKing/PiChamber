@@ -322,7 +322,7 @@ export const createExtensionBridge = ({
     }
   };
 
-  const createExtensionUIContext = (sessionId) => {
+  const createExtensionUIContext = (sessionId, session) => {
     const extensionTheme = createExtensionTheme();
     const tuiStub = createTuiStub(sessionId);
 
@@ -425,7 +425,7 @@ export const createExtensionBridge = ({
       card: async (card) => {
         const checked = normalizeExtensionCard(card);
         if (checked.error) throw new TypeError(`pichamber.card: ${checked.error}.`);
-        appendSessionEntry(sessionId, CARD_ENTRY_TYPE, checked.card);
+        appendSessionEntry(session, CARD_ENTRY_TYPE, checked.card);
       },
       // A control in the composer; `{ id, remove: true }` takes it away.
       control: async (control) => {
@@ -670,7 +670,7 @@ export const createExtensionBridge = ({
   const buildExtensionBindings = (session) => {
     installMutationObservers(session);
     return {
-      uiContext: createExtensionUIContext(session.sessionId),
+      uiContext: createExtensionUIContext(session.sessionId, session),
       // PiChamber hosts `ctx.ui.custom()` components and draws them in the
       // browser (extension-custom-host.js), so extensions see a TUI by
       // default. The "Extension interface" setting can report RPC instead, so
