@@ -1,6 +1,6 @@
 {
   "name": "@pi-chamber/web",
-  "version": "1.0.8-rc.3",
+  "version": "1.0.8-rc.4",
   "private": false,
   "type": "module",
   "engines": {
@@ -114,6 +114,7 @@
     "bin",
     "plugins",
     "public",
+    "pichamber.d.ts",
     "package.json",
     "README.md"
   ]
