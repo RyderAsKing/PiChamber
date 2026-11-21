@@ -93,7 +93,7 @@ describe('summarizePackage', () => {
     name: 'pi-lens',
     version: '1.2.3',
     description: 'A lens for pi.',
-    keywords: ['pi-package', 'pichamber-plugin'],
+    keywords: ['pi-package', 'pichamber'],
     maintainers: [{ username: 'alice' }],
     publisher: { username: 'GitHub Actions' },
   };

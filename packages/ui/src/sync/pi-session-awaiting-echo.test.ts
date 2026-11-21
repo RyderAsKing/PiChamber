@@ -51,8 +51,6 @@ const seedSession = (messages: PiReducerMessage[]): PiReducerSessionState => ({
   extensionDialogs: [],
   extensionNotices: [],
   extensionErrors: [],
-  extensionPanels: new Map(),
-  extensionApps: new Map(),
 });
 
 interface StoreInternal {

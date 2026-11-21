@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Lets the agent draw HTML pages in the chat.",
-  "keywords": ["pi-package", "pichamber-plugin", "html", "visual", "visuals", "chart", "charts", "diagram", "mockup", "render", "preview", "ui", "design", "choices"],
+  "keywords": ["pi-package", "pichamber", "html", "visual", "visuals", "chart", "charts", "diagram", "mockup", "render", "preview", "ui", "design", "choices"],
   "pi": {
     "extensions": ["./extension.js"]
   },

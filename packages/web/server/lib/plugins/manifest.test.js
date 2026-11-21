@@ -29,7 +29,7 @@ const validPackage = (pichamber = {}, extra = {}) => ({
       },
     },
     contributes: {
-      composerToggles: [{ id: 'demo', state: 'on', label: 'Demo', icon: 'artboard', description: 'Toggle it' }],
+      controls: [{ id: 'demo', kind: 'toggle', state: 'on', label: 'Demo', icon: 'artboard', description: 'Toggle it' }],
       settings: ['mode'],
       ui: 'demo',
     },
@@ -82,7 +82,7 @@ describe('parsePluginPackage', () => {
 
   it('keeps package keywords that say what it does', () => {
     const manifest = parsePluginPackage(validPackage({}, {
-      keywords: ['pi-package', 'PiChamber-Plugin', 'Chart', 'chart', '', 7, 'x'.repeat(41), 'diagram'],
+      keywords: ['pi-package', 'PiChamber', 'Chart', 'chart', '', 7, 'x'.repeat(41), 'diagram'],
     }), { packageDir });
     expect(manifest.packageName).toBe('demo');
     expect(manifest.keywords).toEqual(['chart', 'diagram']);
@@ -100,10 +100,11 @@ describe('parsePluginPackage', () => {
     expect(reason(validPackage({ state: { on: { type: 'boolean', scope: 'global', default: 'yes', label: 'x' } } }))).toMatch(/default/);
     expect(reason(validPackage({ state: { m: { type: 'enum', scope: 'global', default: 'z', label: 'x', options: [{ value: 'a', label: 'A' }] } } }))).toMatch(/default/);
     expect(reason(validPackage({ state: { constructor: { type: 'boolean', scope: 'global', default: true, label: 'x' } } }))).toMatch(/constructor/);
-    expect(reason(validPackage({ contributes: { composerToggles: [{ id: 'demo', state: 'mode', label: 'x', icon: 'artboard' }] } }))).toMatch(/boolean/);
+    expect(reason(validPackage({ contributes: { controls: [{ id: 'demo', kind: 'toggle', state: 'mode', label: 'x', icon: 'artboard' }] } }))).toMatch(/boolean/);
+    expect(reason(validPackage({ contributes: { controls: [{ id: 'demo', state: 'on', label: 'x', icon: 'artboard' }] } }))).toMatch(/kind/);
     expect(reason(validPackage({ contributes: { settings: ['missing'] } }))).toMatch(/unknown/);
     expect(reason(validPackage({ contributes: { settings: ['mode', 'mode'] } }))).toMatch(/repeats/);
-    expect(reason(validPackage({ contributes: { composerToggles: [{ id: 'demo', state: 'on', label: 'Demo', icon: 'artboard' }], settings: ['on'] } }))).toMatch(/composer toggle/);
+    expect(reason(validPackage({ contributes: { controls: [{ id: 'demo', kind: 'toggle', state: 'on', label: 'Demo', icon: 'artboard' }], settings: ['on'] } }))).toMatch(/composer control/);
     expect(reason({ ...validPackage(), version: 'latest' })).toMatch(/version/);
     expect(reason(validPackage({}, {}), { packageDir: 'relative' })).toMatch(/folder/);
   });

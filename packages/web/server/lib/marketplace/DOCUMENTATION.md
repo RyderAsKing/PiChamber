@@ -69,9 +69,9 @@ hours; a release carries the file as the fallback.
   paging at the first page that has an unrelated hit, so the tail of
   unrelated packages never shows.
 - npm treats two keywords loosely, so the service asks for one
-  (`pichamber-plugin` with `pichamber=1`, otherwise `pi-package`) and checks
+  (`pichamber` with `pichamber=1`, otherwise `pi-package`) and checks
   both itself.
-- The `pichamber-plugin` keyword is a claim by the author: it marks a list
+- The `pichamber` keyword is a claim by the author: it marks a list
   row. The package page reads the manifest and calls it a PiChamber plugin only
   when the `pichamber` block is really there. A third-party package with
   that block installs and runs as a plain Pi package; PiChamber does not load

@@ -9,7 +9,7 @@ const DEFAULT_DOWNLOADS_URL = 'https://api.npmjs.org';
 /** Pi's gallery lists npm packages with this keyword (Pi docs/packages.md). */
 export const PI_PACKAGE_KEYWORD = 'pi-package';
 /** Authors add this keyword to say the package has PiChamber support. */
-export const PICHAMBER_KEYWORD = 'pichamber-plugin';
+export const PICHAMBER_KEYWORD = 'pichamber';
 
 const USER_AGENT = 'PiChamber';
 const DEFAULT_TIMEOUT_MS = 8_000;

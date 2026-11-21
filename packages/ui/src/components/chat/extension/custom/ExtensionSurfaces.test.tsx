@@ -23,8 +23,6 @@ const session = (surfaces: PiExtensionSurfaceState[], extra: Partial<PiReducerSe
   extensionDialogs: [],
   extensionNotices: [],
   extensionErrors: [],
-  extensionPanels: new Map(),
-  extensionApps: new Map(),
   extensionSurfaces: new Map(surfaces.map((surface) => [surface.surfaceId, surface])),
   ...extra,
 });

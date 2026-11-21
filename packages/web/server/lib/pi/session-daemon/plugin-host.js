@@ -1,7 +1,6 @@
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createPichamberUi } from './pichamber-ui.js';
 
 // Holds the PiChamber plugins the server configured through the private
 // `plugins.configure` command and turns the enabled ones into Pi extension
@@ -208,10 +207,10 @@ export const createPluginHost = ({
 
   /**
    * Entries for `resourceLoaderOptions.extensionFactories`, added after Pi's
-   * built-ins. Each runtime's factory call gets its own `pichamber` handle; its
-   * state listeners are dropped when that session shuts down.
+   * built-ins. Each runtime's factory call gets its own `plugin` handle, the
+   * plugin's stored state; its state listeners are dropped when that session
+   * shuts down. Everything else a plugin calls is on `globalThis.pichamber`.
    */
-  const pichamberUi = createPichamberUi();
   const extensionFactories = () => [...loaded.values()].map((plugin) => ({
     name: `pichamber:${plugin.id}`,
     replaceable: plugin.replaceable,
@@ -221,9 +220,8 @@ export const createPluginHost = ({
       pi.on?.('session_shutdown', () => {
         plugin.listeners.delete(runtimeListeners);
       });
-      const pichamber = Object.freeze({
+      const handle = Object.freeze({
         id: plugin.id,
-        ui: pichamberUi,
         state: (directory, sessionId) => resolveState(loaded.get(plugin.id) ?? plugin, directory, sessionId),
         onStateChange: (listener) => {
           if (typeof listener !== 'function') return () => {};
@@ -231,7 +229,7 @@ export const createPluginHost = ({
           return () => runtimeListeners.delete(listener);
         },
       });
-      await plugin.factory(recordRegistrations(plugin.id, pi), pichamber);
+      await plugin.factory(recordRegistrations(plugin.id, pi), handle);
     },
   }));
 

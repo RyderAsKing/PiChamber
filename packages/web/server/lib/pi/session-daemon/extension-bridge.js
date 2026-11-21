@@ -1,21 +1,18 @@
 import { randomUUID } from 'node:crypto';
 
+import { CARD_ENTRY_TYPE, normalizeExtensionCard } from '../extension-card.js';
 import {
-  MAX_EXTENSION_APP_HTML_CHARS,
   projectExtensionChooseFields,
   sanitizeExtensionFormFields,
   validateExtensionChoiceAnswer,
   validateExtensionFormValues,
 } from '../extension-protocol.js';
 import { handleBrowserArguments, isHttpUrl } from '../../open-url/browser-handler.mjs';
-import { createComposerControls } from './extension-controls.js';
+import { createComposerControls, parseComposerControl } from './extension-controls.js';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
-import { PICHAMBER_UI } from './pichamber-ui.js';
+import { PICHAMBER_API } from './pichamber-api.js';
 
-const MAX_EXTENSION_PANELS_PER_SESSION = 24;
-const MAX_EXTENSION_APPS_PER_SESSION = 8;
-const MAX_EXTENSION_PANEL_ACTIONS = 8;
 const MAX_EXTENSION_EDITOR_TEXT_CHARS = 100_000;
 const MAX_EXTENSION_TITLE_CHARS = 256;
 const MAX_EXTENSION_WORKING_CHARS = 200;
@@ -32,27 +29,23 @@ const textFromContent = (content) => (
 
 // Pi keeps `appendEntry` custom entries out of the TUI transcript; they
 // persist extension state. Only PiChamber GUI entries are meant to render.
+// `pichamber.card` is what `pichamber.card()` saves; cards saved before the
+// function existed carry `pichamber.ui` and read the same way.
+
 export const isDisplayedExtensionEntryType = (customType) => (
   typeof customType === 'string' && customType.startsWith('pichamber.')
 );
 
-export const extractExtensionDescriptor = (entry) => {
-  if (!entry || typeof entry !== 'object' || entry.type !== 'custom') return undefined;
-  if (!isDisplayedExtensionEntryType(entry.customType)) return undefined;
-  const data = entry.data;
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined;
-  return data.ui && typeof data.ui === 'object' && !Array.isArray(data.ui) ? data.ui : data;
-};
-
-export const isIddExtensionEntry = (entry) => {
-  const descriptor = extractExtensionDescriptor(entry);
-  if (!descriptor) return false;
-  if (entry.customType === 'pichamber.app') {
-    const appId = typeof descriptor.appId === 'string' && descriptor.appId.length > 0
-      ? descriptor.appId
-      : (typeof descriptor.id === 'string' && descriptor.id.length > 0 ? descriptor.id : undefined);
-    return Boolean(appId);
-  }
+// 1.0.6 and 1.0.7 kept two more entry kinds that no client ever drew: live
+// panels (`pichamber.ui` with an `id`) and app surfaces (`pichamber.app`).
+// Sessions saved then still hold them; they stay out of the transcript, as
+// they always were.
+export const isRetiredExtensionEntry = (entry) => {
+  if (entry?.type !== 'custom') return false;
+  if (entry.customType === 'pichamber.app') return true;
+  if (entry.customType !== 'pichamber.ui') return false;
+  const data = entry.data && typeof entry.data === 'object' ? entry.data : {};
+  const descriptor = data.ui && typeof data.ui === 'object' ? data.ui : data;
   return typeof descriptor.id === 'string' && descriptor.id.length > 0;
 };
 
@@ -67,6 +60,7 @@ export const createExtensionBridge = ({
   getSequence,
   protocolError,
   renderExtensionMessage,
+  appendSessionEntry,
   requestSessionShutdown,
   pendingInput,
   customHost,
@@ -77,8 +71,6 @@ export const createExtensionBridge = ({
   const extensionWidgetsBySession = new Map();
   const extensionComponentWidgetsBySession = new Map();
   const extensionWidgetRenderTimersBySession = new Map();
-  const extensionPanelsBySession = new Map();
-  const extensionAppsBySession = new Map();
   const extensionTitlesBySession = new Map();
   const extensionWorkingBySession = new Map();
   const extensionDraftBySession = new Map();
@@ -89,7 +81,7 @@ export const createExtensionBridge = ({
   // into public stream events; blocking dialogs are resolved by the
   // `extensions.respond` daemon command.
   const pendingExtensionDialogs = new Map();
-  // Composer controls extensions declare on `pi.events` (extension-controls.js).
+  // Composer controls extensions declare with `pichamber.control` (extension-controls.js).
   const composerControls = createComposerControls({
     publish: (sessionId, payload) => publishForSession('extension.control', payload, sessionId),
   });
@@ -257,20 +249,14 @@ export const createExtensionBridge = ({
 
     const statuses = extensionStatusesBySession.get(sessionId);
     const widgets = extensionWidgetsBySession.get(sessionId);
-    const panels = extensionPanelsBySession.get(sessionId);
-    const apps = extensionAppsBySession.get(sessionId);
     if (statuses) for (const key of statuses.keys()) publishForSession('extension.status', { key }, sessionId);
     if (widgets) for (const key of widgets.keys()) publishForSession('extension.widget', { key }, sessionId);
-    if (panels) for (const id of panels.keys()) publishForSession('extension.ui', { id, removed: true }, sessionId);
-    if (apps) for (const appId of apps.keys()) publishForSession('extension.app', { appId, removed: true }, sessionId);
     if (extensionTitlesBySession.has(sessionId)) publishForSession('extension.title', {}, sessionId);
     if (extensionWorkingBySession.has(sessionId)) publishForSession('extension.working', {}, sessionId);
     // Stop browser draft sync; a later getEditorText() call re-enables it.
     if (extensionDraftTrackedSessions.has(sessionId)) publishForSession('extension.editor.track', { enabled: false }, sessionId);
     extensionStatusesBySession.delete(sessionId);
     extensionWidgetsBySession.delete(sessionId);
-    extensionPanelsBySession.delete(sessionId);
-    extensionAppsBySession.delete(sessionId);
     extensionTitlesBySession.delete(sessionId);
     extensionWorkingBySession.delete(sessionId);
     extensionDraftBySession.delete(sessionId);
@@ -289,8 +275,6 @@ export const createExtensionBridge = ({
       ...extensionStatusesBySession.keys(),
       ...extensionWidgetsBySession.keys(),
       ...extensionComponentWidgetsBySession.keys(),
-      ...extensionPanelsBySession.keys(),
-      ...extensionAppsBySession.keys(),
       ...extensionTitlesBySession.keys(),
       ...extensionWorkingBySession.keys(),
       ...extensionDraftBySession.keys(),
@@ -338,7 +322,7 @@ export const createExtensionBridge = ({
     }
   };
 
-  const createExtensionUIContext = (sessionId) => {
+  const createExtensionUIContext = (sessionId, session) => {
     const extensionTheme = createExtensionTheme();
     const tuiStub = createTuiStub(sessionId);
 
@@ -384,8 +368,8 @@ export const createExtensionBridge = ({
       });
     };
 
-    // PiChamber's own dialog calls, reached through `pichamber.ui.x(ctx, ...)`.
-    const pichamberUi = {
+    // PiChamber's own calls, reached through `pichamber.x(ctx, ...)`.
+    const pichamberApi = {
       // Structured multi-input dialog resolved with a values object keyed by
       // field id.
       form: (title, fields, opts) => {
@@ -413,7 +397,7 @@ export const createExtensionBridge = ({
         // the question and the caller would wait forever.
         const question = typeof title === 'string' ? title.trim().slice(0, 512) : '';
         if (!question || fields.choices.length === 0) {
-          return Promise.reject(new TypeError('pichamber.ui.choose needs a title and at least one choice with an id and a label.'));
+          return Promise.reject(new TypeError('pichamber.choose needs a title and at least one choice with an id and a label.'));
         }
         return dialog(
           'choose',
@@ -435,6 +419,20 @@ export const createExtensionBridge = ({
           env: { ...process.env, PI_SESSION_ID: sessionId },
         });
         return code === 0;
+      },
+      // A card in the chat: saved in the session as a `pichamber.card` entry,
+      // the same entry `pi.appendEntry('pichamber.card', card)` writes.
+      card: async (card) => {
+        const checked = normalizeExtensionCard(card);
+        if (checked.error) throw new TypeError(`pichamber.card: ${checked.error}.`);
+        appendSessionEntry(session, CARD_ENTRY_TYPE, checked.card);
+      },
+      // A control in the composer; `{ id, remove: true }` takes it away.
+      control: async (control) => {
+        if (!parseComposerControl(control)) {
+          throw new TypeError('pichamber.control needs a valid control: an id, a kind (toggle, cycle or action), a label and a command.');
+        }
+        composerControls.set(sessionId, control);
       },
     };
 
@@ -458,8 +456,8 @@ export const createExtensionBridge = ({
         (response) => (typeof response?.value === 'string' ? response.value : undefined),
       ),
       // Nothing PiChamber-only goes on `ctx.ui` under a string name, so a
-      // method Pi adds later is never shadowed; see `pichamber-ui.js`.
-      [PICHAMBER_UI]: pichamberUi,
+      // method Pi adds later is never shadowed; see `pichamber-api.js`.
+      [PICHAMBER_API]: pichamberApi,
       editor: (title, prefill) => dialog(
         'editor',
         { title, ...(typeof prefill === 'string' ? { prefill } : {}) },
@@ -666,15 +664,13 @@ export const createExtensionBridge = ({
     } finally {
       if (providerObserver) providerObserver.suppress = false;
     }
-    const entries = session.sessionManager?.getBranch?.() ?? session.sessionManager?.getEntries?.();
-    rebuildSessionPanelsAndApps(session.sessionId, Array.isArray(entries) ? entries : []);
     publishCatalogChange(session.sessionId, { providers: true, resources: true, commands: true });
   };
 
   const buildExtensionBindings = (session) => {
     installMutationObservers(session);
     return {
-      uiContext: createExtensionUIContext(session.sessionId),
+      uiContext: createExtensionUIContext(session.sessionId, session),
       // PiChamber hosts `ctx.ui.custom()` components and draws them in the
       // browser (extension-custom-host.js), so extensions see a TUI by
       // default. The "Extension interface" setting can report RPC instead, so
@@ -702,10 +698,6 @@ export const createExtensionBridge = ({
             replaceInstructions: navigateOptions?.replaceInstructions,
             label: navigateOptions?.label,
           });
-          if (result?.cancelled !== true) {
-            const entries = session.sessionManager?.getBranch?.() ?? session.sessionManager?.getEntries?.();
-            rebuildSessionPanelsAndApps(session.sessionId, Array.isArray(entries) ? entries : []);
-          }
           return { cancelled: result.cancelled };
         },
         switchSession: async (sessionPath, switchOptions) => {
@@ -808,113 +800,6 @@ export const createExtensionBridge = ({
     }, sessionId, directory);
   };
 
-  const setNormalizedPanel = (sessionId, descriptor) => {
-    const id = typeof descriptor.id === 'string' && descriptor.id.length > 0 ? descriptor.id.slice(0, 128) : '';
-    if (!id) return undefined;
-    const hasBody = typeof descriptor.component === 'string'
-      || typeof descriptor.title === 'string'
-      || Array.isArray(descriptor.actions);
-    const removed = descriptor.removed === true || !hasBody;
-    const panels = extensionPanelsBySession.get(sessionId) ?? new Map();
-    const normalized = removed ? undefined : {
-      id,
-      ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
-      ...(typeof descriptor.component === 'string' ? { component: descriptor.component.slice(0, 64) } : {}),
-      ...(descriptor.props && typeof descriptor.props === 'object' && !Array.isArray(descriptor.props) ? { props: redactAttachmentValues(descriptor.props) } : {}),
-      ...(Array.isArray(descriptor.actions) ? { actions: descriptor.actions.slice(0, MAX_EXTENSION_PANEL_ACTIONS) } : {}),
-    };
-    if (removed) {
-      panels.delete(id);
-    } else {
-      panels.set(id, normalized);
-    }
-    if (panels.size > MAX_EXTENSION_PANELS_PER_SESSION) {
-      const oldest = [...panels.keys()].slice(0, panels.size - MAX_EXTENSION_PANELS_PER_SESSION);
-      for (const key of oldest) panels.delete(key);
-    }
-    if (panels.size === 0) extensionPanelsBySession.delete(sessionId);
-    else extensionPanelsBySession.set(sessionId, panels);
-    return { id, removed, normalized };
-  };
-
-  // Mirrors a declarative `pichamber.ui` descriptor into normalized panel
-  // state and publishes an `extension.ui` event. Latest wins per stable id;
-  // `removed: true` (or a payload without component/title) unregisters.
-  const mirrorExtensionPanel = (sessionId, descriptor, directory) => {
-    const result = setNormalizedPanel(sessionId, descriptor);
-    if (!result) return;
-    publish('extension.ui', result.removed ? { id: result.id, removed: true } : result.normalized, sessionId, directory);
-  };
-
-  const setNormalizedApp = (sessionId, descriptor) => {
-    const appId = typeof descriptor.appId === 'string' && descriptor.appId.length > 0
-      ? descriptor.appId.slice(0, 128)
-      : (typeof descriptor.id === 'string' && descriptor.id.length > 0 ? descriptor.id.slice(0, 128) : '');
-    if (!appId) return undefined;
-    const html = typeof descriptor.html === 'string'
-      ? (descriptor.html.length > MAX_EXTENSION_APP_HTML_CHARS ? descriptor.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : descriptor.html)
-      : undefined;
-    const removed = descriptor.removed === true || !html || html.length === 0;
-    const apps = extensionAppsBySession.get(sessionId) ?? new Map();
-    if (removed) {
-      apps.delete(appId);
-    } else {
-      apps.set(appId, {
-        appId,
-        ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
-        html,
-      });
-    }
-    if (apps.size > MAX_EXTENSION_APPS_PER_SESSION) {
-      const oldest = [...apps.keys()].slice(0, apps.size - MAX_EXTENSION_APPS_PER_SESSION);
-      for (const key of oldest) apps.delete(key);
-    }
-    if (apps.size === 0) extensionAppsBySession.delete(sessionId);
-    else extensionAppsBySession.set(sessionId, apps);
-    return {
-      appId,
-      removed,
-      app: removed ? undefined : {
-        appId,
-        ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
-        html,
-      },
-    };
-  };
-
-  // Mirrors a `pichamber.app` descriptor into normalized app state and
-  // publishes an `extension.app` event. HTML is capped; removal unregisters.
-  const mirrorExtensionApp = (sessionId, descriptor, directory) => {
-    const result = setNormalizedApp(sessionId, descriptor);
-    if (!result) return;
-    publish('extension.app', {
-      appId: result.appId,
-      ...(result.removed ? { removed: true } : {
-        ...(typeof descriptor.title === 'string' ? { title: descriptor.title.slice(0, 256) } : {}),
-        html: descriptor.html && typeof descriptor.html === 'string' && descriptor.html.length > MAX_EXTENSION_APP_HTML_CHARS ? descriptor.html.slice(0, MAX_EXTENSION_APP_HTML_CHARS) : descriptor.html,
-      }),
-    }, sessionId, directory);
-  };
-
-  // Replays persisted custom entries on the active branch without publishing
-  // events to restore live panel and app state across restarts and branch switches.
-  const rebuildSessionPanelsAndApps = (sessionId, entries) => {
-    if (!sessionId) return;
-    extensionPanelsBySession.delete(sessionId);
-    extensionAppsBySession.delete(sessionId);
-    if (!Array.isArray(entries)) return;
-    for (const entry of entries) {
-      if (entry?.type !== 'custom' || !isDisplayedExtensionEntryType(entry.customType)) continue;
-      const descriptor = extractExtensionDescriptor(entry);
-      if (!descriptor) continue;
-      if (entry.customType === 'pichamber.app') {
-        setNormalizedApp(sessionId, descriptor);
-      } else {
-        setNormalizedPanel(sessionId, descriptor);
-      }
-    }
-  };
-
   const updateExtensionDraft = (sessionId, text, revision) => {
     if (typeof sessionId !== 'string' || !sessionId) return { accepted: false };
     if (!extensionDraftTrackedSessions.has(sessionId)) return { accepted: false };
@@ -940,8 +825,6 @@ export const createExtensionBridge = ({
     if (!sessionId) return {};
     const statuses = extensionStatusesBySession.get(sessionId);
     const widgets = extensionWidgetsBySession.get(sessionId);
-    const panels = extensionPanelsBySession.get(sessionId);
-    const apps = extensionAppsBySession.get(sessionId);
     const title = extensionTitlesBySession.get(sessionId);
     const dialogs = [...pendingExtensionDialogs.values()]
       .filter((pending) => pending.sessionId === sessionId)
@@ -955,8 +838,6 @@ export const createExtensionBridge = ({
       ...(controls ? { controls } : {}),
       ...(widgets?.size ? { widgets: [...widgets.entries()].map(([key, widget]) => ({ key, ...widget })) } : {}),
       ...(dialogs.length ? { dialogs } : {}),
-      ...(panels?.size ? { panels: [...panels.values()] } : {}),
-      ...(apps?.size ? { apps: [...apps.values()] } : {}),
       ...(title ? { title } : {}),
       ...(working ? { working: { ...working } } : {}),
       ...(draftTracked ? { draftTracked: true } : {}),
@@ -968,15 +849,11 @@ export const createExtensionBridge = ({
     buildExtensionBindings,
     clearExtensionState,
     getSnapshotState,
-    mirrorExtensionApp,
-    mirrorExtensionPanel,
-    rebuildSessionPanelsAndApps,
     publishExtensionCustomMessage,
     reloadSession,
     resetExtensionDraft,
     resolveExtensionDialog,
     updateExtensionDraft,
-    setComposerControl: composerControls.set,
     resolveComposerControl: composerControls.resolve,
   };
 };

@@ -1,6 +1,6 @@
 // Visuals: `render_choices`. Shows a few variants (pages or images) in the
 // chat, one at a time, and waits for the user to pick one. PiChamber draws the
-// variants from the call's `details` and asks through `pichamber.ui.choose`, which
+// variants from the call's `details` and asks through `pichamber.choose`, which
 // ties the question to this tool call so the chat component can answer it.
 
 import { MAX_PAGE_CHARS, readPageOrImage } from './files.js';
@@ -95,10 +95,11 @@ export const renderChoices = async (params, { cwd } = {}) => {
  * client has no way to ask, else `{ asked: true, id?, note? }` with no `id`
  * when the question was closed without an answer.
  */
-export const askChoice = async (pichamber, ctx, toolCallId, choices, signal) => {
+export const askChoice = async (ctx, toolCallId, choices, signal) => {
   const ui = ctx?.ui;
-  if (typeof pichamber?.ui?.choose === 'function') {
-    const answer = await pichamber.ui.choose(
+  const { pichamber } = globalThis;
+  if (typeof pichamber?.choose === 'function') {
+    const answer = await pichamber.choose(
       ctx,
       choices.title,
       choices.options.map((option) => ({
@@ -146,9 +147,9 @@ export const choiceResult = (choices, answer) => {
 
 /**
  * Register `render_choices`. `getCwd` gives the session's folder when the
- * call has none. `pichamber` is PiChamber's handle; plain Pi passes none.
+ * call has none.
  */
-export const registerChoicesTool = (pi, getCwd, pichamber) => {
+export const registerChoicesTool = (pi, getCwd) => {
   pi.registerTool({
     name: CHOICES_TOOL_NAME,
     label: 'Render choices',
@@ -162,7 +163,7 @@ export const registerChoicesTool = (pi, getCwd, pichamber) => {
       // Pi delivers that update after this turn of the event loop. Asking
       // only then keeps the question from arriving before its variants.
       await new Promise((resolve) => setImmediate(resolve));
-      return choiceResult(choices, await askChoice(pichamber, ctx, toolCallId, choices, signal));
+      return choiceResult(choices, await askChoice(ctx, toolCallId, choices, signal));
     },
   });
 };

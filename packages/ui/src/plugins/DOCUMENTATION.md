@@ -140,7 +140,7 @@ access and asks where to load it. The server side is
   Built into PiChamber.
 - Every Pi package works in PiChamber, so the mark is not about support: it
   means enhanced for PiChamber: built with the plugin SDK. List rows mark it
-  by the author's `pichamber-plugin` keyword (the Enhanced for PiChamber filter);
+  by the author's `pichamber` keyword (the Enhanced for PiChamber filter);
   the package page reads the manifest. An installed package whose
   `package.json` has a `pichamber` block gets the Enhanced tag in the Pi
   extensions list. It still runs as a plain Pi package.
@@ -262,7 +262,7 @@ Native plugins add to slots; none replaces a built-in control.
 
 | Slot | Where | Defined by |
 |---|---|---|
-| `composer.toggles` | `components/chat/composer/ui/ComposerPluginToggles.tsx`. Desktop (stacked footer, not the mini-chat pill): a borderless pill per toggle after the model controls (a tinted fill when on, plain text when off, spaced like the model controls), icons only when the footer is narrow. Phones: one sliders button beside Send (the same whatever is on, plus a dot while the session differs from the defaults), opening a sheet with a switch per toggle that says it changes this session only; the model controls then shrink to fit (`useHasComposerToggles` turns off `keepLabels`) | Manifest `contributes.composerToggles`, each bound to one boolean state value (`composerToggles.ts` lists them). Changes the open session (or draft) only; the tooltip and sheet name the default when it differs. Optional: a plugin whose tool belongs in every session (Visuals) declares none. Drawn by the host; shown only while the plugin is on. The same slot then draws the open session's Pi extension controls (`extensionControls.ts`; declared with `pichamber:composer`, see the session daemon's `extension-controls.js`): a toggle pill like a plugin toggle, a cycle pill showing its option and moving to the next on click, an action pill; on phones, sheet rows (a switch, chips for every option, a Run button). A click shows its value until the extension reports it (or 8 seconds pass) and runs the extension's command through `piClient.runExtensionControl`. A new-session draft gets its own (see Draft sessions below). Desktop pills draw an icon only for names `icons.ts` knows, never a fallback; sheet rows are text only, plugin rows included, so they line up |
+| `composer.toggles` | `components/chat/composer/ui/ComposerPluginToggles.tsx`. Desktop (stacked footer, not the mini-chat pill): a borderless pill per toggle after the model controls (a tinted fill when on, plain text when off, spaced like the model controls), icons only when the footer is narrow. Phones: one sliders button beside Send (the same whatever is on, plus a dot while the session differs from the defaults), opening a sheet with a switch per toggle that says it changes this session only; the model controls then shrink to fit (`useHasComposerToggles` turns off `keepLabels`) | Manifest `contributes.controls` (kind `toggle`), each bound to one boolean state value (`composerToggles.ts` lists them). Changes the open session (or draft) only; the tooltip and sheet name the default when it differs. Optional: a plugin whose tool belongs in every session (Visuals) declares none. Drawn by the host; shown only while the plugin is on. The same slot then draws the open session's Pi extension controls (`extensionControls.ts`; declared with `pichamber.control(ctx, ...)`, see the session daemon's `extension-controls.js`): a toggle pill like a plugin toggle, a cycle pill showing its option and moving to the next on click, an action pill; on phones, sheet rows (a switch, chips for every option, a Run button). A click shows its value until the extension reports it (or 8 seconds pass) and runs the extension's command through `piClient.runExtensionControl`. A new-session draft gets its own (see Draft sessions below). Desktop pills draw an icon only for names `icons.ts` knows, never a fallback; sheet rows are text only, plugin rows included, so they line up |
 | `turn.artifacts` | `components/chat/components/TurnPluginArtifacts.tsx`, between a turn's activity rail and its reply, so it stays visible when the rail collapses | `NativePluginUi.turnArtifacts` in `registry.ts`, keyed by tool name, loaded lazily |
 | `rail.surface` | A context panel surface (`lib/surfaces/registry.ts`, `ContextPanel.tsx`) | One per native plugin that needs it; desktop only |
 | `settings` | Settings → Extensions & Plugins, the Native plugins section (`components/sections/plugins/PluginsPage.tsx`): a list with a switch per plugin (All/On/Off filters), and a page per plugin with what it adds to the agent, what it adds to PiChamber, its options, and About | Manifest `stateSchema` and `contributes.settings` (field order); `NativePluginUi.features` for the "In PiChamber" lines |
@@ -272,7 +272,7 @@ also after the plugin was turned off: the result is part of the session.
 
 ### Questions
 
-A plugin's tool asks the user with `pichamber.ui.choose(ctx, title, choices, opts)`
+A plugin's tool asks the user with `pichamber.choose(ctx, title, choices, opts)`
 (see the session daemon's documentation). When the call passes its own
 `toolCallId`, the question belongs to that tool call:
 
@@ -416,5 +416,5 @@ server through `piClient`.
 2. Add a `NativePluginUi` entry in `registry.ts` with lazily loaded components.
 3. Add any manifest icon name to `icons.ts`, then run `bun run icons:generate`.
 4. Keep detail parsing in a pure module with tests; components only render.
-5. If the tool asks a question with `pichamber.ui.choose` and its `toolCallId`,
+5. If the tool asks a question with `pichamber.choose` and its `toolCallId`,
    draw the `question` prop: every choice, and the note when `allowNote`.

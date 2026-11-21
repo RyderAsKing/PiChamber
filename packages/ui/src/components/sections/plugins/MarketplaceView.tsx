@@ -28,7 +28,7 @@ export type MarketplaceFilter = 'all' | 'pichamber';
 const SEARCH_DELAY_MS = 300;
 
 const SOURCE_INFO = 'Pi packages are npm packages with the pi-package keyword, the same list as the Pi package gallery. Searches go from the PiChamber server to npm. Featured picks come from the PiChamber project.';
-const PICHAMBER_INFO = 'Every Pi package works in PiChamber. These also add features only PiChamber shows, built with the PiChamber plugin SDK. Their authors mark them with the pichamber-plugin keyword; a package\'s page checks its package.json.';
+const PICHAMBER_INFO = 'Every Pi package works in PiChamber. These also add features only PiChamber shows, built with the PiChamber plugin SDK. Their authors mark them with the pichamber keyword; a package\'s page checks its package.json.';
 
 /** Version, maintainer, weekly downloads: what fits on one line. */
 const packageFacts = (pkg: PiMarketplacePackage): string => [

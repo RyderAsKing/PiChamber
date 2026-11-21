@@ -238,8 +238,6 @@ export interface PiSessionDetailResponse extends Pick<
   | 'extensionControls'
   | 'extensionWidgets'
   | 'extensionDialogs'
-  | 'extensionPanels'
-  | 'extensionApps'
   | 'extensionTitle'
   | 'extensionWorking'
   | 'extensionDraftTracked'
@@ -1077,8 +1075,6 @@ export type PiEventName =
   | 'extension.widget'
   | 'extension.dialog'
   | 'extension.dialog.dismiss'
-  | 'extension.ui'
-  | 'extension.app'
   | 'extension.working'
   | 'extension.editor.track'
   | 'extension.custom'
@@ -1454,8 +1450,8 @@ export type PiExtensionStatusEvent = PiEventEnvelope<
 >;
 
 /**
- * A composer control a Pi extension declared by emitting `pichamber:composer`
- * on `pi.events`. Each names the extension's own slash commands; the daemon
+ * A composer control a Pi extension declared with `pichamber.control(ctx, ...)`.
+ * Each names the extension's own slash commands; the daemon
  * runs one for a click (`piClient.runExtensionControl`) and the extension
  * reports its new value with a new declaration.
  */
@@ -1492,7 +1488,7 @@ export type PiExtensionWidgetEvent = PiEventEnvelope<
   }
 >;
 
-/** One typed input of a `form` dialog (`pichamber.ui.form`). */
+/** One typed input of a `form` dialog (`pichamber.form`). */
 export interface PiExtensionFormField {
   id: string;
   label: string;
@@ -1507,7 +1503,7 @@ export interface PiExtensionFormField {
   max?: number;
 }
 
-/** One choice of a `choose` dialog (`pichamber.ui.choose`). */
+/** One choice of a `choose` dialog (`pichamber.choose`). */
 export interface PiExtensionChoice {
   id: string;
   label: string;
@@ -1561,30 +1557,6 @@ export interface PiExtensionDialogResponseInput {
   /** Form dialog answers keyed by field id. */
   values?: Record<string, string>;
 }
-
-/** Declarative GUI panel update keyed by a stable id; latest wins. */
-export interface PiExtensionPanelPayload {
-  id: string;
-  title?: string;
-  component?: string;
-  props?: Record<string, unknown>;
-  actions?: unknown[];
-  /** Present when the panel should be removed from the live dock. */
-  removed?: boolean;
-}
-
-export type PiExtensionUiEvent = PiEventEnvelope<'extension.ui', PiExtensionPanelPayload>;
-
-/** Sandboxed extension app surface; `removed` (or missing `html`) unregisters. */
-export interface PiExtensionAppPayload {
-  appId: string;
-  title?: string;
-  /** Self-contained HTML document rendered inside a sandboxed iframe. */
-  html?: string;
-  removed?: boolean;
-}
-
-export type PiExtensionAppEvent = PiEventEnvelope<'extension.app', PiExtensionAppPayload>;
 
 /** Session-scoped working indicator message or visibility set via `ctx.ui.setWorkingMessage` / `setWorkingVisible`. */
 export type PiExtensionWorkingEvent = PiEventEnvelope<
@@ -1943,8 +1915,6 @@ export type PiSessionEvent =
   | PiExtensionWidgetEvent
   | PiExtensionDialogEvent
   | PiExtensionDialogDismissEvent
-  | PiExtensionUiEvent
-  | PiExtensionAppEvent
   | PiExtensionWorkingEvent
   | PiExtensionEditorTrackEvent
   | PiExtensionSurfaceEvent
@@ -1994,8 +1964,6 @@ export const PI_EVENT_KINDS = [
   'extension.widget',
   'extension.dialog',
   'extension.dialog.dismiss',
-  'extension.ui',
-  'extension.app',
   'extension.working',
   'extension.editor.track',
   'extension.custom',

@@ -1,7 +1,6 @@
 import { pathToFileURL } from 'node:url';
 
 import { defaultPluginState } from './manifest.js';
-import { createInertPichamberUi } from '../pi/session-daemon/pichamber-ui.js';
 
 // Agent impact is measured, not declared: the server runs a plugin's agent
 // half once against a recording stand-in for the Pi extension API and reports
@@ -109,13 +108,12 @@ export const measurePluginImpact = async (manifest, {
     if (typeof factory !== 'function') throw new Error('the agent half has no default export');
     const recording = createRecordingApi();
     const defaults = defaultPluginState(manifest);
-    const pichamber = {
+    const plugin = {
       id: manifest.id,
-      ui: createInertPichamberUi(),
       state: () => ({ ...defaults }),
       onStateChange: () => () => {},
     };
-    await withTimeout(Promise.resolve(factory(recording.api, pichamber)), timeoutMs);
+    await withTimeout(Promise.resolve(factory(recording.api, plugin)), timeoutMs);
     return { impact: recording.result() };
   } catch (error) {
     return { impact: null, impactError: shortReason(error) };

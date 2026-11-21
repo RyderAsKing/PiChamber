@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { createSessionDaemon } from './session-daemon.js';
 
-// Real SDK: a plain Pi extension declares a composer control on `pi.events`;
+// Real SDK: a plain Pi extension declares a composer control with `pichamber.control`;
 // the daemon keeps it in the session snapshot, and `extensions.control` runs
 // the extension's own command for the value asked for. The extension then
 // reports the new value itself. No model is called.
@@ -16,7 +16,7 @@ const credential = 'controls-e2e-daemon-credential';
 const MODES_EXTENSION = `
 export default function (pi) {
   let mode = 'economy';
-  const declare = () => pi.events.emit('pichamber:composer', {
+  const declare = (ctx) => globalThis.pichamber.control(ctx, {
     id: 'mode',
     kind: 'cycle',
     label: 'Mode',
@@ -29,17 +29,18 @@ export default function (pi) {
   for (const name of ['economy', 'balance']) {
     pi.registerCommand(name, {
       description: 'Switch to ' + name + ' mode',
-      handler: async () => {
+      handler: async (args, ctx) => {
         mode = name;
+        globalThis.__controlsE2eArgs = args;
         globalThis.__controlsE2eRuns = (globalThis.__controlsE2eRuns ?? 0) + 1;
-        declare();
+        await declare(ctx);
       },
     });
   }
-  pi.on('session_start', () => {
-    declare();
+  pi.on('session_start', async (_event, ctx) => {
+    await declare(ctx);
     // A control whose command nobody registered never runs.
-    pi.events.emit('pichamber:composer', { id: 'ghost', kind: 'action', label: 'Ghost', command: 'not-registered' });
+    await globalThis.pichamber.control(ctx, { id: 'ghost', kind: 'action', label: 'Ghost', command: 'not-registered' });
   });
 }
 `;
@@ -105,6 +106,7 @@ describe('session daemon composer controls end-to-end with real SDK', () => {
     await daemon?.stop();
     daemon = undefined;
     delete globalThis.__controlsE2eRuns;
+    delete globalThis.__controlsE2eArgs;
   });
 
   it('keeps a declared control and runs its command for a click', async () => {
@@ -161,6 +163,50 @@ describe('session daemon composer controls end-to-end with real SDK', () => {
     await failing({ sessionId, id: 'mode', value: 'turbo' }, 'INVALID_ARGUMENT');
     await failing({ sessionId, id: 'ghost' }, 'CONTROL_UNAVAILABLE');
     expect(globalThis.__controlsE2eRuns).toBe(1);
+  }, 60_000);
+
+  it('runs a card action\'s command by the same rule, and refuses one nobody registered', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-controls-e2e-'));
+    const projectDir = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(join(agentDir, 'extensions'), { recursive: true });
+    await writeFile(join(agentDir, 'extensions', 'modes.ts'), MODES_EXTENSION);
+    const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\pichamber-command-e2e-${Date.now()}` : join(root, 'daemon.sock');
+
+    daemon = createSessionDaemon({ endpoint, credential, cwd: projectDir, agentDir });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    expect((await client.request('runtime.health')).capabilities).toContain('extensions.command');
+
+    const created = await client.request('sessions.create', { cwd: projectDir });
+    const sessionId = created.session.id;
+    await client.request('sessions.open', { sessionId });
+
+    // A leading `/` is allowed, as in a composer control; args arrive as one line.
+    await expect(client.request('extensions.command', { sessionId, command: '/balance', args: ' fast\nplease ' }))
+      .resolves.toEqual({ ran: true });
+    expect(globalThis.__controlsE2eRuns).toBe(1);
+    expect(globalThis.__controlsE2eArgs).toBe('fast please');
+    // Nothing reached the transcript.
+    expect((await client.request('sessions.open', { sessionId })).messages ?? []).toEqual([]);
+    await client.close();
+
+    const failing = async (payload, code) => {
+      const fresh = connectClient(endpoint);
+      await fresh.authenticate();
+      await expect(fresh.request('extensions.command', payload)).rejects.toThrow(code);
+    };
+    // Never sent to the model as a prompt.
+    await failing({ sessionId, command: 'not-registered' }, 'COMMAND_UNAVAILABLE');
+    await failing({ sessionId, command: 'a/b' }, 'INVALID_ARGUMENT');
+    await failing({ sessionId, command: 'balance', args: 3 }, 'INVALID_ARGUMENT');
+    expect(globalThis.__controlsE2eRuns).toBe(1);
+    const check = connectClient(endpoint);
+    await check.authenticate();
+    expect((await check.request('sessions.open', { sessionId })).messages ?? []).toEqual([]);
+    await check.close();
   }, 60_000);
 
   it('holds a settings change until a running shell command ends, then drops the control', async () => {

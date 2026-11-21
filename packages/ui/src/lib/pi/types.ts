@@ -158,7 +158,7 @@ export interface PiExtensionMessageRender {
 
 export interface PiExtensionMessage extends PiMessageBase {
   role: 'extension';
-  /** The pi customType that authored this item (e.g. `pichamber.ui`). */
+  /** The pi customType that authored this item (e.g. `pichamber.card`). */
   customType: string;
   /** Text content for custom messages. Absent for custom entries. */
   text?: string;
@@ -336,10 +336,6 @@ export interface PiSessionSnapshot {
   extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
   /** Pending blocking extension dialogs at snapshot time. */
   extensionDialogs?: import('./protocol').PiExtensionDialogPayload[];
-  /** Live declarative GUI panels (latest-wins per id) at snapshot time. */
-  extensionPanels?: Array<import('./protocol').PiExtensionPanelPayload>;
-  /** Registered sandboxed extension app surfaces at snapshot time. */
-  extensionApps?: Array<import('./protocol').PiExtensionAppPayload>;
   /** Session-scoped window/tab title set by an extension. */
   extensionTitle?: string;
   /** Live extension working message/visibility at snapshot time. */

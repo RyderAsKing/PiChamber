@@ -34,7 +34,7 @@ describe('daemon plugin host', () => {
     expect(createPluginHost().extensionFactories()).toEqual([]);
   });
 
-  it('builds named factories that receive pichamber with resolved state', async () => {
+  it('builds named factories that receive the plugin handle with resolved state', async () => {
     const root = await pluginsRoot({ demo: 'export default function (pi, pichamber) { globalThis.__pluginHostDemo = { pi, pichamber }; }' });
     const host = createPluginHost({ pluginsRoot: root });
     const result = await host.configure({
@@ -47,8 +47,7 @@ describe('daemon plugin host', () => {
     await factories[0].factory(pi);
     const { pichamber } = globalThis.__pluginHostDemo;
     expect(pichamber.id).toBe('demo');
-    expect(Object.keys(pichamber.ui).sort()).toEqual(['choose', 'form', 'openUrl']);
-    await expect(pichamber.ui.choose(undefined, 'T', [])).rejects.toBeInstanceOf(TypeError);
+    expect(Object.keys(pichamber).sort()).toEqual(['id', 'onStateChange', 'state']);
     expect(pichamber.state('/p')).toEqual({ on: true, mode: 'b' });
     expect(pichamber.state('/p/')).toEqual({ on: true, mode: 'b' });
     expect(pichamber.state('/q')).toEqual({ on: true, mode: 'a' });

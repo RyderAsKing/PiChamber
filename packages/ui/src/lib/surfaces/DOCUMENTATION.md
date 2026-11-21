@@ -21,8 +21,8 @@ edge (`components/layout/ContextPanelRail.tsx`) and rendered by
   `availability: 'extensions'` surfaces (Extensions) are visible when the
   selected session has Pi-native `ctx.ui.setWidget` content or an extensions
   tab is already open. The surface renders only Pi SDK `ctx.ui` widgets;
-  statuses stay in the composer strip, and PiChamber-only `pichamber.ui` /
-  `pichamber.app` surfaces are intentionally not rendered here yet.
+  statuses stay in the composer strip, and cards (`pichamber.card`) are
+  transcript rows, not part of this surface.
 - `availability: 'agents'` is Agents, the Sub-agents plugin's surface
   (`plugins/subagents/AgentsSurface.tsx`): on the rail once the selected
   session's loaded messages hold a `subagent` tool call
