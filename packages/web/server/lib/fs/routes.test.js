@@ -1149,6 +1149,25 @@ describe('fs raw download Content-Disposition', () => {
     expect(cd).toContain('filename=".txt"');
   });
 
+  it('sandboxes raw SVG responses so a token-bearing URL cannot run script', async () => {
+    const fsPromises = {
+      realpath: vi.fn(async (targetPath) => targetPath),
+      stat: vi.fn(async () => ({ isFile: () => true, size: 6 })),
+      readFile: vi.fn(async () => Buffer.from('<svg/>')),
+    };
+    const handler = registerRaw(fsPromises);
+
+    const svg = await callRaw(handler, { path: '/repo/logo.svg' });
+    expect(svg.statusCode).toBe(200);
+    expect(svg.getHeader('content-security-policy')).toContain('sandbox');
+    expect(svg.getHeader('x-content-type-options')).toBe('nosniff');
+
+    const png = await callRaw(handler, { path: '/repo/logo.png' });
+    expect(png.statusCode).toBe(200);
+    expect(png.getHeader('content-security-policy')).toBeUndefined();
+    expect(png.getHeader('x-content-type-options')).toBe('nosniff');
+  });
+
   it('uses plain filename for ASCII-only filenames on download', async () => {
     const fsPromises = {
       realpath: vi.fn(async (targetPath) => targetPath),

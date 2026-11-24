@@ -1088,6 +1088,12 @@ export const registerFsRoutes = (app, dependencies) => {
 
       const content = await fsPromises.readFile(canonicalPath);
       res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (mimeType === 'image/svg+xml') {
+        // This route takes the URL token. An SVG opened as a page must not run
+        // scripts that could read that token from its own address.
+        res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+      }
       if (resolved.granted) {
         res.setHeader('Referrer-Policy', 'no-referrer');
       }

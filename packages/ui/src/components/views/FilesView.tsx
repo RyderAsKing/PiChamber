@@ -12,6 +12,7 @@ import { getResolvedShikiTheme } from '@/lib/shiki/appThemeRegistry';
 import { useDeviceInfo } from '@/lib/device';
 import { cn, hasModifier } from '@/lib/utils';
 import { getLanguageFromExtension, getImageMimeType, isBinaryFile, isDrawioFile, isImageFile, isPdfFile, isSvgFile } from '@/lib/toolHelpers';
+import { getClientPlatform } from '@/lib/platform';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 import { getOutsideFileGrant } from '@/lib/outsideFileGrants';
 import { DiagramEditor } from '@/components/diagram/DiagramEditor';
@@ -1093,7 +1094,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
 
   const isSelectedImage = Boolean(selectedFile?.path && isImageFile(selectedFile.path));
   const isSelectedSvg = Boolean(selectedFile?.path && isSvgFile(selectedFile.path));
-  const isSelectedPdf = Boolean(selectedFile?.path && isPdfFile(selectedFile.path));
+  // The Android app's WebView has no PDF viewer, so an inline frame stays
+  // blank there; PDFs fall through to the binary card and its Save action.
+  const isSelectedPdf = Boolean(selectedFile?.path && isPdfFile(selectedFile.path))
+    && getClientPlatform() !== 'android';
   const isSelectedBinary = Boolean(
     selectedFile?.path
     && (isBinaryFile(selectedFile.path) || contentDetectedBinary)
