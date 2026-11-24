@@ -131,7 +131,8 @@ export const fetchServerBrowserDownload = async (
 
 /**
  * Saves a fetched download on this device: a download on the web and
- * desktop, the share sheet on mobile. The share sheet needs a recent tap;
+ * desktop, the Downloads folder on Android, the share sheet on iOS. The iOS
+ * share sheet needs a recent tap;
  * after a long transfer it may refuse (`isUserActivationError`), and the
  * caller offers a Share button to try again on a fresh tap.
  */

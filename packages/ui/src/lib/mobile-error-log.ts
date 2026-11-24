@@ -183,6 +183,7 @@ export const exportMobileErrorLog = async (): Promise<MobileErrorLogExportResult
         filename: 'pichamber-mobile-diagnostics.json',
         mimeType: 'application/json',
         data: text,
+        intent: 'share',
       });
       return 'shared';
     } catch {

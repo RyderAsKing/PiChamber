@@ -73,6 +73,7 @@ export const FileActionsMenu: React.FC<FileActionsMenuProps> = ({
   canCopyPath,
   onCopyPath,
   onDownloadFile,
+  onShareFile,
   isMobile,
   mode,
   isFullscreen,
@@ -166,6 +167,13 @@ export const FileActionsMenu: React.FC<FileActionsMenuProps> = ({
     copyItems.push(
       <DropdownMenuItem key="download" onSelect={onDownloadFile}>
         <Row label={'Download'} />
+      </DropdownMenuItem>,
+    );
+  }
+  if (onShareFile) {
+    copyItems.push(
+      <DropdownMenuItem key="share" onSelect={onShareFile}>
+        <Row label={'Share'} />
       </DropdownMenuItem>,
     );
   }
