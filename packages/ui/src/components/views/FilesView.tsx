@@ -1442,6 +1442,19 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     });
   }, [files.downloadFile, selectedFile?.path]);
 
+  // Only the Android app saves and shares differently; elsewhere Download
+  // already is the platform's save or share, so a second action would repeat it.
+  const canShareFile = getClientPlatform() === 'android';
+  const handleShareSelectedFile = React.useCallback(() => {
+    const downloadFile = files.downloadFile;
+    const path = selectedFile?.path;
+    if (!downloadFile || !path) return;
+    void downloadFile(path, { intent: 'share' }).catch((error) => {
+      console.error('Share failed:', error);
+      toast.error('Could not share the file');
+    });
+  }, [files.downloadFile, selectedFile?.path]);
+
   // One set of file controls, shown as the docked icon row (a setting, and on
   // phones) or as the labeled File actions menu in the path bar.
   const usesFileActionsMenu = !isMobile && !settingsExpandedEditorToolbar;
@@ -1537,6 +1550,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       }
     },
     onDownloadFile: files.downloadFile && selectedFile ? handleDownloadSelectedFile : undefined,
+    onShareFile: canShareFile && files.downloadFile && selectedFile ? handleShareSelectedFile : undefined,
     isMobile,
     mode,
     isFullscreen,
@@ -1587,6 +1601,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     pdfPreviewNonce,
     isUnsupportedBinary,
     onDownload: files.downloadFile && selectedFile ? handleDownloadSelectedFile : undefined,
+    onShare: canShareFile && files.downloadFile && selectedFile ? handleShareSelectedFile : undefined,
     drawioViewMode,
     drawioRemountNonce,
     diagramEditorRef,

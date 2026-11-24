@@ -111,19 +111,33 @@ describe('createWebFilesAPI', () => {
     const api = createWebFilesAPI({ urls, getDirectory: () => '/workspace' });
 
     // An anchor download does nothing in the Android app's WebView; the
-    // helper opens the share sheet there and keeps the anchor on the web.
+    // helper saves to Downloads there and keeps the anchor on the web.
     runtimeFetchMock.mockResolvedValueOnce(new Response('%PDF-1.4', {
       status: 200,
       headers: { 'content-type': 'application/pdf' },
     }));
-    saveOrShareFileMock.mockResolvedValueOnce('shared');
+    saveOrShareFileMock.mockResolvedValueOnce('saved');
     await api.downloadFile?.('/workspace/out/report.pdf');
 
     expect(saveOrShareFileMock).toHaveBeenCalledTimes(1);
-    const [options] = saveOrShareFileMock.mock.calls[0] as [{ filename: string; mimeType?: string; data: Blob }];
+    const [options] = saveOrShareFileMock.mock.calls[0] as [{ filename: string; mimeType?: string; data: Blob; intent?: string }];
     expect(options.filename).toBe('report.pdf');
     expect(options.mimeType).toBe('application/pdf');
+    expect(options.intent).toBe('save');
     expect(await options.data.text()).toBe('%PDF-1.4');
+  });
+
+  it('asks the save helper to share when the caller shares', async () => {
+    const { createWebFilesAPI } = await import('./files');
+    const api = createWebFilesAPI({ urls, getDirectory: () => '/workspace' });
+
+    runtimeFetchMock.mockResolvedValueOnce(new Response('# notes', { status: 200 }));
+    saveOrShareFileMock.mockResolvedValueOnce('shared');
+    await api.downloadFile?.('/workspace/notes.md', { intent: 'share' });
+
+    const [options] = saveOrShareFileMock.mock.lastCall as [{ filename: string; intent?: string }];
+    expect(options.filename).toBe('notes.md');
+    expect(options.intent).toBe('share');
   });
 
   it('sends the workspace directory header for downloads', async () => {

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.8-rc.6] - 2026-11-25
+
+The sixth 1.0.8 candidate fixes Android downloads, which crashed the app in rc.5, and saves them to the Downloads folder.
+
+- **Android downloads save to Downloads instead of crashing (#270).** In the Android app, Download, Save file and every export closed the app: the code that cleans up file names used a pattern Android rejects. Downloads and exports (Files panel, session Markdown, tables, diagrams, Visuals pages, Server browser downloads) now go into the phone's Downloads folder with a short "Saved … to Downloads" message, as a browser download would; a second file with the same name is saved as `name (1).ext`. The Files panel also has Share beside Save file, in its toolbar, its File actions menu and the card for files it cannot show, for sending a file to another app. Sharing a message as an image and sending diagnostics still open the share sheet. Android 9 and older have no Downloads folder for apps, so they fall back to the share sheet. iOS, web and desktop are unchanged.
+
 ## [1.0.8-rc.5] - 2026-11-25
 
 The fifth 1.0.8 candidate fixes two mobile app bugs: a QR-paired app that could not reach its server after a restart, and Files panel downloads and previews on Android.

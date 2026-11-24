@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 let mockPlatform: 'android' | 'ios' | 'web' | 'desktop' = 'web';
 const shareCalls: Array<{ filename: string; mimeType?: string; base64: string }> = [];
+const saveCalls: Array<{ filename: string; mimeType?: string; base64: string }> = [];
+let saveError: unknown = null;
 const setWebViewBackgroundCalls: Array<{ color: string }> = [];
 
 mock.module('@/lib/platform', () => ({
@@ -14,6 +16,11 @@ mock.module('@capacitor/core', () => ({
     share: async (options: { filename: string; mimeType?: string; base64: string }) => {
       shareCalls.push(options);
       return { status: 'shared' };
+    },
+    saveToDownloads: async (options: { filename: string; mimeType?: string; base64: string }) => {
+      saveCalls.push(options);
+      if (saveError) throw saveError;
+      return { status: 'saved', filename: options.filename };
     },
     setWebViewBackground: async (options: { color: string }) => {
       setWebViewBackgroundCalls.push(options);
@@ -37,6 +44,8 @@ describe('nativeFileSave', () => {
   beforeEach(() => {
     mockPlatform = 'web';
     shareCalls.length = 0;
+    saveCalls.length = 0;
+    saveError = null;
     setWebViewBackgroundCalls.length = 0;
     createdAnchors = [];
 
@@ -143,6 +152,7 @@ describe('nativeFileSave', () => {
       filename: 'test.md',
       mimeType: 'text/markdown',
       data: '# Android export',
+      intent: 'share',
     });
 
     expect(result).toBe('shared');
@@ -166,6 +176,7 @@ describe('nativeFileSave', () => {
       filename: 'image.png',
       mimeType: 'image/png',
       data: dataUrl,
+      intent: 'share',
     });
 
     expect(result).toBe('shared');
@@ -173,6 +184,44 @@ describe('nativeFileSave', () => {
     const callArg = shareCalls[0];
     expect(callArg.filename).toBe('image.png');
     expect(callArg.base64).toBe(base64Content);
+  });
+
+  test('android save writes to Downloads through the plugin, not the share sheet', async () => {
+    mockPlatform = 'android';
+    const { saveOrShareFile } = await import('./nativeFileSave');
+
+    const result = await saveOrShareFile({
+      filename: 'notes.md',
+      data: new Blob(['# notes'], { type: 'application/octet-stream' }),
+    });
+
+    expect(result).toBe('saved');
+    expect(saveCalls.length).toBe(1);
+    expect(saveCalls[0].filename).toBe('notes.md');
+    expect(saveCalls[0].base64.length).toBeGreaterThan(0);
+    expect(shareCalls.length).toBe(0);
+    expect(createdAnchors.length).toBe(0);
+  });
+
+  test('android save falls back to the share sheet on Android 9 and older', async () => {
+    mockPlatform = 'android';
+    saveError = Object.assign(new Error('Saving to Downloads needs Android 10 or later'), { code: 'UNSUPPORTED' });
+    const { saveOrShareFile } = await import('./nativeFileSave');
+
+    const result = await saveOrShareFile({ filename: 'old.txt', data: 'old device' });
+
+    expect(result).toBe('shared');
+    expect(saveCalls.length).toBe(1);
+    expect(shareCalls.length).toBe(1);
+  });
+
+  test('android save failures other than UNSUPPORTED reach the caller', async () => {
+    mockPlatform = 'android';
+    saveError = new Error('Failed to save file: disk full');
+    const { saveOrShareFile } = await import('./nativeFileSave');
+
+    await expect(saveOrShareFile({ filename: 'full.txt', data: 'x' })).rejects.toThrow('disk full');
+    expect(shareCalls.length).toBe(0);
   });
 
   test('iOS path uses navigator.share with File when canShare returns true', async () => {

@@ -83,6 +83,7 @@ export async function shareMessageAsImage(
       filename: fileName,
       mimeType: 'image/png',
       data: dataUrl,
+      intent: 'share',
     });
 
     if (result === 'downloaded') {

@@ -577,7 +577,8 @@ export interface FilesAPI {
   rename?(oldPath: string, newPath: string): Promise<{ success: boolean; path: string }>;
   revealPath?(path: string): Promise<{ success: boolean }>;
   execCommands?(commands: string[], cwd: string): Promise<{ success: boolean; results: CommandExecResult[] }>;
-  downloadFile?(path: string): Promise<void>;
+  /** `share` opens the share sheet instead of saving; it differs from a save only in the Android app. */
+  downloadFile?(path: string, options?: { intent?: 'save' | 'share' }): Promise<void>;
 }
 
 export interface ProjectEntry {

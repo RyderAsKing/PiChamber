@@ -320,7 +320,7 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
     return { success: Boolean((result as { success?: boolean }).success) };
   },
 
-  async downloadFile(path: string): Promise<void> {
+  async downloadFile(path: string, options?: { intent?: 'save' | 'share' }): Promise<void> {
     const target = normalizePath(path);
     const response = await runtimeFetch('/api/fs/raw', {
       query: { path: target, download: true },
@@ -331,12 +331,13 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
     }
 
     const blob = await response.blob();
-    // The Android app's WebView ignores anchor downloads; the helper opens the
-    // share sheet on native mobile and falls back to an anchor elsewhere.
+    // The Android app's WebView ignores anchor downloads; the helper saves to
+    // Downloads on Android, shares on iOS, and uses an anchor elsewhere.
     await saveOrShareFile({
       filename: target.split('/').pop() || 'file',
       mimeType: blob.type || undefined,
       data: blob,
+      intent: options?.intent ?? 'save',
     });
   },
 });
