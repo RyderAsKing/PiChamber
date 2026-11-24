@@ -226,6 +226,27 @@ describe('ui auth client credential seam', () => {
     expect(arbitraryGetCalled).toBe(false);
     expect(arbitraryGetRes.statusCode).toBe(401);
 
+    // The Files viewer hands these URLs to <img>/<iframe>, which cannot send
+    // the bearer header (the mobile app has no session cookie either).
+    for (const path of ['/api/fs/raw', '/api/fs/serve', '/api/fs/serve/tmp/site/index.html']) {
+      const assetReq = { method: 'GET', path, url: `${path}?path=%2Ftmp%2Freport.pdf&oc_url_token=${encodeURIComponent(urlToken)}`, headers: {} };
+      const assetRes = createResponse();
+      let assetCalled = false;
+      await auth.requireAuth(assetReq, assetRes, () => {
+        assetCalled = true;
+      });
+      expect(assetCalled).toBe(true);
+    }
+
+    const lookalikeReq = { method: 'GET', path: '/api/fs/serve-other', url: `/api/fs/serve-other?oc_url_token=${encodeURIComponent(urlToken)}`, headers: {} };
+    const lookalikeRes = createResponse();
+    let lookalikeCalled = false;
+    await auth.requireAuth(lookalikeReq, lookalikeRes, () => {
+      lookalikeCalled = true;
+    });
+    expect(lookalikeCalled).toBe(false);
+    expect(lookalikeRes.statusCode).toBe(401);
+
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
       const writeReq = { method, path: '/api/fs/raw', url: `/api/fs/raw?path=%2Ftmp%2Fimage.png&oc_url_token=${encodeURIComponent(urlToken)}`, headers: { accept: 'application/json' } };
       const writeRes = createResponse();
