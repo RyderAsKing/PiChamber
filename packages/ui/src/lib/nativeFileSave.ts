@@ -79,9 +79,14 @@ const triggerAnchorDownload = (filename: string, data: Blob | string, mimeType?:
   document.body.removeChild(link);
 
   if (!isDataUrl) {
-    URL.revokeObjectURL(url);
+    // Some browsers start the download after click() returns; revoking at once
+    // can cancel it.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 };
+
+const isNotAllowedError = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'NotAllowedError';
 
 export async function saveOrShareFile({
   filename,
@@ -113,7 +118,11 @@ export async function saveOrShareFile({
           if (isShareCancelledError(error)) {
             return 'cancelled';
           }
-          throw error;
+          // share() needs a recent tap; a slow fetch before it can use that
+          // up, so fall through to the anchor download instead of failing.
+          if (!isNotAllowedError(error)) {
+            throw error;
+          }
         }
       }
     }

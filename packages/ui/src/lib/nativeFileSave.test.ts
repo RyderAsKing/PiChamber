@@ -231,6 +231,46 @@ describe('nativeFileSave', () => {
     expect(navShareInvoked).toBe(1);
   });
 
+  test('iOS path falls back to anchor download when share() is not allowed', async () => {
+    mockPlatform = 'ios';
+    (globalThis as Record<string, unknown>).navigator = {
+      canShare: () => true,
+      share: async () => {
+        const error = new Error('The request is not allowed by the user agent');
+        error.name = 'NotAllowedError';
+        throw error;
+      },
+    };
+
+    const { saveOrShareFile } = await import('./nativeFileSave');
+
+    const result = await saveOrShareFile({
+      filename: 'late.pdf',
+      mimeType: 'application/pdf',
+      data: new Blob(['%PDF'], { type: 'application/pdf' }),
+    });
+
+    expect(result).toBe('downloaded');
+    expect(createdAnchors.length).toBe(1);
+    expect(createdAnchors[0].download).toBe('late.pdf');
+  });
+
+  test('anchor download revokes its object URL after the click, not during it', async () => {
+    mockPlatform = 'web';
+    const revoked: string[] = [];
+    (globalThis as Record<string, unknown>).URL = {
+      createObjectURL: () => 'blob:deferred',
+      revokeObjectURL: (url: string) => { revoked.push(url); },
+    };
+    const { saveOrShareFile } = await import('./nativeFileSave');
+
+    await saveOrShareFile({ filename: 'a.txt', data: new Blob(['a']) });
+    // Earlier tests' deferred revokes may land here too; only this URL matters.
+    expect(revoked).not.toContain('blob:deferred');
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    expect(revoked).toContain('blob:deferred');
+  });
+
   test('iOS path falls back to anchor download if canShare returns false', async () => {
     mockPlatform = 'ios';
     (globalThis as Record<string, unknown>).navigator = {
