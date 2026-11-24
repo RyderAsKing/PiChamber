@@ -8,6 +8,12 @@ vi.mock('@pichamber/ui/lib/runtime-fetch', () => ({
   runtimeFetch: runtimeFetchMock,
 }));
 
+const saveOrShareFileMock = vi.fn();
+
+vi.mock('@pichamber/ui/lib/nativeFileSave', () => ({
+  saveOrShareFile: saveOrShareFileMock,
+}));
+
 const toUrl = (path: string, query?: RuntimeUrlQuery): string => {
   const params = query instanceof URLSearchParams ? query : new URLSearchParams();
   const queryString = params.toString();
@@ -98,6 +104,26 @@ describe('createWebFilesAPI', () => {
       content: 'next',
       expectedRevision: 'v1:2:10:abc',
     });
+  });
+
+  it('saves downloads through the native-aware save helper', async () => {
+    const { createWebFilesAPI } = await import('./files');
+    const api = createWebFilesAPI({ urls, getDirectory: () => '/workspace' });
+
+    // An anchor download does nothing in the Android app's WebView; the
+    // helper opens the share sheet there and keeps the anchor on the web.
+    runtimeFetchMock.mockResolvedValueOnce(new Response('%PDF-1.4', {
+      status: 200,
+      headers: { 'content-type': 'application/pdf' },
+    }));
+    saveOrShareFileMock.mockResolvedValueOnce('shared');
+    await api.downloadFile?.('/workspace/out/report.pdf');
+
+    expect(saveOrShareFileMock).toHaveBeenCalledTimes(1);
+    const [options] = saveOrShareFileMock.mock.calls[0] as [{ filename: string; mimeType?: string; data: Blob }];
+    expect(options.filename).toBe('report.pdf');
+    expect(options.mimeType).toBe('application/pdf');
+    expect(await options.data.text()).toBe('%PDF-1.4');
   });
 
   it('sends the workspace directory header for downloads', async () => {
