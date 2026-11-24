@@ -19,10 +19,15 @@ import { startTypographyWatcher } from '@/lib/typographyWatcher';
 import { preloadMarkdownRenderer } from '@/components/chat/markdownRendererLoader';
 import { SessionAuthGate } from '@/components/auth/SessionAuthGate';
 import { MobileApp } from './MobileApp';
+import { restoreColdLaunchCredential } from './mobileConnections';
+import { isCapacitorMobileApp } from './mobileNativeChrome';
 
 const initializeSharedPreferences = () => {
   void (async () => {
     try {
+      // The native app restores its saved token after a secure read; syncing
+      // settings before it lands would go out unauthenticated.
+      if (isCapacitorMobileApp()) await restoreColdLaunchCredential();
       await Promise.all([
         syncDesktopSettings(),
         applyPersistedDirectoryPreferences(),
