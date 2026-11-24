@@ -320,7 +320,7 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
     return { success: Boolean((result as { success?: boolean }).success) };
   },
 
-  async downloadFile(path: string): Promise<void> {
+  async downloadFile(path: string, options?: { intent?: 'save' | 'share' }): Promise<void> {
     const target = normalizePath(path);
     const response = await runtimeFetch('/api/fs/raw', {
       query: { path: target, download: true },
@@ -337,6 +337,7 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
       filename: target.split('/').pop() || 'file',
       mimeType: blob.type || undefined,
       data: blob,
+      intent: options?.intent ?? 'save',
     });
   },
 });

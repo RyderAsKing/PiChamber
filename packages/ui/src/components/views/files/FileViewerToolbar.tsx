@@ -66,6 +66,7 @@ export interface FileViewerToolbarProps {
   copiedPath: boolean;
   onCopyPath: () => Promise<void>;
   onDownloadFile?: () => void;
+  onShareFile?: () => void;
   isMobile: boolean;
   mode: 'full' | 'editor-only';
   isFullscreen: boolean;
@@ -123,6 +124,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
   copiedPath,
   onCopyPath,
   onDownloadFile,
+  onShareFile,
   isMobile,
   mode,
   isFullscreen,
@@ -440,6 +442,21 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
             aria-label="Save file"
           >
             <Icon name="download" className="size-4" />
+          </Button>,
+        )}
+
+      {onShareFile &&
+        withTooltip(
+          'Share file',
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onShareFile}
+            className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
+            title="Share file"
+            aria-label="Share file"
+          >
+            <Icon name="share" className="size-4" />
           </Button>,
         )}
 

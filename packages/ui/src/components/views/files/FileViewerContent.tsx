@@ -38,6 +38,7 @@ type FileViewerContentProps = {
   pdfPreviewNonce: number;
   isUnsupportedBinary: boolean;
   onDownload?: () => void;
+  onShare?: () => void;
   enableRichPreviews: boolean;
   drawioViewMode: PreviewViewMode;
   drawioRemountNonce: number;
@@ -84,6 +85,7 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
   pdfPreviewNonce,
   isUnsupportedBinary,
   onDownload,
+  onShare,
   enableRichPreviews,
   drawioViewMode,
   drawioRemountNonce,
@@ -195,11 +197,21 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
         <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
           <div className="typography-ui-header text-foreground">{"Cannot preview binary file"}</div>
           <div className="max-w-md typography-ui text-muted-foreground">{"This file is binary and cannot be edited in PiChamber. Download it to open with another app."}</div>
-          {onDownload ? (
-            <Button type="button" variant="outline" size="sm" onClick={onDownload}>
-              <Icon name="download" className="mr-2 size-4" />
-              {"Save file"}
-            </Button>
+          {onDownload || onShare ? (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {onDownload ? (
+                <Button type="button" variant="outline" size="sm" onClick={onDownload}>
+                  <Icon name="download" className="mr-2 size-4" />
+                  {"Save file"}
+                </Button>
+              ) : null}
+              {onShare ? (
+                <Button type="button" variant="outline" size="sm" onClick={onShare}>
+                  <Icon name="share" className="mr-2 size-4" />
+                  {"Share"}
+                </Button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : enableRichPreviews && isDrawio && drawioViewMode === 'preview' ? (
