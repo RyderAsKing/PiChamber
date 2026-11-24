@@ -71,6 +71,7 @@ mock.module('@/lib/runtime-switch', () => ({
 
 mock.module('@/lib/relay/runtime-tunnel', () => ({
   isRelayModeActive: () => relayActive,
+  getActiveRelayTunnel: () => null,
   adoptRelayTunnel: (_descriptor: unknown, client: unknown) => {
     adoptedTunnels.push(client);
     relayActive = true;
@@ -541,6 +542,59 @@ describe('reprobe relay validation', () => {
       // The mocked runtimeFetch resolves null: a dead/timed-out tunnel.
       const outcome = await transport.reprobeActiveConnection();
       expect(outcome).toBe('unreachable');
+      expect(switchCalls).toHaveLength(0);
+    } finally {
+      restoreAfterEach();
+    }
+  });
+});
+
+describe('reprobe restores the saved credential on a cold launch', () => {
+  // A cold launch hydrates the last endpoint from storage, but the bearer
+  // token lives only in memory, so the runtime starts without it. A
+  // password login hides this behind its session cookie; a QR-paired device
+  // has nothing else and every request 401s until the token is applied.
+  const seedSingleDirect = async () => {
+    const url = 'https://lan.example';
+    const rows = await storage.upsertMobileConnection({
+      label: 'Paired by QR',
+      candidates: [{ kind: 'direct' as const, url }],
+      clientToken: 'qr-token',
+    });
+    runtimeKey = storage.secureTokenKeyOf(rows[0]!);
+    apiBaseUrl = url;
+    fetchHandler = async (requested) => {
+      if (requested === `${url}/health`) return okHealth();
+      if (requested === `${url}/auth/session`) return okSession();
+      return null;
+    };
+    return { url, runtimeKey };
+  };
+
+  test('applies the token when the persisted endpoint has none', async () => {
+    try {
+      const { url, runtimeKey: key } = await seedSingleDirect();
+
+      const outcome = await transport.reprobeActiveConnection();
+
+      expect(outcome).toBe('switched');
+      expect(switchCalls).toEqual([
+        { apiBaseUrl: url, clientToken: 'qr-token', runtimeKey: key },
+      ]);
+    } finally {
+      restoreAfterEach();
+    }
+  });
+
+  test('leaves a runtime that already holds the token unchanged', async () => {
+    try {
+      await seedSingleDirect();
+      (window as typeof window & { __PICHAMBER_CLIENT_TOKEN__?: string })
+        .__PICHAMBER_CLIENT_TOKEN__ = 'qr-token';
+
+      const outcome = await transport.reprobeActiveConnection();
+
+      expect(outcome).toBe('unchanged');
       expect(switchCalls).toHaveLength(0);
     } finally {
       restoreAfterEach();

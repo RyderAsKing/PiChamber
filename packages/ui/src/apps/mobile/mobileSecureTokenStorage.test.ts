@@ -82,6 +82,7 @@ mock.module('@/lib/runtime-switch', () => ({
 
 mock.module('@/lib/relay/runtime-tunnel', () => ({
   isRelayModeActive: () => false,
+  getActiveRelayTunnel: () => null,
   adoptRelayTunnel: () => {},
   activateRelayTunnel: () => {},
   deactivateRelayTunnel: () => {},

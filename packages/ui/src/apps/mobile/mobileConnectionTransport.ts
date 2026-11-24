@@ -1,6 +1,7 @@
 import { isCapacitorApp } from '@/lib/platform';
 import { adoptRelayTunnel, isRelayModeActive } from '@/lib/relay/runtime-tunnel';
 import { createRelayTunnelClient } from '@/lib/relay/tunnel-client';
+import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
   getRuntimeApiBaseUrl,
@@ -962,6 +963,17 @@ const runReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
     );
     if (isStale()) return 'no-connection';
     if (stillValid) {
+      // A cold launch restores the persisted endpoint but not the bearer,
+      // which lives only in memory. The probe above proved the saved token
+      // works here, so apply it; without it every runtime request 401s
+      // unless a session cookie happens to cover for it (password logins).
+      const current = active.candidates[currentIndex];
+      if (current?.kind === 'direct' && getRuntimeBearerTokenSync() !== token) {
+        switchToTransport({ kind: 'direct', url: selection.apiBaseUrl }, token, {
+          runtimeKey: secureTokenKeyOf(active),
+        });
+        return 'switched';
+      }
       scheduleCandidateRefresh();
       return 'unchanged';
     }
