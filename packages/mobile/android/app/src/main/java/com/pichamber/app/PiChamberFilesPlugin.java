@@ -25,7 +25,6 @@ public class PiChamberFilesPlugin extends Plugin {
         }
 
         String rawFilename = call.getString("filename", "file");
-        String sanitizedFilename = sanitizeFilename(rawFilename);
 
         String mimeType = call.getString("mimeType");
         if (mimeType == null || mimeType.trim().isEmpty()) {
@@ -37,6 +36,7 @@ public class PiChamberFilesPlugin extends Plugin {
         }
 
         try {
+            String sanitizedFilename = sanitizeFilename(rawFilename);
             File cacheDir = getContext().getCacheDir();
             File sharedDir = new File(cacheDir, "shared");
             if (!sharedDir.exists() && !sharedDir.mkdirs()) {
@@ -122,7 +122,9 @@ public class PiChamberFilesPlugin extends Plugin {
             return "file";
         }
         String nameOnly = new File(filename).getName();
-        String cleaned = nameOnly.replaceAll("[/\\\\\\r\\n\\0]", "_").trim();
+        // \x00, not \0: Android's ICU regex rejects \0 without octal digits,
+        // and the exception crashed the plugin thread on every share.
+        String cleaned = nameOnly.replaceAll("[/\\\\\\r\\n\\x00]", "_").trim();
         if (cleaned.length() > 100) {
             int extIdx = cleaned.lastIndexOf('.');
             if (extIdx > 0 && cleaned.length() - extIdx <= 15) {
