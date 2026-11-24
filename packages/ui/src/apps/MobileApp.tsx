@@ -531,10 +531,15 @@ export function MobileApp({ apis }: MobileAppProps) {
         if (outcome === 'unchanged') return;
         if (outcome === 'switched') {
           // Same-key switches only rebind live sync. If the probe had to apply
-          // the token itself, the mount bootstrap may already have given up.
+          // the token itself, the mount bootstrap may already have given up,
+          // or may still be running without it: initializeApp joins an
+          // in-flight run, so try once more after that run settles.
           if (!useConfigStore.getState().isConnected) {
             void refreshDesktopSettings();
-            void initializeApp();
+            await initializeApp().catch(() => undefined);
+            if (!cancelled && !useConfigStore.getState().isConnected) {
+              void initializeApp();
+            }
           }
           return;
         }

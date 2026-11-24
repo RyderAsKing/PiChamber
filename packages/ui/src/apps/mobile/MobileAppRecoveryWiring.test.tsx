@@ -746,8 +746,10 @@ describe('MobileApp recovery wiring (mounted)', () => {
     reprobeHandler = async () => 'switched';
     await mountMobileApp();
 
+    // One run that may join the unauthenticated mount bootstrap, then one
+    // retry because the store still reports disconnected.
     expect(reprobeCalls).toBe(1);
-    expect(initCalls).toBe(unchangedInitCalls + 1);
+    expect(initCalls).toBe(unchangedInitCalls + 2);
   });
 
   test('cold launch with persisted endpoint + unreachable probe enters recovery, retains endpoint and drafts', async () => {
