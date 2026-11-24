@@ -331,8 +331,8 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
     }
 
     const blob = await response.blob();
-    // The Android app's WebView ignores anchor downloads; the helper opens the
-    // share sheet on native mobile and falls back to an anchor elsewhere.
+    // The Android app's WebView ignores anchor downloads; the helper saves to
+    // Downloads on Android, shares on iOS, and uses an anchor elsewhere.
     await saveOrShareFile({
       filename: target.split('/').pop() || 'file',
       mimeType: blob.type || undefined,

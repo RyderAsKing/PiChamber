@@ -1,16 +1,23 @@
 import { registerPlugin } from '@capacitor/core';
 import { getClientPlatform } from '@/lib/platform';
 
-export type NativeFileSaveResult = 'shared' | 'downloaded' | 'cancelled';
+export type NativeFileSaveResult = 'saved' | 'shared' | 'downloaded' | 'cancelled';
 
 export interface SaveOrShareFileOptions {
   filename: string;
   mimeType?: string;
   data: Blob | string;
+  /**
+   * `save` (default) is a download: on Android it writes to the Downloads
+   * folder. `share` opens the share sheet, for actions that hand the file to
+   * another app. Web, desktop and iOS behave the same for both.
+   */
+  intent?: 'save' | 'share';
 }
 
 interface PiChamberFilesPlugin {
   share(options: { filename: string; mimeType?: string; base64: string }): Promise<{ status?: string }>;
+  saveToDownloads(options: { filename: string; mimeType?: string; base64: string }): Promise<{ status?: string; filename?: string }>;
   setWebViewBackground(options: { color: string }): Promise<void>;
 }
 
@@ -24,6 +31,9 @@ export function isShareCancelledError(error: unknown): boolean {
       error.message.toLowerCase().includes('cancel'))
   );
 }
+
+const isUnsupportedError = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'UNSUPPORTED';
 
 const blobToBase64 = async (blob: Blob): Promise<string> => {
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -90,12 +100,23 @@ export async function saveOrShareFile({
   filename,
   mimeType,
   data,
+  intent = 'save',
 }: SaveOrShareFileOptions): Promise<NativeFileSaveResult> {
   const platform = getClientPlatform();
 
-  // Capacitor Android: native share sheet via local PiChamberFiles plugin
+  // Capacitor Android: the WebView ignores anchor downloads, so the local
+  // PiChamberFiles plugin saves to Downloads or opens the share sheet.
   if (platform === 'android') {
     const base64 = await dataToBase64(data, mimeType);
+    if (intent === 'save') {
+      try {
+        await PiChamberFiles.saveToDownloads({ filename, mimeType, base64 });
+        return 'saved';
+      } catch (error) {
+        // Android 9 and older have no MediaStore Downloads; share instead.
+        if (!isUnsupportedError(error)) throw error;
+      }
+    }
     await PiChamberFiles.share({
       filename,
       mimeType,
