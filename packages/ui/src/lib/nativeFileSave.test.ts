@@ -231,7 +231,7 @@ describe('nativeFileSave', () => {
     expect(navShareInvoked).toBe(1);
   });
 
-  test('iOS path falls back to anchor download when share() is not allowed', async () => {
+  test('iOS path reports a failure when share() is not allowed instead of a download that WKWebView drops', async () => {
     mockPlatform = 'ios';
     (globalThis as Record<string, unknown>).navigator = {
       canShare: () => true,
@@ -244,15 +244,12 @@ describe('nativeFileSave', () => {
 
     const { saveOrShareFile } = await import('./nativeFileSave');
 
-    const result = await saveOrShareFile({
+    await expect(saveOrShareFile({
       filename: 'late.pdf',
       mimeType: 'application/pdf',
       data: new Blob(['%PDF'], { type: 'application/pdf' }),
-    });
-
-    expect(result).toBe('downloaded');
-    expect(createdAnchors.length).toBe(1);
-    expect(createdAnchors[0].download).toBe('late.pdf');
+    })).rejects.toThrow('not allowed');
+    expect(createdAnchors.length).toBe(0);
   });
 
   test('anchor download revokes its object URL after the click, not during it', async () => {

@@ -85,8 +85,6 @@ const triggerAnchorDownload = (filename: string, data: Blob | string, mimeType?:
   }
 };
 
-const isNotAllowedError = (error: unknown): boolean =>
-  error instanceof Error && error.name === 'NotAllowedError';
 
 export async function saveOrShareFile({
   filename,
@@ -118,11 +116,9 @@ export async function saveOrShareFile({
           if (isShareCancelledError(error)) {
             return 'cancelled';
           }
-          // share() needs a recent tap; a slow fetch before it can use that
-          // up, so fall through to the anchor download instead of failing.
-          if (!isNotAllowedError(error)) {
-            throw error;
-          }
+          // No anchor fallback here (e.g. NotAllowedError after a slow fetch):
+          // WKWebView drops blob downloads, so the caller must see a failure.
+          throw error;
         }
       }
     }
