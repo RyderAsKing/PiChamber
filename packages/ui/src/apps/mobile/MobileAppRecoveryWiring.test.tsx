@@ -17,6 +17,9 @@ let reprobeCalls = 0;
 let reprobeHandler: () => Promise<'switched' | 'unchanged' | 'unreachable' | 'needs-login' | 'no-connection'> =
   async () => 'unchanged';
 
+let restoreCredentialCalls = 0;
+let restoreCredentialGate: Promise<void> = Promise.resolve();
+
 let autoConnectCalls = 0;
 let autoConnectHandler: () => Promise<{ status: 'connected' | 'needs-login' | 'unreachable' | 'no-candidate'; label?: string }> =
   async () => ({ status: 'no-candidate' });
@@ -242,6 +245,10 @@ mock.module('@/apps/mobileConnections', () => ({
   reprobeActiveConnection: () => {
     reprobeCalls += 1;
     return reprobeHandler();
+  },
+  restoreColdLaunchCredential: () => {
+    restoreCredentialCalls += 1;
+    return restoreCredentialGate;
   },
 }));
 mock.module('@/lib/runtime-switch', () => ({
@@ -583,6 +590,8 @@ const resetControls = () => {
   endpointListener = null;
   reprobeCalls = 0;
   reprobeHandler = async () => 'unchanged';
+  restoreCredentialCalls = 0;
+  restoreCredentialGate = Promise.resolve();
   autoConnectCalls = 0;
   autoConnectHandler = async () => ({ status: 'no-candidate' as const });
   autoLabel = 'Device A';
@@ -698,6 +707,47 @@ describe('MobileApp recovery wiring (mounted)', () => {
     expect(shellMounts).toBe(1);
     expect(shellUnmounts).toBe(0);
     expect(welcomeMounts).toBe(0);
+  });
+
+  test('cold launch holds the bootstrap and classification probe until the saved token is restored', async () => {
+    const gate = deferred<void>();
+    restoreCredentialGate = gate.promise;
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    await mountMobileApp();
+
+    // Nothing may reach the server unauthenticated while the token is read.
+    expect(restoreCredentialCalls).toBeGreaterThan(0);
+    expect(initCalls).toBe(0);
+    expect(reprobeCalls).toBe(0);
+
+    await act(async () => {
+      gate.resolve();
+    });
+    await flush();
+
+    expect(initCalls).toBeGreaterThan(0);
+    expect(reprobeCalls).toBe(1);
+  });
+
+  test('a cold launch probe that had to apply the token itself re-runs a bootstrap that gave up', async () => {
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    // Baseline: the same launch whose probe found the token already in place.
+    reprobeHandler = async () => 'unchanged';
+    const baseline = await mountMobileApp();
+    const unchangedInitCalls = initCalls;
+    await act(async () => baseline.root.unmount());
+    roots.splice(roots.indexOf(baseline.root), 1);
+    restores.pop()?.();
+    initCalls = 0;
+    reprobeCalls = 0;
+
+    reprobeHandler = async () => 'switched';
+    await mountMobileApp();
+
+    expect(reprobeCalls).toBe(1);
+    expect(initCalls).toBe(unchangedInitCalls + 1);
   });
 
   test('cold launch with persisted endpoint + unreachable probe enters recovery, retains endpoint and drafts', async () => {

@@ -53,6 +53,7 @@ import {
   refreshActiveConnectionCandidates,
   reprobeActiveConnection,
   requestWithTimeout,
+  restoreColdLaunchCredential,
   switchToTransport,
   validateActiveRuntimeSession,
   validateMobileConnectionSession,
@@ -77,6 +78,7 @@ export {
   isActiveRuntimeConnection,
   reprobeActiveConnection,
   refreshActiveConnectionCandidates,
+  restoreColdLaunchCredential,
 };
 
 export type {

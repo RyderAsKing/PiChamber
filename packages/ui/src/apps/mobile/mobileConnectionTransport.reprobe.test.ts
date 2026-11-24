@@ -113,6 +113,7 @@ mock.module('@/lib/mobile-error-log', () => ({
 
 const transport = await import('./mobileConnectionTransport');
 const storage = await import('./mobileConnectionStorage');
+const runtimeAuth = await import('@/lib/runtime-auth');
 
 const STORAGE_KEY = 'pichamber.mobile.connections.v1';
 
@@ -177,6 +178,7 @@ beforeEach(() => {
   tunnelFetchHandler = null;
   adoptedTunnels = [];
   windowHandle = installWindow();
+  runtimeAuth.setRuntimeBearerToken(null);
   transport.__resetMobileProbeStateForTests();
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -581,6 +583,74 @@ describe('reprobe restores the saved credential on a cold launch', () => {
       expect(switchCalls).toEqual([
         { apiBaseUrl: url, clientToken: 'qr-token', runtimeKey: key },
       ]);
+    } finally {
+      restoreAfterEach();
+    }
+  });
+
+  test('a disconnect during validation cancels the token switch', async () => {
+    const sessionGate = deferred<Response | null>();
+    try {
+      const { url } = await seedSingleDirect();
+      fetchHandler = async (requested) => {
+        if (requested === `${url}/health`) return okHealth();
+        if (requested === `${url}/auth/session`) return sessionGate.promise;
+        return null;
+      };
+
+      const pending = transport.reprobeActiveConnection();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      runtimeGeneration += 1;
+      runtimeKey = 'mobile-disconnected';
+      apiBaseUrl = '';
+      sessionGate.resolve(okSession());
+
+      expect(await pending).toBe('no-connection');
+      expect(switchCalls).toHaveLength(0);
+    } finally {
+      restoreAfterEach();
+    }
+  });
+
+  test('restoreColdLaunchCredential applies the token before any bootstrap', async () => {
+    try {
+      await seedSingleDirect();
+
+      await transport.restoreColdLaunchCredential();
+
+      // The bearer is back without an endpoint switch (no re-bootstrap
+      // event), so the reprobe that follows finds nothing to fix.
+      expect(runtimeAuth.getRuntimeBearerTokenSync()).toBe('qr-token');
+      expect(switchCalls).toHaveLength(0);
+      expect(await transport.reprobeActiveConnection()).toBe('unchanged');
+      expect(switchCalls).toHaveLength(0);
+    } finally {
+      restoreAfterEach();
+    }
+  });
+
+  test('restoreColdLaunchCredential never replaces a credential already in use', async () => {
+    try {
+      await seedSingleDirect();
+      runtimeAuth.setRuntimeBearerToken('fresh-token');
+
+      await transport.restoreColdLaunchCredential();
+
+      expect(runtimeAuth.getRuntimeBearerTokenSync()).toBe('fresh-token');
+    } finally {
+      restoreAfterEach();
+    }
+  });
+
+  test('restoreColdLaunchCredential does nothing without a persisted endpoint', async () => {
+    try {
+      await seedSingleDirect();
+      runtimeKey = '';
+      apiBaseUrl = '';
+
+      await transport.restoreColdLaunchCredential();
+
+      expect(runtimeAuth.getRuntimeBearerTokenSync()).toBe('');
     } finally {
       restoreAfterEach();
     }

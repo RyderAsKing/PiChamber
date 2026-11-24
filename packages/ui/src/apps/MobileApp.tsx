@@ -37,7 +37,7 @@ import { SyncAppEffects } from './AppEffects';
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { MobileConnectionWelcome, type MobileConnectionNotice } from './MobileConnectionWelcome';
 import { MobileShell } from './MobileShell';
-import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection, type AutoConnectOutcome } from './mobileConnections';
+import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection, restoreColdLaunchCredential, type AutoConnectOutcome } from './mobileConnections';
 import { MobileConnectionRecovery, isHiddenNow, isOfflineNow } from './mobile/mobileConnectionRecovery';
 import { setMobileConnectionUncertain, useMobileConnectionUncertain } from './mobile/mobileRecoveryStatus';
 import { MobileConnectionRecoveryBanner } from './mobile/MobileConnectionRecoveryBanner';
@@ -127,9 +127,12 @@ export function MobileApp({ apis }: MobileAppProps) {
           setRecoveryPhase('idle');
           setRecoveryAttempt(0);
           setMobileConnectionUncertain(false);
-          if (outcome === 'unchanged') {
+          if (outcome === 'unchanged' || outcome === 'switched') {
             // Same server, connection back: pick up shared settings changed
-            // by other clients while this one was unreachable.
+            // by other clients while this one was unreachable. A 'switched'
+            // outcome only rebinds live sync (same runtime key), and may be
+            // the probe applying a token a cold launch could not restore, so
+            // it needs the same refresh.
             void refreshDesktopSettings();
             void useConfigStore.getState().initializeApp();
             const snapshot = useConfigStore.getState();
@@ -294,8 +297,9 @@ export function MobileApp({ apis }: MobileAppProps) {
     // Re-probe the active device's transports on resume: the network may have
     // changed while the app slept, so hot-switch LAN⇄relay if a better transport
     // is now reachable — no re-pairing. A 'switched' outcome already fired the
-    // runtime-endpoint-changed subscription (which re-bootstraps the app), so we
-    // only refresh in place when the transport is 'unchanged'. The probe goes
+    // runtime-endpoint-changed subscription (a same-device swap rebinds the live
+    // sync in place), so we only refresh in place when the transport is
+    // 'unchanged'. The probe goes
     // through the controller's single-owner token: a duplicate resume/
     // startup/manual probe in flight returns null and commits nothing.
     const refreshInPlace = () => {
@@ -444,8 +448,16 @@ export function MobileApp({ apis }: MobileAppProps) {
     // Runtime settings must be reloaded after the new endpoint is
     // authenticated. If the switch requires login, this component unmounts
     // while the auth gate is pending and avoids an avoidable 401 burst.
-    void syncDesktopSettings();
-  }, [runtimeEndpointEpoch]);
+    // On a cold launch, wait for the saved token to be restored first.
+    let cancelled = false;
+    const ready = isNativeMobileApp ? restoreColdLaunchCredential() : Promise.resolve();
+    void ready.then(() => {
+      if (!cancelled) void syncDesktopSettings();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isNativeMobileApp, runtimeEndpointEpoch]);
 
   // On cold launch, silently reconnect to the most-recent saved instance so a
   // returning user — and notification deep-links — land in the app instead of the
@@ -509,10 +521,23 @@ export function MobileApp({ apis }: MobileAppProps) {
     }
     void (async () => {
       try {
+        // Restore the saved token first so the probe sees the runtime the
+        // bootstrap will use.
+        await restoreColdLaunchCredential();
+        if (cancelled) return;
         const outcome = await recovery.probeOnce();
         if (cancelled || outcome === null) return;
         // A genuinely live connection established itself while we probed.
-        if (outcome === 'switched' || outcome === 'unchanged') return;
+        if (outcome === 'unchanged') return;
+        if (outcome === 'switched') {
+          // Same-key switches only rebind live sync. If the probe had to apply
+          // the token itself, the mount bootstrap may already have given up.
+          if (!useConfigStore.getState().isConnected) {
+            void refreshDesktopSettings();
+            void initializeApp();
+          }
+          return;
+        }
         const label = getAutoConnectTargetLabel();
         if (outcome === 'needs-login') {
           dropToConnectScreen({ kind: 'auth-expired', label: label ?? '' });
@@ -564,7 +589,20 @@ export function MobileApp({ apis }: MobileAppProps) {
     // "succeeds" against a fake backend and flips isConnected back on, leaving
     // the user in an empty shell after a disconnect.
     if (isNativeMobileApp && !getRuntimeApiBaseUrl()) return;
-    void initializeApp();
+    if (!isNativeMobileApp) {
+      void initializeApp();
+      return;
+    }
+    // A cold launch restores the endpoint synchronously but the saved token
+    // only after a secure read; bootstrapping before it lands sends every
+    // request unauthenticated. Later epochs resolve at once.
+    let cancelled = false;
+    void restoreColdLaunchCredential().then(() => {
+      if (!cancelled && getRuntimeApiBaseUrl()) void initializeApp();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [connectionEpoch, initializeApp, isNativeMobileApp]);
 
   React.useEffect(() => {
