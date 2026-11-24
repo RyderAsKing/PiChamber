@@ -349,11 +349,21 @@ const isWebSocketUpgrade = (req) => {
   return String(upgradeValue || '').toLowerCase() === 'websocket';
 };
 
-const isUrlAuthReadableHttpPath = (pathname) => pathname === '/api/pi/events';
+const EVENT_STREAM_PATH = '/api/pi/events';
+
+// The Files viewer hands this to <img>/<iframe> for images and PDFs; a
+// bearer-only client such as the mobile app has no session cookie to fall
+// back on, so it takes the short-lived URL token. `/api/fs/serve/*` stays off
+// the list: it renders workspace HTML with scripts, which could read the
+// token from its own URL and use it elsewhere.
+const isUrlAuthFileAssetPath = (pathname) => pathname === '/api/fs/raw';
+
+const isUrlAuthReadableHttpPath = (pathname) => pathname === EVENT_STREAM_PATH
+  || isUrlAuthFileAssetPath(pathname);
 
 const isEventStreamRequest = (req) => {
   const method = typeof req?.method === 'string' ? req.method.toUpperCase() : 'GET';
-  return method === 'GET' && isUrlAuthReadableHttpPath(getRequestPathname(req));
+  return method === 'GET' && getRequestPathname(req) === EVENT_STREAM_PATH;
 };
 
 const URL_AUTH_WEBSOCKET_PATHS = new Set([

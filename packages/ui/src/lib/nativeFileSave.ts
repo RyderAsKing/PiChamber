@@ -79,9 +79,12 @@ const triggerAnchorDownload = (filename: string, data: Blob | string, mimeType?:
   document.body.removeChild(link);
 
   if (!isDataUrl) {
-    URL.revokeObjectURL(url);
+    // Some browsers start the download after click() returns; revoking at once
+    // can cancel it.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 };
+
 
 export async function saveOrShareFile({
   filename,
@@ -113,6 +116,8 @@ export async function saveOrShareFile({
           if (isShareCancelledError(error)) {
             return 'cancelled';
           }
+          // No anchor fallback here (e.g. NotAllowedError after a slow fetch):
+          // WKWebView drops blob downloads, so the caller must see a failure.
           throw error;
         }
       }

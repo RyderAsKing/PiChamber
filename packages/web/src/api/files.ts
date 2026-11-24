@@ -9,6 +9,7 @@ import {
   FilesystemError,
   parseFilesystemErrorReason,
 } from '@pichamber/ui/lib/api/files-errors';
+import { saveOrShareFile } from '@pichamber/ui/lib/nativeFileSave';
 import { runtimeFetch } from '@pichamber/ui/lib/runtime-fetch';
 
 const normalizePath = (path: string): string => path.replace(/\\/g, '/');
@@ -330,13 +331,12 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
     }
 
     const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = target.split('/').pop() || 'file';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 100);
+    // The Android app's WebView ignores anchor downloads; the helper opens the
+    // share sheet on native mobile and falls back to an anchor elsewhere.
+    await saveOrShareFile({
+      filename: target.split('/').pop() || 'file',
+      mimeType: blob.type || undefined,
+      data: blob,
+    });
   },
 });

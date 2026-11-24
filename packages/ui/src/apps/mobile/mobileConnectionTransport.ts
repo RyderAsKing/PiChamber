@@ -1,6 +1,7 @@
 import { isCapacitorApp } from '@/lib/platform';
 import { adoptRelayTunnel, isRelayModeActive } from '@/lib/relay/runtime-tunnel';
 import { createRelayTunnelClient } from '@/lib/relay/tunnel-client';
+import { getRuntimeBearerTokenSync, setRuntimeBearerToken } from '@/lib/runtime-auth';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
   getRuntimeApiBaseUrl,
@@ -962,6 +963,19 @@ const runReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
     );
     if (isStale()) return 'no-connection';
     if (stillValid) {
+      // A cold launch restores the persisted endpoint but not the bearer,
+      // which lives only in memory. `restoreColdLaunchCredential` normally
+      // applies it before the first bootstrap; if that secure read failed,
+      // the probe above just proved the saved token works here, so apply it
+      // now; without it every runtime request 401s unless a session cookie
+      // happens to cover for it (password logins).
+      const current = active.candidates[currentIndex];
+      if (current?.kind === 'direct' && getRuntimeBearerTokenSync() !== token.trim()) {
+        switchToTransport({ kind: 'direct', url: selection.apiBaseUrl }, token, {
+          runtimeKey: secureTokenKeyOf(active),
+        });
+        return 'switched';
+      }
       scheduleCandidateRefresh();
       return 'unchanged';
     }
@@ -1118,10 +1132,50 @@ export const scheduleCandidateRefresh = (): void => {
   }, CANDIDATE_REFRESH_DELAY_MS);
 };
 
+let coldLaunchCredential: Promise<void> | null = null;
+
+/**
+ * Cold launch: put the saved client token back before anything bootstraps.
+ * `runtime-switch` persists the last endpoint and runtime key but never the
+ * token, so without this the first bootstrap, settings sync, and event stream
+ * go out unauthenticated. A password-login device hides that behind its
+ * session cookie; a QR-paired device has only the token. Runs once per app
+ * launch and never throws: failures leave the runtime as it was, and the
+ * cold-launch reprobe classifies them (and applies the token itself if the
+ * secure read succeeds later).
+ */
+export const restoreColdLaunchCredential = (): Promise<void> => {
+  coldLaunchCredential ??= (async () => {
+    if (!getRuntimeApiBaseUrl() || getRuntimeBearerTokenSync()) return;
+    const active = findActiveConnection();
+    if (!active) return;
+    const selection = captureReprobeSelection(active);
+    let token: string | undefined;
+    if (isCapacitorApp()) {
+      if (!active.hasToken) return;
+      const readResult = await readSecureToken(secureTokenKeyOf(active));
+      if (readResult.status !== 'present') return;
+      token = readResult.token;
+    } else {
+      token = active.clientToken;
+    }
+    if (!token?.trim()) return;
+    // An explicit switch or disconnect while the read was pending already
+    // carries its own credential; never overwrite it with this one.
+    if (isReprobeSelectionStale(selection) || getRuntimeBearerTokenSync()) return;
+    setRuntimeBearerToken(token);
+    logConnect('cold-launch:credential-restored');
+  })().catch((error: unknown) => {
+    console.warn('[mobile-connect] cold-launch credential restore failed', error);
+  });
+  return coldLaunchCredential;
+};
+
 /** Test-only reset for the core single-flight state (per-file isolation). */
 export const __resetMobileProbeStateForTests = (): void => {
   reprobeInFlight = null;
   reprobeInFlightKey = '';
   candidateRefreshInFlight = false;
+  coldLaunchCredential = null;
   __resetMobileTokenCacheForTests();
 };

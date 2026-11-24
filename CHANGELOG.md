@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.8-rc.5] - 2026-11-25
+
+The fifth 1.0.8 candidate fixes two mobile app bugs: a QR-paired app that could not reach its server after a restart, and Files panel downloads and previews on Android.
+
+- **The mobile app stays signed in after a restart (#268).** An app paired by QR code showed "Unable to reach server" after it was closed and reopened, until the server was picked again. The saved server came back without its token, so every request went out unauthenticated. The app now restores the token before it loads anything, and if that fails, the startup check applies it and loads again. Apps that signed in with a password were not affected, because their session cookie still worked.
+- **Files panel downloads and previews work in the mobile app (#269).** Images and PDFs in the Files panel came back 401 in a QR-paired app, because the short-lived link token they load with was no longer accepted for files. `/api/fs/raw` takes it again, for GET only; SVG files from that route run sandboxed so they cannot read the token. Download now saves through the share sheet on Android and iOS instead of a browser download the app ignored, and a PDF on Android shows the Save file card, since the Android WebView cannot show one inline. HTML previews in the Files panel still do not load in the app.
+
 ## [1.0.8-rc.4] - 2026-11-22
 
 The fourth 1.0.8 candidate gives extension authors one API on `globalThis.pichamber`, puts extension statuses right above the composer, and has the composer follow an extension's mode switch.

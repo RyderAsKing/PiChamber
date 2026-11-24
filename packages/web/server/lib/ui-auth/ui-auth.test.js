@@ -226,6 +226,28 @@ describe('ui auth client credential seam', () => {
     expect(arbitraryGetCalled).toBe(false);
     expect(arbitraryGetRes.statusCode).toBe(401);
 
+    // The Files viewer hands raw-file URLs to <img>/<iframe>, which cannot
+    // send the bearer header (the mobile app has no session cookie either).
+    const assetReq = { method: 'GET', path: '/api/fs/raw', url: `/api/fs/raw?path=%2Ftmp%2Freport.pdf&oc_url_token=${encodeURIComponent(urlToken)}`, headers: {} };
+    const assetRes = createResponse();
+    let assetCalled = false;
+    await auth.requireAuth(assetReq, assetRes, () => {
+      assetCalled = true;
+    });
+    expect(assetCalled).toBe(true);
+
+    // Served HTML runs scripts that could read the token from their own URL.
+    for (const path of ['/api/fs/serve/tmp/site/index.html', '/api/fs/raw-other']) {
+      const deniedReq = { method: 'GET', path, url: `${path}?oc_url_token=${encodeURIComponent(urlToken)}`, headers: {} };
+      const deniedRes = createResponse();
+      let deniedCalled = false;
+      await auth.requireAuth(deniedReq, deniedRes, () => {
+        deniedCalled = true;
+      });
+      expect(deniedCalled).toBe(false);
+      expect(deniedRes.statusCode).toBe(401);
+    }
+
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
       const writeReq = { method, path: '/api/fs/raw', url: `/api/fs/raw?path=%2Ftmp%2Fimage.png&oc_url_token=${encodeURIComponent(urlToken)}`, headers: { accept: 'application/json' } };
       const writeRes = createResponse();
@@ -527,6 +549,37 @@ describe('ui auth live revocation', () => {
     await auth.requireAuth(eventStreamReq({ cookie: sessionCookie }), createResponse(), () => {});
     expect(seen).toHaveLength(1);
     expect(seen[0].generation).toBe(7);
+    auth.dispose();
+  });
+
+  it('does not track Files viewer raw-file reads as live connections', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    let tracked = 0;
+    const liveRevocation = {
+      getGeneration: () => 1,
+      trackLiveConnection: () => {
+        tracked += 1;
+        return { end: () => {}, revoke: () => false, active: true };
+      },
+    };
+    const auth = createUiAuth({
+      password: 'secret',
+      clientAuthController: { authenticateBearerToken: async () => null },
+      liveRevocation,
+    });
+    const loginRes = createResponse();
+    await auth.handleSessionCreate({ method: 'POST', headers: {}, body: { password: 'secret' } }, loginRes);
+    const sessionCookie = String(loginRes.getHeader('set-cookie') || '').split(';', 1)[0];
+    let called = false;
+    await auth.requireAuth(
+      { method: 'GET', path: '/api/fs/raw', url: '/api/fs/raw?path=%2Ftmp%2Freport.pdf', headers: { cookie: sessionCookie } },
+      createResponse(),
+      () => { called = true; },
+    );
+    expect(called).toBe(true);
+    expect(tracked).toBe(0);
+    await auth.requireAuth(eventStreamReq({ cookie: sessionCookie }), createResponse(), () => {});
+    expect(tracked).toBe(1);
     auth.dispose();
   });
 

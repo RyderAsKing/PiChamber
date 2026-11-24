@@ -142,6 +142,7 @@ mock.module('@/apps/mobileConnections', () => ({
   autoConnectLastInstance: () => Promise.resolve({ status: 'no-candidate' as const }),
   getAutoConnectTargetLabel: () => null,
   reprobeActiveConnection: () => Promise.resolve('unchanged' as const),
+  restoreColdLaunchCredential: () => Promise.resolve(),
 }));
 mock.module('@/lib/runtime-switch', () => ({
   getActiveRelayTunnel: () => null,
