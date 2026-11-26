@@ -438,6 +438,10 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
     // Display name a paired device shows for THIS server (issuing machine's
     // hostname), distinct from the per-device pairing label typed by the operator.
     getServerLabel = () => 'PiChamber',
+    // Operator-configured public URL (PICHAMBER_PUBLIC_URL / serve
+    // --public-url): the address a reverse proxy publishes this server at.
+    // Advertised ahead of every other direct URL. Null when unset.
+    getPublicUrl = () => null,
   } = dependencies;
   const PAIRING_REDEEM_RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
   const PAIRING_REDEEM_RATE_LIMIT_MAX_ATTEMPTS = 10;
@@ -558,7 +562,14 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
       ? req.headers['x-forwarded-proto'].split(',')[0].trim()
       : '';
     const protocol = forwardedProto || (req.socket?.encrypted ? 'https' : 'http');
-    const host = typeof req.headers?.host === 'string' ? req.headers.host.trim() : '';
+    // A reverse proxy that rewrites Host to its upstream (nginx without
+    // `proxy_set_header Host $host`) still reports the public host, with any
+    // non-default port, in X-Forwarded-Host. `trust proxy` is on, as for
+    // X-Forwarded-Proto above.
+    const forwardedHost = typeof req.headers?.['x-forwarded-host'] === 'string'
+      ? req.headers['x-forwarded-host'].split(',')[0].trim()
+      : '';
+    const host = forwardedHost || (typeof req.headers?.host === 'string' ? req.headers.host.trim() : '');
     if (!host) return null;
     return `${protocol}://${host}`;
   };
@@ -617,42 +628,87 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
     }
   };
 
-  // `preferredServerUrl` is the caller-supplied externally reachable URL (the
-  // desktop UI reaches its own server over loopback, so the request origin is not
-  // scannable — it passes the LAN URL instead). Falls back to the request origin
-  // for remote callers where the Host header IS the reachable address.
+  const directCandidateType = (url) => (url.startsWith('https://') ? 'tunnel' : 'lan');
+
+  const isLoopbackOrigin = (origin) => {
+    try {
+      const hostname = new URL(origin).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+      return hostname === 'localhost'
+        || hostname.endsWith('.localhost')
+        || /^127\.\d+\.\d+\.\d+$/.test(hostname)
+        || hostname === '::1'
+        || hostname === '::ffff:7f00:1'
+        || hostname === '0.0.0.0'
+        || hostname === '::';
+    } catch {
+      return true;
+    }
+  };
+
+  // The address this request reached the server at, when other devices can
+  // use it too: a reverse-proxy host or a LAN address. Loopback origins are
+  // excluded: the desktop shell and relay-tunnelled requests reach the server
+  // over loopback, and that address means the phone itself.
+  const reachableRequestOrigin = (req) => {
+    const normalized = normalizeCandidateUrl(requestOrigin(req));
+    if (!normalized) return null;
+    const origin = new URL(normalized).origin;
+    return isLoopbackOrigin(origin) ? null : origin;
+  };
+
+  const configuredPublicUrl = () => {
+    try {
+      return normalizeCandidateUrl(getPublicUrl());
+    } catch {
+      return null;
+    }
+  };
+
+  // Direct candidates, in the order a device should try them:
+  //   1. the configured public URL;
+  //   2. the address this request reached the server at, when not loopback
+  //      (a UI opened through a reverse proxy pairs through that proxy);
+  //   3. `preferredServerUrl`, the caller-supplied LAN URL (the desktop UI
+  //      reaches its own server over loopback, so it passes the LAN URL);
+  //   4. only when none of those exist, the request origin as before.
+  // A live Tailscale mapping is advertised as a `tailscale` candidate between
+  // the direct and relay candidates (priority 20): clients redeem over it
+  // like any direct URL. Old clients drop the unknown type and use the rest.
+  // A direct URL equal to the Tailscale URL is dropped in favour of it while
+  // another direct URL remains.
   //
   // `includeRelay` is the per-link transport choice from the create-link dialog:
   //   true  → add the relay candidate, enabling the relay host on demand;
   //   false → direct only, never relay;
   //   undefined → legacy: advertise relay only if it is already enabled.
   // `includeDirect === false` produces a relay-only link (no direct candidate).
-  // A live Tailscale mapping is advertised as a `tailscale` candidate between
-  // the direct and relay candidates (priority 20): clients redeem over it
-  // like any direct URL. Old clients drop the unknown type and use the rest.
   const pairingServerCandidates = async (req, { preferredServerUrl, includeRelay, includeDirect = true } = {}) => {
     const candidates = [];
     if (includeDirect) {
-      const direct = normalizeCandidateUrl(preferredServerUrl) || requestOrigin(req);
-      if (direct) {
-        let type = 'lan';
-        try {
-          const parsed = new URL(direct);
-          type = parsed.protocol === 'https:' ? 'tunnel' : 'lan';
-        } catch {
-        }
-        candidates.push({ type, url: direct, priority: 10 });
-      }
-    }
-    if (includeDirect) {
+      let tailscaleCandidate = null;
       try {
-        const tailscaleCandidate = getTailscalePairingCandidate();
-        if (tailscaleCandidate && typeof tailscaleCandidate.url === 'string') {
-          candidates.push(tailscaleCandidate);
-        }
+        const candidate = getTailscalePairingCandidate();
+        if (candidate && typeof candidate.url === 'string') tailscaleCandidate = candidate;
       } catch {
         // A Tailscale status failure must not break direct pairing.
       }
+      const tailscaleUrl = tailscaleCandidate ? normalizeCandidateUrl(tailscaleCandidate.url) : null;
+      const directUrls = [];
+      const addDirect = (url) => {
+        if (url && !directUrls.includes(url)) directUrls.push(url);
+      };
+      addDirect(configuredPublicUrl());
+      addDirect(reachableRequestOrigin(req));
+      addDirect(normalizeCandidateUrl(preferredServerUrl));
+      if (directUrls.length === 0) addDirect(normalizeCandidateUrl(requestOrigin(req)));
+      // Leave a URL equal to the Tailscale URL to the `tailscale` candidate,
+      // unless it is the only direct URL: clients older than that type drop
+      // it and would be left with no direct route.
+      const otherDirectUrls = directUrls.filter((url) => url !== tailscaleUrl);
+      for (const url of (otherDirectUrls.length > 0 ? otherDirectUrls : directUrls)) {
+        candidates.push({ type: directCandidateType(url), url, priority: 10 });
+      }
+      if (tailscaleCandidate) candidates.push(tailscaleCandidate);
     }
     // The client races candidates and falls back to relay only if the direct URL
     // is unreachable (relay carries a higher priority number).
@@ -923,6 +979,10 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   app.get('/api/client-auth/connection/candidates', async (req, res, next) => {
     await runWithClientManagementAuth(req, res, next, async () => {
       const candidates = [];
+      // The configured public URL leads, so a device behind a reverse proxy
+      // keeps it instead of learning only interface addresses.
+      const publicUrl = configuredPublicUrl();
+      if (publicUrl) candidates.push({ type: directCandidateType(publicUrl), url: publicUrl, priority: 10 });
       const directUrls = (() => {
         try {
           const urls = getDirectCandidateUrls(req);
@@ -933,7 +993,7 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
       })();
       for (const url of directUrls) {
         const normalized = normalizeCandidateUrl(url);
-        if (normalized) candidates.push({ type: 'lan', url: normalized, priority: 10 });
+        if (normalized && normalized !== publicUrl) candidates.push({ type: 'lan', url: normalized, priority: 10 });
       }
       try {
         const tailscaleCandidate = getTailscalePairingCandidate();
@@ -965,7 +1025,14 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   app.get('/api/client-auth/pairing/transports', async (req, res, next) => {
     await runWithPairingCreateAuth(req, res, next, async () => {
       res.setHeader('Cache-Control', 'no-store');
-      res.json(getPairingTransports(req));
+      // `publicUrl`: the configured public URL. `requestUrl`: the
+      // non-loopback address this request arrived at, which pairing links
+      // also lead with; the dialog counts either as a reachable route.
+      res.json({
+        ...getPairingTransports(req),
+        publicUrl: configuredPublicUrl(),
+        requestUrl: reachableRequestOrigin(req),
+      });
     });
   });
 

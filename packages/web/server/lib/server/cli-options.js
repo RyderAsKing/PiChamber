@@ -74,6 +74,13 @@ export const parseServeCliOptions = ({
       continue;
     }
 
+    if (optionName === 'public-url') {
+      const { value, nextIndex } = consumeValue(i, inlineValue);
+      i = nextIndex;
+      options.publicUrl = typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+      continue;
+    }
+
     if (optionName === 'api-only') {
       options.apiOnly = true;
       continue;
