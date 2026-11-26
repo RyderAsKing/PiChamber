@@ -1251,6 +1251,10 @@ export interface PairingTransports {
   lan: string | null;
   relayAvailable: boolean;
   tailscale?: { available: boolean; url: string | null; mode: 'private' | 'public' } | null;
+  /** Operator-configured public URL (PICHAMBER_PUBLIC_URL / serve --public-url). */
+  publicUrl?: string | null;
+  /** Non-loopback address this request reached the server at; pairing links lead with it. */
+  requestUrl?: string | null;
 }
 
 export interface RemoteClientRecord {

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.8-rc.7] - 2026-11-27
+
+The seventh 1.0.8 candidate lets phones pair with a server behind a reverse proxy, such as PiChamber in Docker behind a TLS proxy.
+
+- **Pair phones through a reverse proxy (#272).** Set `PICHAMBER_PUBLIC_URL` (or `pichamber serve --public-url`) to the address your proxy serves PiChamber at, such as `https://pichamber.example.com`. Pairing links and the Add a device QR code put it first, phones keep it when they refresh their saved addresses, and Settings → Remote access shows it as Public address. Before, a server in Docker advertised only its container address, which phones cannot reach, so pairing failed. Without the setting, a QR code made from a browser that opened PiChamber through the proxy now also leads with that address. Local network addresses stay after it as fallbacks. The value must be the site root. `serve`, `startup enable` and `restart` refuse one PiChamber cannot use, and `restart` checks it before stopping the server. The desktop app ignores a bad value with a warning (#271).
+
 ## [1.0.8-rc.6] - 2026-11-25
 
 The sixth 1.0.8 candidate fixes Android downloads, which crashed the app in rc.5, and saves them to the Downloads folder.

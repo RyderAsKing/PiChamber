@@ -165,6 +165,18 @@ Do not run `pichamber update` inside Docker. To build from a checkout instead of
 docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d
 ```
 
+## Pair phones through a reverse proxy
+
+Inside the container, PiChamber only knows its container address, such as `172.17.0.2`, which phones cannot reach. When a reverse proxy publishes PiChamber at its own address, pass that address in:
+
+```sh
+PICHAMBER_PUBLIC_URL=https://pichamber.example.com docker compose up -d
+```
+
+**Add a device** then puts that address first in the QR code, and Settings → Remote access shows it under **Public address**. Paired phones keep it when they refresh their saved addresses. The value must be the site root (`https://host` or `https://host:port`, no path).
+
+Without the setting, PiChamber leads the QR code with the address your browser opened. That works when the proxy passes the original host (in `Host` or `X-Forwarded-Host`) and sets `X-Forwarded-Proto`. If it doesn't, the code gets the wrong host or `http://`, so set `PICHAMBER_PUBLIC_URL`.
+
 ## Run more than one container
 
 Give each Compose project its own host port and data directory:

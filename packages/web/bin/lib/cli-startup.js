@@ -212,6 +212,9 @@ function buildStartupArgs(options = {}) {
   if (options.apiOnly === true) {
     args.push('--api-only');
   }
+  if (typeof options.publicUrl === 'string' && options.publicUrl.length > 0) {
+    args.push('--public-url', options.publicUrl);
+  }
   return args;
 }
 
@@ -224,6 +227,9 @@ function formatStartupServeCommand(options = {}) {
   }
   if (options.apiOnly === true) {
     parts.push('--api-only');
+  }
+  if (typeof options.publicUrl === 'string' && options.publicUrl.length > 0) {
+    parts.push('--public-url', options.publicUrl);
   }
   if (options.explicitUiPassword === true || hasUiPasswordConfigured(options.uiPassword)) {
     parts.push('--ui-password');

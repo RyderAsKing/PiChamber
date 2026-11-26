@@ -177,6 +177,32 @@ clients ignore it and use the rest. `GET
 /api/client-auth/pairing/transports` additionally reports
 `tailscale: { available, url, mode }` for the create-device dialog.
 
+Direct candidates (priority 10) in a pairing payload come in this order,
+each URL once:
+
+1. the configured public URL (`PICHAMBER_PUBLIC_URL` / `serve --public-url`,
+   parsed by `../server/public-url.js`);
+2. the origin the create request reached the server at (`X-Forwarded-Host`
+   when present, else `Host`, with `X-Forwarded-Proto`), unless its host is
+   loopback (the desktop shell, relay-tunnelled requests, and Tailscale's
+   local leg all arrive over loopback). A UI opened through a reverse proxy
+   therefore pairs through that proxy even though the dialog sends the LAN
+   URL as `serverUrl`;
+3. the caller's `serverUrl` (the dialog sends the server's LAN URL);
+4. only when none of those exist, the request origin, as before.
+
+A direct URL equal to the live Tailscale URL is left to the `tailscale`
+candidate while another direct URL remains; when it is the only one it stays,
+because clients older than the `tailscale` type drop that candidate. Within
+one priority the phone tries https before http, so an http public URL can
+follow an https request origin. An https direct URL is typed `tunnel`, an http one `lan`. The
+refresh endpoint lists the configured public URL first, then the interface
+LAN URLs; the mobile refresh learns `lan`, `tunnel`, and `tailscale` entries.
+`pairing/transports` also reports `publicUrl` (configured, or null) and
+`requestUrl` (the non-loopback request origin, or null); the dialog treats
+either as a reachable route, so a server bound to loopback behind a proxy
+still gets a QR code.
+
 ## Verification
 
 ```sh

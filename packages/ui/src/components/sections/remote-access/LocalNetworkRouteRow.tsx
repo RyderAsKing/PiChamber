@@ -1,11 +1,10 @@
 import * as React from 'react';
 
-import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
-import type { PairingTransports } from '@/lib/api/types';
 import type { DesktopLanAccessState } from './useDesktopLanAccessState';
 import { DesktopLanToggleFields } from './DesktopLanAccessSettings';
 import { RouteAddress, RouteRow, RouteStatusPill } from './RouteRow';
+import type { PairingTransportsState } from './usePairingTransportsState';
 
 /**
  * Local-network route row.
@@ -14,7 +13,10 @@ import { RouteAddress, RouteRow, RouteStatusPill } from './RouteRow';
  * same restart-required flow as before. Web: read-only status from the
  * pairing transports endpoint.
  */
-export const LocalNetworkRouteRow: React.FC<{ lan: DesktopLanAccessState }> = ({ lan }) => {
+export const LocalNetworkRouteRow: React.FC<{
+  lan: DesktopLanAccessState;
+  transportsState: PairingTransportsState;
+}> = ({ lan, transportsState }) => {
   const isDesktopLocal = isDesktopShell() && isDesktopLocalOriginActive();
 
   if (isDesktopLocal) {
@@ -37,38 +39,11 @@ export const LocalNetworkRouteRow: React.FC<{ lan: DesktopLanAccessState }> = ({
     );
   }
 
-  return <WebLocalNetworkRouteRow />;
+  return <WebLocalNetworkRouteRow state={transportsState} />;
 };
 
-const WebLocalNetworkRouteRow: React.FC = () => {
-  const { clientAuth } = useRuntimeAPIs();
-  const [transports, setTransports] = React.useState<PairingTransports | null>(null);
-  const [loading, setLoading] = React.useState(true);
-  const [failed, setFailed] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!clientAuth?.getPairingTransports) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const next = await clientAuth.getPairingTransports();
-        if (!cancelled) {
-          setTransports(next);
-          setFailed(false);
-        }
-      } catch {
-        if (!cancelled) setFailed(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [clientAuth]);
+const WebLocalNetworkRouteRow: React.FC<{ state: PairingTransportsState }> = ({ state }) => {
+  const { transports, loading, failed } = state;
 
   if (loading) {
     return (

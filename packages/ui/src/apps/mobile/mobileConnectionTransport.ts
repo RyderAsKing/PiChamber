@@ -1070,7 +1070,9 @@ export const refreshActiveConnectionCandidates =
         const record = entry as Record<string, unknown>;
         // Tailscale candidates are direct https URLs like LAN ones, but they
         // survive DHCP churn and NAT — learn them alongside LAN addresses.
-        if ((record.type !== 'lan' && record.type !== 'tailscale') || typeof record.url !== 'string') continue;
+        // `tunnel` is a configured https public URL (a reverse-proxy host);
+        // the server lists it first, so it leads the learned direct URLs.
+        if ((record.type !== 'lan' && record.type !== 'tunnel' && record.type !== 'tailscale') || typeof record.url !== 'string') continue;
         try {
           const url = normalizeConnectionUrl(record.url);
           const bucket = record.type === 'tailscale' ? tailscaleUrls : lanUrls;
@@ -1102,7 +1104,7 @@ export const refreshActiveConnectionCandidates =
         logConnect('candidates:refresh-skip', { reason: 'selection-changed' });
         return 'skipped';
       }
-      logConnect('candidates:refreshed', { lanCount: lanUrls.length });
+      logConnect('candidates:refreshed', { directCount: lanUrls.length });
       await upsertMobileConnection({
         id: active.id,
         label: active.label,

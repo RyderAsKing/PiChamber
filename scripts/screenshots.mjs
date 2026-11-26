@@ -321,6 +321,36 @@ const SHELVES_OPEN = `(() => {
     && document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[2].title)});
 })()`;
 
+// Remote access: settled once Ways to connect has read the server's routes.
+const REMOTE_ACCESS_SETTLED = `(() => {
+  const ways = document.querySelector('[data-settings-item="remote-access.ways"]');
+  return Boolean(ways) && !/Checking/.test(ways.innerText);
+})()`;
+
+// The Add a device dialog, opened once from the page header. Settled when it
+// shows a code with its route chips, or says why it cannot make one. The QR
+// and the link are blurred: they hold a live pairing secret.
+const ADD_DEVICE_SETTLED = `(() => {
+  // Settings is a dialog too; find the one titled Add a device.
+  const dialog = [...document.querySelectorAll('[role="dialog"]')]
+    .find((el) => el.querySelector('[data-slot="dialog-title"]')?.textContent.trim() === 'Add a device');
+  if (!dialog) {
+    if (!window.__addDeviceAsked) {
+      window.__addDeviceAsked = true;
+      [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Add a device')?.click();
+    }
+    return false;
+  }
+  if (dialog.innerText.includes('Creating secure code')) return false;
+  const qr = dialog.querySelector('img[alt="PiChamber connection QR code"]');
+  if (qr && !dialog.querySelector('[aria-label="Included routes"]')) return false;
+  if (qr) qr.style.filter = 'blur(14px)';
+  for (const el of dialog.querySelectorAll('*')) {
+    if (!el.children.length && el.textContent.trim().startsWith('pichamber://')) el.style.filter = 'blur(5px)';
+  }
+  return true;
+})()`;
+
 // The branch prefix: a middle-truncated label splits the full name across spans.
 const SIDEBAR_PROJECTS_TEXT = ['Acme Web', 'Chamber Mono', 'Dotfiles', 'Night Shift', 'feature/session-sidebar'];
 // Four seeded folders ship an icon; wait until each has loaded. A build
@@ -822,6 +852,23 @@ const PAGES = {
     path: '/?settings=snippets',
     readyText: ['ask-questions'],
     viewports: ['desktop'],
+  },
+  'remote-access': {
+    // Remote access at Ways to connect. With PICHAMBER_PUBLIC_URL set on the
+    // dev server, a Public address row leads it.
+    path: '/?settings=remote-access',
+    readyText: ['Ways to connect'],
+    // A phone-size web page has no Remote access page to open.
+    viewports: ['desktop'],
+    settledScript: REMOTE_ACCESS_SETTLED,
+  },
+  'add-device': {
+    // The Add a device dialog with its QR code and the chips naming the
+    // addresses the code carries, or why it cannot make one.
+    path: '/?settings=remote-access',
+    readyText: ['Ways to connect'],
+    viewports: ['desktop'],
+    settledScript: ADD_DEVICE_SETTLED,
   },
   'settings-projects': {
     // Project rows with icons, paths, and actions.
