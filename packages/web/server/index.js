@@ -150,9 +150,10 @@ export async function startWebUiServer(options = {}) {
   // keep the app from opening.
   const publicUrl = (() => {
     try {
-      return typeof options.publicUrl === 'string' && options.publicUrl.trim()
-        ? parsePublicUrl(options.publicUrl, { source: '--public-url' })
-        : parsePublicUrl(process.env.PICHAMBER_PUBLIC_URL);
+      if (typeof options.publicUrl !== 'string') return parsePublicUrl(process.env.PICHAMBER_PUBLIC_URL);
+      const flagValue = parsePublicUrl(options.publicUrl, { source: '--public-url' });
+      if (!flagValue) throw new PublicUrlError('--public-url needs a value, such as https://pichamber.example.com.');
+      return flagValue;
     } catch (error) {
       if (process.env.PICHAMBER_RUNTIME === 'desktop' && error instanceof PublicUrlError) {
         console.warn(`[public-url] ${error.message} Ignored in the desktop app.`);

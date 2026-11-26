@@ -26,10 +26,30 @@ export const buildAddDeviceSessionInput = (transports: {
   includeDirect: true,
 });
 
+/** True for an http(s) URL another device could reach: not loopback or unspecified. */
+const isReachableUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  } catch {
+    return false;
+  }
+  return !(
+    hostname === 'localhost'
+    || hostname.endsWith('.localhost')
+    || /^127\.\d+\.\d+\.\d+$/.test(hostname)
+    || hostname === '::1'
+    || hostname === '0.0.0.0'
+    || hostname === '::'
+  );
+};
+
 /**
- * No public URL, no non-loopback page address, no LAN, no Tailscale, no relay:
+ * No reachable public URL or page address, no LAN, no Tailscale, no relay:
  * a QR would encode only loopback, which no other device can reach. Show the
  * "can't reach this computer yet" callout instead of a QR that can't work.
+ * A public URL set to a loopback address does not count.
  */
 export const isLoopbackOnlyTransports = (transports: {
   local: string | null;
@@ -39,8 +59,8 @@ export const isLoopbackOnlyTransports = (transports: {
   publicUrl?: string | null;
   requestUrl?: string | null;
 }): boolean =>
-  !transports.publicUrl
-  && !transports.requestUrl
+  !isReachableUrl(transports.publicUrl)
+  && !isReachableUrl(transports.requestUrl)
   && !transports.lan
   && !(transports.tailscale?.available && transports.tailscale.url)
   && !transports.relayAvailable;

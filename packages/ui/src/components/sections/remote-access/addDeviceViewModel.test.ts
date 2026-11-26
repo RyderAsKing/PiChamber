@@ -42,6 +42,13 @@ describe('loopback-only callout', () => {
     })).toBe(false);
   });
 
+  test('a loopback public URL does not count as reachable', () => {
+    for (const url of ['http://127.0.0.1:3000', 'http://localhost:3000', 'http://[::1]:3000', 'http://0.0.0.0:3000']) {
+      expect(isLoopbackOnlyTransports({ ...base, publicUrl: url })).toBe(true);
+      expect(isLoopbackOnlyTransports({ ...base, requestUrl: url })).toBe(true);
+    }
+  });
+
   test('an inactive tailscale entry does not clear the callout', () => {
     expect(isLoopbackOnlyTransports({
       ...base,

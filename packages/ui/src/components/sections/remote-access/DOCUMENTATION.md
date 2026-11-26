@@ -46,7 +46,8 @@
 - `requiresPublicConfirm(current, target)`: Public needs confirmation when
   switching on from Off/Private.
 - `addDeviceViewModel`: single-session input, loopback-only detection
-  (`publicUrl` and `requestUrl` count as reachable), route chips (the
+  (`publicUrl` and `requestUrl` count as reachable unless their host is
+  loopback or unspecified), route chips (the
   configured public URL, else an https direct candidate, is
   `Public address · host`; other http ones are `Local network · host`), countdown formatting/announcement, phase
   derivation.

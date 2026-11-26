@@ -1,6 +1,7 @@
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { requestServerShutdown } from './cli-http.js';
 import { isPortAvailable } from './cli-ports.js';
+import { resolvePublicUrlOption } from './cli-network.js';
 import {
   discoverLifecycleInstances,
   discoverUnconfirmedRegistryInstanceOnPort,
@@ -330,6 +331,13 @@ async function restartCommand(options, serveCommand) {
       const isForeground = launchMode === 'foreground';
 
       const restartPort = options.explicitPort ? options.port : instance.port;
+      // Resolve the public URL before stopping: an invalid
+      // PICHAMBER_PUBLIC_URL must fail here, not after the server is down.
+      // Foreground instances come back through their process manager with
+      // its own environment.
+      const restartPublicUrl = isForeground
+        ? null
+        : (options.publicUrl || storedOptions.publicUrl || resolvePublicUrlOption({}, process.env));
 
       const restartSpin = showOutput ? createSpinner(options) : null;
       if (showOutput && !restartSpin) {
@@ -366,9 +374,7 @@ async function restartCommand(options, serveCommand) {
           explicitPort: true,
           uiPassword: options.explicitUiPassword ? options.uiPassword : (storedOptions.uiPassword || options.uiPassword),
           apiOnly: storedOptions.apiOnly === true || options.apiOnly === true,
-          ...(typeof (options.publicUrl || storedOptions.publicUrl) === 'string'
-            ? { publicUrl: options.publicUrl || storedOptions.publicUrl }
-            : {}),
+          ...(restartPublicUrl ? { publicUrl: restartPublicUrl } : {}),
           suppressStartupSummary: true,
           quiet: true,
           suppressUiPasswordWarning: true,

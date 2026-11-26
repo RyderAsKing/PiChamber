@@ -1478,4 +1478,53 @@ describe('lifecycle commands with unmanaged explicit ports', () => {
       }
     });
   });
+
+  const withRestartPublicUrlEnv = async (value, run) => {
+    const previous = process.env.PICHAMBER_PUBLIC_URL;
+    process.env.PICHAMBER_PUBLIC_URL = value;
+    try {
+      await run();
+    } finally {
+      if (typeof previous === 'string') process.env.PICHAMBER_PUBLIC_URL = previous;
+      else delete process.env.PICHAMBER_PUBLIC_URL;
+    }
+  };
+
+  it('restart rejects an unusable PICHAMBER_PUBLIC_URL before stopping the server', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const server = await startMockPiChamberServer();
+      const calls = [];
+      try {
+        await withRestartPublicUrlEnv('https://example.com/pichamber', async () => {
+          const error = await commands.restart.call({
+            stop: async () => { calls.push('stop'); },
+            serve: async (options) => { calls.push('serve'); return options.port; },
+          }, { explicitPort: true, port: server.port, host: '127.0.0.1', json: true }).catch((caught) => caught);
+          expect(error).toBeInstanceOf(TunnelCliError);
+          expect(error.exitCode).toBe(EXIT_CODE.USAGE_ERROR);
+        });
+        expect(calls).toEqual([]);
+      } finally {
+        await server.close();
+      }
+    });
+  });
+
+  it('restart passes PICHAMBER_PUBLIC_URL to the new server when none is stored', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const server = await startMockPiChamberServer();
+      const served = [];
+      try {
+        await withRestartPublicUrlEnv('https://pichamber.example.com/', async () => {
+          await captureStdout(() => commands.restart.call({
+            stop: async () => {},
+            serve: async (options) => { served.push(options.publicUrl); return options.port; },
+          }, { explicitPort: true, port: server.port, host: '127.0.0.1', json: true }));
+        });
+        expect(served).toEqual(['https://pichamber.example.com']);
+      } finally {
+        await server.close();
+      }
+    });
+  });
 });
