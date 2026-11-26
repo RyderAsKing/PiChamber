@@ -60,6 +60,7 @@ function writeInstanceOptions(instanceFilePath, options, onNotice) {
       uiPassword: typeof options.uiPassword === 'string' ? options.uiPassword : undefined,
       hasUiPassword: typeof options.uiPassword === 'string',
       apiOnly: options.apiOnly === true,
+      ...(typeof options.publicUrl === 'string' && options.publicUrl.length > 0 ? { publicUrl: options.publicUrl } : {}),
       ...(typeof options.profileKey === 'string' && options.profileKey.length > 0 ? { profileKey: options.profileKey } : {}),
       startedAt: Number.isFinite(options.startedAt) ? options.startedAt : Date.now(),
     };

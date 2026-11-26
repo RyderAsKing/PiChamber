@@ -11,6 +11,7 @@ import { isModuleCliExecution, normalizeCliEntryPath } from './cli-entry.js';
 import { requestJson } from './lib/cli-http.js';
 import { writeTunnelProfilesToDisk } from './lib/cli-tunnel-profiles.js';
 import { inspectTunnelAttachability } from './lib/cli-lifecycle.js';
+import { EXIT_CODE, TunnelCliError } from './lib/cli-errors.js';
 import { resolveTargetPort } from './lib/cli-api-target.js';
 import { DEFAULT_TUNNEL_PROVIDER_CAPABILITIES } from './lib/cli-tunnel-capabilities.js';
 import {
@@ -255,6 +256,26 @@ describe('cli args', () => {
     expect(parsed.command).toBe('connect-url');
     expect(parsed.options.server).toBe('https://pichamber.example.com');
     expect(parsed.options.port).toBe(3002);
+  });
+
+  it('parses --public-url to its origin and rejects unusable values as usage errors', () => {
+    expect(parseArgs(['serve', '--public-url', 'https://pichamber.example.com/']).options.publicUrl)
+      .toBe('https://pichamber.example.com');
+    expect(parseArgs(['serve', '--public-url=http://box.lan:8080']).options.publicUrl).toBe('http://box.lan:8080');
+    for (const argv of [
+      ['serve', '--public-url'],
+      ['serve', '--public-url', 'https://example.com/pichamber'],
+      ['serve', '--public-url', 'ftp://example.com'],
+    ]) {
+      let error = null;
+      try {
+        parseArgs(argv);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toBeInstanceOf(TunnelCliError);
+      expect(error.exitCode).toBe(EXIT_CODE.USAGE_ERROR);
+    }
   });
 
   it('parses connect-url server-url alias', () => {
@@ -534,6 +555,29 @@ describe('startup enable command helper', () => {
     expect(hasExplicitStartupConfiguration({ lan: true })).toBe(true);
     expect(hasExplicitStartupConfiguration({ explicitUiPassword: true })).toBe(true);
     expect(hasExplicitStartupConfiguration({ port: 3000 })).toBe(false);
+  });
+
+  it('rejects an unusable PICHAMBER_PUBLIC_URL in startup enable before writing anything', async () => {
+    const { startupCommand } = await import('./lib/commands-startup.js');
+    const previous = process.env.PICHAMBER_PUBLIC_URL;
+    process.env.PICHAMBER_PUBLIC_URL = 'https://example.com/pichamber';
+    try {
+      for (const mode of [{ json: true }, { quiet: true }]) {
+        const error = await startupCommand({ port: 3000, explicitPort: true, ...mode }, 'enable').then(() => null, (caught) => caught);
+        expect(error).toBeInstanceOf(TunnelCliError);
+        expect(error.exitCode).toBe(EXIT_CODE.USAGE_ERROR);
+        expect(error.message).toContain('PICHAMBER_PUBLIC_URL');
+      }
+    } finally {
+      if (typeof previous === 'string') process.env.PICHAMBER_PUBLIC_URL = previous;
+      else delete process.env.PICHAMBER_PUBLIC_URL;
+    }
+  });
+
+  it('stores --public-url in the startup serve command', async () => {
+    const { formatStartupServeCommand } = await import('./lib/cli-startup.js');
+    expect(formatStartupServeCommand({ port: 8080, publicUrl: 'https://pichamber.example.com' }))
+      .toBe('pichamber serve --foreground --port 8080 --public-url https://pichamber.example.com');
   });
 
   it('formats stored serve flags for a local port', async () => {
@@ -1429,6 +1473,55 @@ describe('lifecycle commands with unmanaged explicit ports', () => {
         expect(payload.results).toEqual([
           expect.objectContaining({ fromPort: server.port, toPort: server.port, ok: true }),
         ]);
+      } finally {
+        await server.close();
+      }
+    });
+  });
+
+  const withRestartPublicUrlEnv = async (value, run) => {
+    const previous = process.env.PICHAMBER_PUBLIC_URL;
+    process.env.PICHAMBER_PUBLIC_URL = value;
+    try {
+      await run();
+    } finally {
+      if (typeof previous === 'string') process.env.PICHAMBER_PUBLIC_URL = previous;
+      else delete process.env.PICHAMBER_PUBLIC_URL;
+    }
+  };
+
+  it('restart rejects an unusable PICHAMBER_PUBLIC_URL before stopping the server', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const server = await startMockPiChamberServer();
+      const calls = [];
+      try {
+        await withRestartPublicUrlEnv('https://example.com/pichamber', async () => {
+          const error = await commands.restart.call({
+            stop: async () => { calls.push('stop'); },
+            serve: async (options) => { calls.push('serve'); return options.port; },
+          }, { explicitPort: true, port: server.port, host: '127.0.0.1', json: true }).catch((caught) => caught);
+          expect(error).toBeInstanceOf(TunnelCliError);
+          expect(error.exitCode).toBe(EXIT_CODE.USAGE_ERROR);
+        });
+        expect(calls).toEqual([]);
+      } finally {
+        await server.close();
+      }
+    });
+  });
+
+  it('restart passes PICHAMBER_PUBLIC_URL to the new server when none is stored', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const server = await startMockPiChamberServer();
+      const served = [];
+      try {
+        await withRestartPublicUrlEnv('https://pichamber.example.com/', async () => {
+          await captureStdout(() => commands.restart.call({
+            stop: async () => {},
+            serve: async (options) => { served.push(options.publicUrl); return options.port; },
+          }, { explicitPort: true, port: server.port, host: '127.0.0.1', json: true }));
+        });
+        expect(served).toEqual(['https://pichamber.example.com']);
       } finally {
         await server.close();
       }

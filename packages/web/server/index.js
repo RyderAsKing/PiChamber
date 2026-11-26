@@ -44,6 +44,7 @@ import {
 import { applyUiCorsHeaders } from './lib/server/cors.js';
 import { createRequestSecurityRuntime } from './lib/security/request-security.js';
 import { createPairingTransportResolvers } from './lib/server/lan-addresses.js';
+import { parsePublicUrl, PublicUrlError } from './lib/server/public-url.js';
 import { parseServeCliOptions } from './lib/server/cli-options.js';
 import { runCliEntryIfMain } from './lib/server/cli-entry-runtime.js';
 import {
@@ -142,6 +143,25 @@ export async function startWebUiServer(options = {}) {
     throw new Error(getUnauthenticatedLanErrorMessage(host));
   }
   const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY);
+  // Throws on a set-but-invalid value so a typo stops startup instead of
+  // pairing devices against interface addresses again.
+  // The desktop app starts this server in-process: an unusable value
+  // inherited from the shell is ignored with a warning there, so it cannot
+  // keep the app from opening.
+  const publicUrl = (() => {
+    try {
+      if (typeof options.publicUrl !== 'string') return parsePublicUrl(process.env.PICHAMBER_PUBLIC_URL);
+      const flagValue = parsePublicUrl(options.publicUrl, { source: '--public-url' });
+      if (!flagValue) throw new PublicUrlError('--public-url needs a value, such as https://pichamber.example.com.');
+      return flagValue;
+    } catch (error) {
+      if (process.env.PICHAMBER_RUNTIME === 'desktop' && error instanceof PublicUrlError) {
+        console.warn(`[public-url] ${error.message} Ignored in the desktop app.`);
+        return null;
+      }
+      throw error;
+    }
+  })();
   const app = express();
   const server = http.createServer(app);
   // The port the server is listening on, or null before it binds.
@@ -266,6 +286,7 @@ export async function startWebUiServer(options = {}) {
     getTailscalePairingCandidate: () => tailscaleService.getPairingCandidate(),
     getServerId: serverIdResolver.getServerId,
     getServerLabel: () => os.hostname() || 'PiChamber',
+    getPublicUrl: () => publicUrl,
   });
   // Plugins: the server owns manifests and state and pushes the enabled set
   // to every daemon (lib/plugins/DOCUMENTATION.md). A health probe runs the
@@ -468,6 +489,7 @@ export async function startWebUiServer(options = {}) {
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { void controller.stop({ exitProcess: options.exitOnShutdown === true }); });
   }
   console.log(`PiChamber listening on http://${host}:${controller.getPort()}`);
+  if (publicUrl) console.log(`Public URL for pairing: ${publicUrl}`);
   return controller;
 }
 

@@ -1,6 +1,6 @@
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { getStartupStatus, enableStartupService, disableStartupService, formatStartupServeCommand, getStartupServicePaths } from './cli-startup.js';
-import { hasUiPasswordConfigured } from './cli-network.js';
+import { hasUiPasswordConfigured, resolvePublicUrlOption } from './cli-network.js';
 import {
   intro as clackIntro,
   outro as clackOutro,
@@ -31,7 +31,8 @@ function hasExplicitStartupConfiguration(options) {
     || options.lan === true
     || typeof options.host === 'string'
     || options.explicitUiPassword === true
-    || options.apiOnly === true;
+    || options.apiOnly === true
+    || typeof options.publicUrl === 'string';
 }
 
 async function collectInteractiveStartupOptions(options, prompts = promptApi) {
@@ -155,9 +156,15 @@ async function startupCommand(options, action = 'status') {
   }
 
   let resolvedOptions = options;
+  if (normalized === 'enable') {
+    // Validate before anything is written, and pin an env-only value as
+    // --public-url so the service keeps it even with --no-env-snapshot.
+    const publicUrl = resolvePublicUrlOption(options);
+    if (publicUrl) resolvedOptions = { ...options, publicUrl };
+  }
   if (normalized === 'enable' && canPrompt(options) && !hasExplicitStartupConfiguration(options)) {
     clackIntro('PiChamber Startup Setup');
-    resolvedOptions = await collectInteractiveStartupOptions(options);
+    resolvedOptions = await collectInteractiveStartupOptions(resolvedOptions);
     if (!resolvedOptions) return;
   }
 

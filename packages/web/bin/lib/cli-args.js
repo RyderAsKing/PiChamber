@@ -1,4 +1,5 @@
 import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
+import { parsePublicUrl, PublicUrlError } from '../../server/lib/server/public-url.js';
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_TAIL_LINES = 200;
@@ -185,6 +186,20 @@ function parseArgs(argv = process.argv.slice(2)) {
       case 'lan':
         options.lan = true;
         break;
+      case 'public-url': {
+        const { value, nextIndex } = consumeValue(i, inlineValue);
+        i = nextIndex;
+        if (typeof value !== 'string' || value.trim().length === 0) {
+          throw new TunnelCliError('Missing value for --public-url.', EXIT_CODE.USAGE_ERROR);
+        }
+        try {
+          options.publicUrl = parsePublicUrl(value, { source: '--public-url' });
+        } catch (error) {
+          if (error instanceof PublicUrlError) throw new TunnelCliError(error.message, EXIT_CODE.USAGE_ERROR);
+          throw error;
+        }
+        break;
+      }
       case 'ui-password': {
         const { value, nextIndex } = consumeValue(i, inlineValue);
         i = nextIndex;
@@ -560,6 +575,7 @@ OPTIONS:
   --hostname              Alias for --host outside tunnel commands
   --lan                   Bind to 0.0.0.0 for LAN access
   --server <url>          Public/server URL for pairing links
+  --public-url <url>      Address a reverse proxy serves PiChamber at; devices pair through it first
   --relay                 pair: also include the end-to-end-encrypted relay transport (requires PICHAMBER_RELAY_URL)
   --tailscale             pair/serve: enable Tailscale remote access (tailnet-only serve)
   --public                With --tailscale: public internet via Funnel instead of tailnet-only
@@ -577,6 +593,7 @@ ENVIRONMENT:
   PICHAMBER_HOST               Bind address (e.g. 0.0.0.0 for all interfaces)
   PICHAMBER_UI_PASSWORD        Alternative to --ui-password flag
   PICHAMBER_API_ONLY           Set to true/1 to start API routes only
+  PICHAMBER_PUBLIC_URL         Alternative to --public-url flag
   PICHAMBER_DATA_DIR           Override PiChamber data directory
 
   (Legacy PICHAMBER_* spellings are still honored.)
@@ -625,6 +642,7 @@ ENABLE FLAGS:
   --lan                   Same as --host 0.0.0.0 — reachable on your LAN/Wi-Fi
   --ui-password [secret]  Required with --lan (omit the value to generate one)
   --api-only              API routes only, no browser UI
+  --public-url <url>      Address a reverse proxy serves PiChamber at
   --no-env-snapshot       Do not copy the current shell environment
   --json                  Machine-readable JSON
   -q, --quiet             Suppress non-essential output
@@ -673,6 +691,9 @@ OPTIONS:
   --lan                   Bind to 0.0.0.0 for LAN access when starting
   --server <url>          Public URL saved into the connection link
   --server-url <url>      Alias for --server
+  --public-url <url>      Reverse-proxy address to put first in the link
+                          (default: the running server's --public-url, then
+                          PICHAMBER_PUBLIC_URL). Ignored with --server.
   --relay                 Also include the end-to-end-encrypted relay transport
                           so the link works away from the local network. The
                           device prefers the direct connection when reachable;
@@ -720,6 +741,9 @@ OPTIONS:
   --lan                   Bind to 0.0.0.0 for LAN access when starting
   --server <url>          Public URL saved into the connection link
   --server-url <url>      Alias for --server
+  --public-url <url>      Reverse-proxy address to put first in the link
+                          (default: the running server's --public-url, then
+                          PICHAMBER_PUBLIC_URL). Ignored with --server.
   --relay                 Also include the end-to-end-encrypted relay transport
                           so the link works away from the local network. The
                           device prefers the direct connection when reachable.
@@ -837,7 +861,7 @@ _pichamber_tunnel() {
   commands="serve stop restart status tunnel startup logs pair connect-url update version"
   tunnel_commands="help providers ready doctor status start stop profile completion"
   profile_commands="list show add remove"
-  common_flags="--port --host --lan --ui-password --api-only --foreground --no-daemon --json --all --help --version --plain --quiet --yes"
+  common_flags="--port --host --lan --public-url --ui-password --api-only --foreground --no-daemon --json --all --help --version --plain --quiet --yes"
   pair_flags="--server --server-url --relay --tailscale --public --https-port --name --qr --no-qr"
   start_flags="--provider --mode --profile --config --token --token-file --token-stdin --hostname --connect-ttl --session-ttl --qr --no-qr --dry-run --show-secrets"
   update_flags="--channel --yes"

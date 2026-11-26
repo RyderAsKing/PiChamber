@@ -177,6 +177,12 @@ desktop only); `settings-appearance` (a dense settings page, desktop only);
 `settings-projects` (project cards with their icons, desktop only);
 `settings-snippets` (the seeded snippet cards and the header's search,
 copy file path, and refresh actions, desktop only);
+`remote-access` (Remote access at Ways to connect; with
+`PICHAMBER_PUBLIC_URL` set on the dev server a Public address row leads it,
+desktop only, since a phone-size web page has no Remote access page);
+`add-device` (its Add a device dialog: the QR code, blurred with its link
+because they hold a live pairing secret, and the chips naming the addresses
+the code carries, or why it cannot make a code, desktop only);
 `settings-archive` (Sessions settings at Archive and delete, desktop only);
 `settings-sidebar-view` (Appearance at Sidebar view with Legacy views open,
 desktop only); `command-palette` (opened with Ctrl+P, desktop only);

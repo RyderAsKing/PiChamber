@@ -74,6 +74,15 @@ export const parseServeCliOptions = ({
       continue;
     }
 
+    if (optionName === 'public-url') {
+      const { value, nextIndex } = consumeValue(i, inlineValue);
+      i = nextIndex;
+      // Present with no value stays '' so startup rejects it rather than
+      // falling back to PICHAMBER_PUBLIC_URL.
+      options.publicUrl = typeof value === 'string' ? value.trim() : '';
+      continue;
+    }
+
     if (optionName === 'api-only') {
       options.apiOnly = true;
       continue;

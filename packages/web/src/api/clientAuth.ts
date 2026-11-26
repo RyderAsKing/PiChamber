@@ -93,6 +93,8 @@ export const createWebClientAuthAPI = (): ClientAuthAPI => ({
       lan: payload.lan ?? null,
       relayAvailable: payload.relayAvailable !== false,
       ...(tailscale ? { tailscale } : {}),
+      publicUrl: typeof payload.publicUrl === 'string' && payload.publicUrl ? payload.publicUrl : null,
+      requestUrl: typeof payload.requestUrl === 'string' && payload.requestUrl ? payload.requestUrl : null,
     };
   },
 

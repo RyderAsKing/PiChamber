@@ -16,8 +16,10 @@ import {
 } from './DesktopLanAccessSettings';
 import { useDesktopLanAccessState } from './useDesktopLanAccessState';
 import { LocalNetworkRouteRow } from './LocalNetworkRouteRow';
+import { PublicUrlRouteRow } from './PublicUrlRouteRow';
 import { TailscaleRouteRow } from './TailscaleRouteRow';
 import { useAddDeviceState } from './useAddDeviceState';
+import { usePairingTransportsState } from './usePairingTransportsState';
 import { useRemoteDevicesState } from './useRemoteDevicesState';
 import { fetchSessionStatus } from '@/components/auth/sessionAuthHelpers';
 
@@ -109,6 +111,7 @@ export const RemoteAccessPage: React.FC = () => {
   const lan = useDesktopLanAccessState();
   const devices = useRemoteDevicesState(clientAuth);
   const addDevice = useAddDeviceState(clientAuth, devices);
+  const transportsState = usePairingTransportsState(clientAuth);
 
   return (
     <SettingsPageLayout
@@ -129,7 +132,8 @@ export const RemoteAccessPage: React.FC = () => {
         settingsItem="remote-access.ways"
         contentClassName="space-y-6"
       >
-        <LocalNetworkRouteRow lan={lan} />
+        <PublicUrlRouteRow state={transportsState} />
+        <LocalNetworkRouteRow lan={lan} transportsState={transportsState} />
         <TailscaleRouteRow />
       </SettingsSection>
 

@@ -9,11 +9,13 @@ import {
   buildLocalUrl,
   detectLanIPv4Address,
   formatHostForUrl,
+  resolvePublicUrlOption,
 } from './cli-network.js';
 import { discoverRunningInstances } from './cli-lifecycle.js';
 import { requestJson } from './cli-http.js';
 import { getInstanceFilePath, readInstanceOptions } from './cli-process.js';
 import { resolvePiChamberDataDir } from '../../server/lib/pichamber-data-dir.js';
+import { parsePublicUrl } from '../../server/lib/server/public-url.js';
 import { createRemoteClientAuthRuntime } from '../../server/lib/client-auth/remote-clients.js';
 import { createClientPairingRuntime } from '../../server/lib/client-auth/pairing.js';
 import { createRelayIdentityRuntime } from '../../server/lib/relay/identity.js';
@@ -252,6 +254,17 @@ async function resolveConnectUrlServerUrl(options) {
   };
 }
 
+// The running instance's `serve --public-url`, from its instance file. A
+// missing or unreadable value means none; it was validated when written.
+async function readStoredPublicUrl(port) {
+  try {
+    const stored = readInstanceOptions(await getInstanceFilePath(port));
+    return parsePublicUrl(stored?.publicUrl, { source: 'stored --public-url' });
+  } catch {
+    return null;
+  }
+}
+
 function isWildcardBindHost(host) {
   return host === '0.0.0.0' || host === '::' || host === '[::]';
 }
@@ -303,6 +316,12 @@ function createConnectUrlCommand({ serveCommand }) {
     if (options.server && !explicitServerUrl) {
       throw new TunnelCliError('Invalid --server URL. Use an http:// or https:// URL.', EXIT_CODE.USAGE_ERROR);
     }
+    // --server replaces every direct address; otherwise the public URL
+    // (--public-url, then the running server's stored value, then
+    // PICHAMBER_PUBLIC_URL) leads the link, matching what `restart` keeps.
+    // An invalid env value fails here.
+    const requestedPublicUrl = explicitServerUrl ? null : resolvePublicUrlOption(options);
+    const explicitPublicUrl = typeof options.publicUrl === 'string' ? options.publicUrl : null;
 
     const running = await discoverRunningInstances();
     const serverState = running.some((entry) => entry.port === options.port)
@@ -313,6 +332,7 @@ function createConnectUrlCommand({ serveCommand }) {
             explicitPort: true,
             host: options.host,
             lan: options.lan,
+            ...(requestedPublicUrl ? { publicUrl: requestedPublicUrl } : {}),
             uiPassword: options.uiPassword,
             explicitUiPassword: options.explicitUiPassword === true,
             apiOnly: options.apiOnly,
@@ -331,6 +351,9 @@ function createConnectUrlCommand({ serveCommand }) {
       ? { serverUrl: explicitServerUrl, source: 'explicit' }
       : await resolveConnectUrlServerUrl(options);
     const serverUrl = resolvedServerUrl.serverUrl;
+    const publicUrl = explicitServerUrl
+      ? null
+      : (explicitPublicUrl || await readStoredPublicUrl(serverState.port) || requestedPublicUrl);
     const label = options.name || os.hostname();
 
     // Direct candidate for the reachable server URL, plus the relay transport as
@@ -339,7 +362,12 @@ function createConnectUrlCommand({ serveCommand }) {
     // prefer the direct route and try the relay last. `--relay` opts in when the
     // relay is enabled in settings; without a configured relay URL there is no
     // relay candidate.
-    const candidates = [{ type: serverUrl.startsWith('https://') ? 'tunnel' : 'lan', url: serverUrl, priority: 10 }];
+    // A public URL goes first; a loopback server URL is then dropped, since
+    // the public URL is the only address other devices can use.
+    const directUrls = publicUrl
+      ? [publicUrl, ...(serverUrl !== publicUrl && !isLoopbackServerUrl(serverUrl) ? [serverUrl] : [])]
+      : [serverUrl];
+    const candidates = directUrls.map((url) => ({ type: url.startsWith('https://') ? 'tunnel' : 'lan', url, priority: 10 }));
     const relay = await buildRelayPairingCandidate();
     if (options.relay && !relay.relayUrl) {
       throw new TunnelCliError(
@@ -368,6 +396,7 @@ function createConnectUrlCommand({ serveCommand }) {
     if (isJsonMode(options)) {
       printJson({
         serverUrl,
+        publicUrl,
         connectUrl,
         pairingId: pairing.id,
         fingerprint: pairing.fingerprint,
@@ -398,6 +427,9 @@ function createConnectUrlCommand({ serveCommand }) {
       logStatus('success', `started PiChamber on port ${options.port}`);
     }
     logStatus('success', connectUrl);
+    if (publicUrl) {
+      clackLog.info(`Public URL: ${publicUrl}`);
+    }
     clackLog.info(`Server URL: ${serverUrl}`);
     if (tailscale) {
       if (tailscale.state === 'active' && tailscale.url) {
@@ -421,7 +453,7 @@ function createConnectUrlCommand({ serveCommand }) {
       clackLog.info('Detected a LAN address because PiChamber is bound to all interfaces. Use --server to override it.');
     } else if (resolvedServerUrl.source === 'loopback-fallback') {
       clackLog.warn('PiChamber is bound to all interfaces, but no LAN address was detected. Use --server to provide a reachable URL.');
-    } else if (isLoopbackServerUrl(serverUrl)) {
+    } else if (!publicUrl && isLoopbackServerUrl(serverUrl)) {
       // The direct candidate points at this machine only — other devices cannot
       // use it. Say so instead of letting a "LAN" link silently not work (or a
       // --relay link silently go relay-only).
