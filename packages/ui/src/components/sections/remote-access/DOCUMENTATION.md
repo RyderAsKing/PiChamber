@@ -7,6 +7,12 @@
   passkeys, and the Add-a-device dialog.
 - `LocalNetworkRouteRow.tsx`: desktop LAN toggle (local origin) or web
   read-only LAN status from pairing transports.
+- `PublicUrlRouteRow.tsx`: read-only Public address row, shown only while
+  the server reports a configured `publicUrl` (any runtime).
+- `usePairingTransportsState.ts`: the page's single read of pairing
+  transports, shared by the Local network and Public address rows. It
+  clears to loading when `clientAuth` changes and to no transports on a
+  failed fetch, so another server's address never shows.
 - `TailscaleRouteRow.tsx` + `tailscaleViewModel.ts` +
   `useTailscaleAccessState.ts`: Tailscale Off/Private/Public row.
 - `DevicesSection.tsx` + `useRemoteDevicesState.ts`: paired devices and
@@ -39,8 +45,11 @@
   (`privateAllowed`/`publicAllowed`); missing gate allows both.
 - `requiresPublicConfirm(current, target)`: Public needs confirmation when
   switching on from Off/Private.
-- `addDeviceViewModel`: single-session input, loopback-only detection, route
-  chips, countdown formatting/announcement, phase derivation.
+- `addDeviceViewModel`: single-session input, loopback-only detection
+  (`publicUrl` and `requestUrl` count as reachable), route chips (the
+  configured public URL, else an https direct candidate, is
+  `Public address · host`; other http ones are `Local network · host`), countdown formatting/announcement, phase
+  derivation.
 
 ## Invariants
 

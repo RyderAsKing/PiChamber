@@ -34,6 +34,8 @@ describe('loopback-only callout', () => {
   test('any reachable route clears the callout', () => {
     expect(isLoopbackOnlyTransports({ ...base, lan: 'http://192.168.1.74:3000' })).toBe(false);
     expect(isLoopbackOnlyTransports({ ...base, relayAvailable: true })).toBe(false);
+    expect(isLoopbackOnlyTransports({ ...base, publicUrl: 'https://pichamber.example.com' })).toBe(false);
+    expect(isLoopbackOnlyTransports({ ...base, requestUrl: 'https://pichamber.example.com' })).toBe(false);
     expect(isLoopbackOnlyTransports({
       ...base,
       tailscale: { available: true, url: 'https://m.ts.net', mode: 'private' as const },
@@ -82,6 +84,42 @@ describe('included route chips', () => {
 
   test('no candidates means no chips', () => {
     expect(getIncludedRouteChips({ lanUrl: null, candidates: [] })).toEqual([]);
+  });
+
+  test('labels an https direct candidate as the public address, ahead of the LAN one', () => {
+    expect(getIncludedRouteChips({
+      lanUrl: 'http://172.17.0.2:3000',
+      candidates: [
+        { type: 'tunnel', url: 'https://pichamber.example.com', priority: 10 },
+        { type: 'lan', url: 'http://172.17.0.2:3000', priority: 10 },
+      ],
+    })).toEqual([
+      { key: 'public', label: 'Public address · pichamber.example.com' },
+      { key: 'lan', label: 'Local network · 172.17.0.2' },
+    ]);
+  });
+
+  test('labels an http public URL by the configured address, keeping the real LAN chip', () => {
+    expect(getIncludedRouteChips({
+      lanUrl: 'http://192.168.1.20:3000',
+      publicUrl: 'http://box.example.com:8080',
+      candidates: [
+        { type: 'lan', url: 'http://box.example.com:8080', priority: 10 },
+        { type: 'lan', url: 'http://192.168.1.20:3000', priority: 10 },
+      ],
+    })).toEqual([
+      { key: 'public', label: 'Public address · box.example.com' },
+      { key: 'lan', label: 'Local network · 192.168.1.20' },
+    ]);
+  });
+
+  test('does not invent a LAN chip from lanUrl when the link has only a public address', () => {
+    expect(getIncludedRouteChips({
+      lanUrl: 'http://172.17.0.2:3000',
+      candidates: [{ type: 'tunnel', url: 'https://pichamber.example.com', priority: 10 }],
+    })).toEqual([
+      { key: 'public', label: 'Public address · pichamber.example.com' },
+    ]);
   });
 });
 

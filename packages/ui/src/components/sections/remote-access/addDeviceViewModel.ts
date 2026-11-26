@@ -27,17 +27,21 @@ export const buildAddDeviceSessionInput = (transports: {
 });
 
 /**
- * No LAN, no Tailscale, no relay: a QR would encode only loopback, which no
- * other device can reach. Show the "can't reach this computer yet" callout
- * instead of a QR that can't work.
+ * No public URL, no non-loopback page address, no LAN, no Tailscale, no relay:
+ * a QR would encode only loopback, which no other device can reach. Show the
+ * "can't reach this computer yet" callout instead of a QR that can't work.
  */
 export const isLoopbackOnlyTransports = (transports: {
   local: string | null;
   lan: string | null;
   relayAvailable: boolean;
   tailscale?: { available: boolean; url: string | null; mode?: 'private' | 'public' } | null;
+  publicUrl?: string | null;
+  requestUrl?: string | null;
 }): boolean =>
-  !transports.lan
+  !transports.publicUrl
+  && !transports.requestUrl
+  && !transports.lan
   && !(transports.tailscale?.available && transports.tailscale.url)
   && !transports.relayAvailable;
 
@@ -46,29 +50,41 @@ export interface RouteChip {
   label: string;
 }
 
-/** Chips listing the routes included in the pairing payload. */
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+};
+
+/**
+ * Chips listing the routes included in the pairing payload. The configured
+ * public URL, or else an https direct candidate (`tunnel`, such as a
+ * reverse-proxy host), is the public address; other http direct candidates
+ * (`lan`) are local network addresses.
+ */
 export const getIncludedRouteChips = (input: {
   candidates: PairingEndpointCandidate[];
   lanUrl: string | null;
+  publicUrl?: string | null;
 }): RouteChip[] => {
   const chips: RouteChip[] = [];
-  const lanCandidate = input.candidates.find((candidate) => candidate.type === 'lan' || candidate.type === 'tunnel');
+  const isPublic = (candidate: PairingEndpointCandidate): boolean =>
+    'url' in candidate && Boolean(candidate.url) && (
+      input.publicUrl ? candidate.url === input.publicUrl : candidate.type === 'tunnel'
+    );
+  const publicCandidate = input.candidates.find((candidate) =>
+    (candidate.type === 'tunnel' || candidate.type === 'lan') && isPublic(candidate))
+    ?? input.candidates.find((candidate) => candidate.type === 'tunnel');
+  if (publicCandidate && 'url' in publicCandidate && publicCandidate.url) {
+    chips.push({ key: 'public', label: `Public address · ${hostOf(publicCandidate.url)}` });
+  }
+  const lanCandidate = input.candidates.find((candidate) => candidate.type === 'lan' && candidate !== publicCandidate);
   if (lanCandidate && 'url' in lanCandidate && lanCandidate.url) {
-    let host = lanCandidate.url;
-    try {
-      host = new URL(lanCandidate.url).hostname;
-    } catch {
-      // Keep the raw URL.
-    }
-    chips.push({ key: 'lan', label: `Local network · ${host}` });
-  } else if (input.lanUrl) {
-    let host = input.lanUrl;
-    try {
-      host = new URL(input.lanUrl).hostname;
-    } catch {
-      // Keep the raw URL.
-    }
-    chips.push({ key: 'lan', label: `Local network · ${host}` });
+    chips.push({ key: 'lan', label: `Local network · ${hostOf(lanCandidate.url)}` });
+  } else if (!publicCandidate && input.lanUrl) {
+    chips.push({ key: 'lan', label: `Local network · ${hostOf(input.lanUrl)}` });
   }
   const tailscaleCandidate = input.candidates.find((candidate) => candidate.type === 'tailscale');
   if (tailscaleCandidate && 'mode' in tailscaleCandidate) {

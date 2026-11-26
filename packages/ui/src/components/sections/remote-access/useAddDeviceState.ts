@@ -69,6 +69,7 @@ export const useAddDeviceState = (
   const [expiresAt, setExpiresAt] = React.useState<string | null>(null);
   const [candidates, setCandidates] = React.useState<PairingEndpointCandidate[]>([]);
   const [lanUrl, setLanUrl] = React.useState<string | null>(null);
+  const [publicUrl, setPublicUrl] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [nowMs, setNowMs] = React.useState(() => Date.now());
   const [succeeded, setSucceeded] = React.useState(false);
@@ -85,8 +86,8 @@ export const useAddDeviceState = (
   const countdownText = phase === 'ready' ? formatPairingCountdown(msRemaining) : null;
 
   const routeChips = React.useMemo(
-    () => getIncludedRouteChips({ candidates, lanUrl }),
-    [candidates, lanUrl],
+    () => getIncludedRouteChips({ candidates, lanUrl, publicUrl }),
+    [candidates, lanUrl, publicUrl],
   );
 
   // Live countdown tick while a code is showing.
@@ -128,6 +129,7 @@ export const useAddDeviceState = (
       const transports: PairingTransports = await clientAuth.getPairingTransports();
       if (createGenerationRef.current !== generation) return;
       setLanUrl(transports.lan);
+      setPublicUrl(transports.publicUrl ?? null);
       if (isLoopbackOnlyTransports(transports)) {
         setLoopbackOnly(true);
         return;
