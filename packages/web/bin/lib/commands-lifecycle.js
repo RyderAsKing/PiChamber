@@ -366,6 +366,9 @@ async function restartCommand(options, serveCommand) {
           explicitPort: true,
           uiPassword: options.explicitUiPassword ? options.uiPassword : (storedOptions.uiPassword || options.uiPassword),
           apiOnly: storedOptions.apiOnly === true || options.apiOnly === true,
+          ...(typeof (options.publicUrl || storedOptions.publicUrl) === 'string'
+            ? { publicUrl: options.publicUrl || storedOptions.publicUrl }
+            : {}),
           suppressStartupSummary: true,
           quiet: true,
           suppressUiPasswordWarning: true,

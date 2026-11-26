@@ -7,6 +7,7 @@ import {
   isNetworkExposedBindHost,
   isUnsafeUnauthenticatedLanAllowed,
 } from '../../server/lib/security/bind-host.js';
+import { parsePublicUrl, PublicUrlError } from '../../server/lib/server/public-url.js';
 
 // Browser-unsafe ports (Fetch/Chromium restricted ports).
 const UNSAFE_BROWSER_PORTS = new Set([
@@ -169,8 +170,22 @@ function assertAuthenticatedNetworkExposure({ host, uiPassword }) {
   throw new TunnelCliError(getUnauthenticatedLanErrorMessage(bindHost), EXIT_CODE.AUTH_CONFIG_ERROR);
 }
 
+// The public URL a reverse proxy serves PiChamber at: `--public-url` (already
+// validated by the argument parser), else PICHAMBER_PUBLIC_URL. A set but
+// invalid env value fails as a usage error in every output mode, before any
+// server starts.
+function resolvePublicUrlOption(options = {}, env = process.env) {
+  if (typeof options.publicUrl === 'string' && options.publicUrl.length > 0) return options.publicUrl;
+  try {
+    return parsePublicUrl(env.PICHAMBER_PUBLIC_URL);
+  } catch (error) {
+    if (error instanceof PublicUrlError) throw new TunnelCliError(error.message, EXIT_CODE.USAGE_ERROR);
+    throw error;
+  }
+}
 
 export {
+  resolvePublicUrlOption,
   resolveConfiguredBindHost,
   resolveServeHost,
   resolveApiHost,

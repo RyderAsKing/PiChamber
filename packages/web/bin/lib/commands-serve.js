@@ -2,7 +2,7 @@ import fs from 'fs';
 import { pathToFileURL } from 'url';
 import { spawn } from 'child_process';
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
-import { buildLocalUrl, resolveServeHost, assertSafeBrowserPort, hasUiPasswordConfigured, resolveServeUiPassword, assertAuthenticatedNetworkExposure } from './cli-network.js';
+import { buildLocalUrl, resolveServeHost, assertSafeBrowserPort, hasUiPasswordConfigured, resolveServeUiPassword, assertAuthenticatedNetworkExposure, resolvePublicUrlOption } from './cli-network.js';
 import { fetchSystemInfoFromPort } from './cli-http.js';
 import { isPortAvailable, resolveAvailablePort } from './cli-ports.js';
 import { ensureLogsDir, getLogFilePath } from './cli-paths.js';
@@ -41,6 +41,7 @@ function hasExplicitServeConfiguration(options) {
     || typeof options.host === 'string'
     || options.explicitUiPassword === true
     || options.apiOnly === true
+    || typeof options.publicUrl === 'string'
     || options.foreground === true;
 }
 
@@ -223,6 +224,7 @@ async function serveCommand(options) {
     };
     const explicitPort = options.explicitPort === true;
     const effectiveHost = resolveServeHost(options.host);
+    const effectivePublicUrl = resolvePublicUrlOption(options);
     const targetPort = await resolveAvailablePort(options.port, explicitPort, emitNotice);
 
     if (targetPort !== 0 && !options.suppressUnsafePortWarning) {
@@ -395,6 +397,7 @@ async function serveCommand(options) {
         host: effectiveHost,
         uiPassword: effectiveUiPassword,
         apiOnly: options.apiOnly === true,
+        ...(effectivePublicUrl ? { publicUrl: effectivePublicUrl } : {}),
         attachSignals: false,
         exitOnShutdown: false,
       });
@@ -415,6 +418,7 @@ async function serveCommand(options) {
         launchMode: 'foreground',
         uiPassword: effectiveUiPassword,
         apiOnly: options.apiOnly === true,
+        ...(effectivePublicUrl ? { publicUrl: effectivePublicUrl } : {}),
         ...(typeof resolvedProfileKey === 'string' && resolvedProfileKey.length > 0 ? { profileKey: resolvedProfileKey } : {}),
       }, emitNotice);
 
@@ -498,6 +502,7 @@ async function serveCommand(options) {
           ? { PICHAMBER_UI_PASSWORD: effectiveUiPassword }
           : {}),
         ...(options.apiOnly === true ? { PICHAMBER_API_ONLY: 'true' } : {}),
+        ...(effectivePublicUrl ? { PICHAMBER_PUBLIC_URL: effectivePublicUrl } : {}),
       },
     });
 
@@ -579,6 +584,7 @@ async function serveCommand(options) {
       launchMode: 'daemon',
       uiPassword: effectiveUiPassword,
       apiOnly: options.apiOnly === true,
+      ...(effectivePublicUrl ? { publicUrl: effectivePublicUrl } : {}),
       ...(resolvedProfileKey ? { profileKey: resolvedProfileKey } : {}),
     }, emitNotice);
 
